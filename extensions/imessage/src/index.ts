@@ -115,7 +115,7 @@ export function createIMessageExtension(config: IMessageConfig = {}): ClaudiaExt
 
       ctx?.log.info(`Read attachment: ${attachment.filename} (${mimeType}, ${bytes.byteLength} bytes)`);
 
-      // Images
+      // Images - send as visual content
       if (mimeType.startsWith('image/')) {
         return {
           type: 'image',
@@ -127,7 +127,7 @@ export function createIMessageExtension(config: IMessageConfig = {}): ClaudiaExt
         };
       }
 
-      // PDFs and text documents
+      // PDFs and text documents - send as document content
       if (mimeType === 'application/pdf' || mimeType.startsWith('text/')) {
         return {
           type: 'document',
@@ -139,7 +139,18 @@ export function createIMessageExtension(config: IMessageConfig = {}): ClaudiaExt
         };
       }
 
-      // Other file types - skip for now
+      // Audio files - return as text instruction to transcribe
+      // Common voice memo formats: m4a (iPhone), caf, mp3, wav, aac
+      if (mimeType.startsWith('audio/') ||
+          /\.(m4a|caf|mp3|wav|aac|ogg|flac)$/i.test(attachment.filename)) {
+        ctx?.log.info(`Audio attachment detected: ${filePath}`);
+        return {
+          type: 'text',
+          text: `[Voice message received: ${filePath}]\n\nPlease transcribe this audio file using: parakeet-mlx "${filePath}" --output-format txt --output-dir /tmp\nThen read the transcript and respond to what was said.`,
+        };
+      }
+
+      // Other file types - skip
       ctx?.log.info(`Skipping unsupported attachment type: ${mimeType}`);
       return null;
     } catch (err) {
