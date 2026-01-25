@@ -18,36 +18,32 @@ Use this skill when the user wants to:
 
 ## Prerequisites
 
-The Parakeet MLX CLI is installed at:
-```
-/Users/michael/Projects/oss/senstella/parakeet-mlx
-```
+The `parakeet-mlx` command is available in PATH via `~/.local/bin/parakeet-mlx`.
 
-Run it using: `uv run parakeet-mlx` from that directory, or:
 ```bash
-cd /Users/michael/Projects/oss/senstella/parakeet-mlx && uv run parakeet-mlx <audio_file> [options]
+parakeet-mlx <audio_file> [options]
 ```
 
 ## Basic Usage
 
 ```bash
 # Simple transcription (outputs .srt file)
-cd /Users/michael/Projects/oss/senstella/parakeet-mlx && uv run parakeet-mlx /path/to/audio.mp3
+parakeet-mlx /path/to/audio.mp3
 
 # Output as plain text
-cd /Users/michael/Projects/oss/senstella/parakeet-mlx && uv run parakeet-mlx /path/to/audio.mp3 --output-format txt
+parakeet-mlx /path/to/audio.mp3 --output-format txt
 
 # Output as JSON with timestamps
-cd /Users/michael/Projects/oss/senstella/parakeet-mlx && uv run parakeet-mlx /path/to/audio.mp3 --output-format json
+parakeet-mlx /path/to/audio.mp3 --output-format json
 
 # All formats (txt, srt, vtt, json)
-cd /Users/michael/Projects/oss/senstella/parakeet-mlx && uv run parakeet-mlx /path/to/audio.mp3 --output-format all
+parakeet-mlx /path/to/audio.mp3 --output-format all
 
 # With word-level timestamps in subtitles
-cd /Users/michael/Projects/oss/senstella/parakeet-mlx && uv run parakeet-mlx /path/to/audio.mp3 --output-format vtt --highlight-words
+parakeet-mlx /path/to/audio.mp3 --output-format vtt --highlight-words
 
 # Specify output directory
-cd /Users/michael/Projects/oss/senstella/parakeet-mlx && uv run parakeet-mlx /path/to/audio.mp3 --output-dir /path/to/output
+parakeet-mlx /path/to/audio.mp3 --output-dir /path/to/output
 ```
 
 ## Output Formats
@@ -78,17 +74,17 @@ Uses `mlx-community/parakeet-tdt-0.6b-v3` by default - a 600M parameter model th
 
 ### Transcribe a voice memo
 ```bash
-cd /Users/michael/Projects/oss/senstella/parakeet-mlx && uv run parakeet-mlx ~/Desktop/voice-memo.m4a --output-format txt
+parakeet-mlx ~/Desktop/voice-memo.m4a --output-format txt
 ```
 
 ### Generate subtitles for a video
 ```bash
-cd /Users/michael/Projects/oss/senstella/parakeet-mlx && uv run parakeet-mlx video.mp4 --output-format srt --highlight-words
+parakeet-mlx video.mp4 --output-format srt --highlight-words
 ```
 
 ### Transcribe multiple files
 ```bash
-cd /Users/michael/Projects/oss/senstella/parakeet-mlx && uv run parakeet-mlx file1.mp3 file2.mp3 file3.mp3 --output-format txt
+parakeet-mlx file1.mp3 file2.mp3 file3.mp3 --output-format txt
 ```
 
 ## Reading the Output

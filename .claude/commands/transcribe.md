@@ -9,9 +9,9 @@ Transcribe the audio file(s) specified by the user using Parakeet MLX - NVIDIA's
 ## Instructions
 
 1. **Identify the audio file(s)** from the user's request or `$ARGUMENTS`
-2. **Run the transcription** using:
+2. **Run the transcription**:
    ```bash
-   cd /Users/michael/Projects/oss/senstella/parakeet-mlx && uv run parakeet-mlx <audio_file> --output-format txt --output-dir /tmp
+   parakeet-mlx <audio_file> --output-format txt --output-dir /tmp
    ```
 3. **Read and display the transcript**:
    ```bash
@@ -34,7 +34,7 @@ Transcribe the audio file(s) specified by the user using Parakeet MLX - NVIDIA's
 
 User: "transcribe ~/Desktop/meeting.mp3"
 ```bash
-cd /Users/michael/Projects/oss/senstella/parakeet-mlx && uv run parakeet-mlx ~/Desktop/meeting.mp3 --output-format txt --output-dir /tmp
+parakeet-mlx ~/Desktop/meeting.mp3 --output-format txt --output-dir /tmp
 cat /tmp/meeting.txt
 ```
 
