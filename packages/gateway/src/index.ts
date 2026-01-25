@@ -36,6 +36,9 @@ let session: ClaudiaSession | null = null;
 // Track per-request voice preference
 let currentRequestWantsVoice = false;
 
+// Session config (can be set before first prompt)
+let pendingSessionConfig: { thinking?: boolean; thinkingBudget?: number } = {};
+
 // Extension manager
 const extensions = new ExtensionManager();
 
@@ -78,16 +81,22 @@ async function initSession(): Promise<ClaudiaSession> {
     console.log(`Resuming session: ${existingId}`);
     session = await resumeSession(existingId);
   } else {
-    console.log('Creating new session...');
+    // Use pending config if set, otherwise fall back to env vars
+    const thinking = pendingSessionConfig.thinking ?? (process.env.CLAUDIA_THINKING === 'true');
+    const thinkingBudget = pendingSessionConfig.thinkingBudget ??
+      (process.env.CLAUDIA_THINKING_BUDGET ? parseInt(process.env.CLAUDIA_THINKING_BUDGET) : undefined);
+
+    console.log(`Creating new session (thinking: ${thinking})...`);
     session = await createSession({
       systemPrompt: process.env.CLAUDIA_SYSTEM_PROMPT,
-      thinking: process.env.CLAUDIA_THINKING === 'true',
-      thinkingBudget: process.env.CLAUDIA_THINKING_BUDGET
-        ? parseInt(process.env.CLAUDIA_THINKING_BUDGET)
-        : undefined,
+      thinking,
+      thinkingBudget,
     });
     saveSessionId(session.id);
     console.log(`Created session: ${session.id}`);
+
+    // Clear pending config
+    pendingSessionConfig = {};
   }
 
   // Wire up SSE event forwarding
@@ -179,7 +188,28 @@ async function handleSessionMethod(
           sessionId: s?.id || null,
           isActive: s?.isActive || false,
           isProcessRunning: s?.isProcessRunning || false,
+          pendingConfig: !session ? pendingSessionConfig : undefined,
         });
+        break;
+      }
+
+      case 'config': {
+        // Set session config before first prompt
+        // This only affects NEW sessions - ignored if session already exists
+        if (!session) {
+          if (req.params?.thinking !== undefined) {
+            pendingSessionConfig.thinking = req.params.thinking as boolean;
+          }
+          if (req.params?.thinkingBudget !== undefined) {
+            pendingSessionConfig.thinkingBudget = req.params.thinkingBudget as number;
+          }
+          sendResponse(ws, req.id, { status: 'ok', pending: pendingSessionConfig });
+        } else {
+          sendResponse(ws, req.id, {
+            status: 'ignored',
+            reason: 'Session already exists - config only applies to new sessions',
+          });
+        }
         break;
       }
 
@@ -192,6 +222,11 @@ async function handleSessionMethod(
 
         // Track if this request wants voice response
         currentRequestWantsVoice = req.params?.speakResponse === true;
+
+        // If thinking is specified and no session exists yet, set pending config
+        if (!session && req.params?.thinking !== undefined) {
+          pendingSessionConfig.thinking = req.params.thinking as boolean;
+        }
 
         // Ensure session is initialized
         const s = await initSession();

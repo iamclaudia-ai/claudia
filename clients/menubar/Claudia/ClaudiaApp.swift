@@ -64,6 +64,8 @@ class AppState: ObservableObject {
             Task { @MainActor in
                 self?.isConnected = true
                 self?.error = nil
+                // Start wake word listening as soon as we're connected
+                self?.startWakeWordListening()
             }
         }
 
@@ -76,6 +78,16 @@ class AppState: ObservableObject {
         gateway.onResponse = { [weak self] text in
             Task { @MainActor in
                 self?.lastResponse = text
+            }
+        }
+
+        gateway.onResponseComplete = { [weak self] in
+            Task { @MainActor in
+                // If we're not speaking (no audio), restart wake word listening
+                if self?.status == .processing {
+                    self?.status = .idle
+                    self?.startWakeWordListening()
+                }
             }
         }
 
@@ -98,6 +110,12 @@ class AppState: ObservableObject {
             Task { @MainActor in
                 self?.error = error
                 self?.status = .error
+                // Restart wake word listening even on error
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                    Task { @MainActor in
+                        self?.startWakeWordListening()
+                    }
+                }
             }
         }
 

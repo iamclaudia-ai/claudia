@@ -20,6 +20,7 @@ class GatewayClient: NSObject {
     var onConnected: (() -> Void)?
     var onDisconnected: (() -> Void)?
     var onResponse: ((String) -> Void)?
+    var onResponseComplete: (() -> Void)?
     var onAudio: ((Data) -> Void)?
     var onError: ((String) -> Void)?
 
@@ -187,9 +188,9 @@ class GatewayClient: NSObject {
             }
 
         case "session.message_stop":
-            // Response complete - trigger TTS if we have text and voice extension hasn't already
-            // (The voice extension should handle this automatically)
-            break
+            // Response complete - notify so app can restart wake word if no audio coming
+            print("[Gateway] Response complete")
+            onResponseComplete?()
 
         case "voice.audio":
             // Audio data received - play it!
