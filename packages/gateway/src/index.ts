@@ -5,10 +5,20 @@
  * between clients and extensions, broadcasts events.
  */
 
-import type { Server, ServerWebSocket } from 'bun';
+import type { ServerWebSocket } from 'bun';
 import type { Request, Response, Event, Message } from '@claudia/shared';
+import { ClaudiaSession, createSession, resumeSession } from '@claudia/sdk';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 const PORT = process.env.CLAUDIA_PORT ? parseInt(process.env.CLAUDIA_PORT) : 3033;
+const DATA_DIR = process.env.CLAUDIA_DATA_DIR || join(import.meta.dir, '../../../.claudia');
+const SESSION_FILE = join(DATA_DIR, '.session-id');
+
+// Ensure data directory exists
+if (!existsSync(DATA_DIR)) {
+  await Bun.write(join(DATA_DIR, '.gitkeep'), '');
+}
 
 interface ClientState {
   id: string;
@@ -19,8 +29,72 @@ interface ClientState {
 // Client connections
 const clients = new Map<ServerWebSocket<ClientState>, ClientState>();
 
+// The main session (singleton for now - KISS!)
+let session: ClaudiaSession | null = null;
+
 // Generate unique IDs
 const generateId = () => crypto.randomUUID();
+
+/**
+ * Get or create the session ID from file
+ */
+function getSessionId(): string | null {
+  if (existsSync(SESSION_FILE)) {
+    return readFileSync(SESSION_FILE, 'utf-8').trim();
+  }
+  return null;
+}
+
+/**
+ * Save session ID to file
+ */
+function saveSessionId(sessionId: string): void {
+  writeFileSync(SESSION_FILE, sessionId);
+}
+
+/**
+ * Initialize or resume the main session
+ */
+async function initSession(): Promise<ClaudiaSession> {
+  if (session?.isActive) {
+    return session;
+  }
+
+  const existingId = getSessionId();
+
+  if (existingId) {
+    console.log(`Resuming session: ${existingId}`);
+    session = await resumeSession(existingId);
+  } else {
+    console.log('Creating new session...');
+    session = await createSession({
+      systemPrompt: process.env.CLAUDIA_SYSTEM_PROMPT,
+      thinking: process.env.CLAUDIA_THINKING === 'true',
+      thinkingBudget: process.env.CLAUDIA_THINKING_BUDGET
+        ? parseInt(process.env.CLAUDIA_THINKING_BUDGET)
+        : undefined,
+    });
+    saveSessionId(session.id);
+    console.log(`Created session: ${session.id}`);
+  }
+
+  // Wire up SSE event forwarding
+  session.on('sse', (event) => {
+    // Map SSE events to our event format
+    const eventName = `session.${event.type}`;
+    broadcastEvent(eventName, { sessionId: session!.id, ...event });
+  });
+
+  session.on('process_started', () => {
+    broadcastEvent('session.process_started', { sessionId: session!.id });
+  });
+
+  session.on('process_ended', () => {
+    broadcastEvent('session.process_ended', { sessionId: session!.id });
+  });
+
+  return session;
+}
 
 /**
  * Handle incoming WebSocket messages
@@ -55,7 +129,6 @@ function handleRequest(ws: ServerWebSocket<ClientState>, req: Request): void {
       handleUnsubscribe(ws, req);
       break;
     default:
-      // Check if it's an extension method
       // TODO: Route to extension handlers
       sendError(ws, req.id, `Unknown method: ${req.method}`);
   }
@@ -64,30 +137,69 @@ function handleRequest(ws: ServerWebSocket<ClientState>, req: Request): void {
 /**
  * Handle session methods
  */
-function handleSessionMethod(ws: ServerWebSocket<ClientState>, req: Request, action: string): void {
-  switch (action) {
-    case 'create':
-      // TODO: Create new Claude session
-      sendResponse(ws, req.id, { sessionId: generateId() });
-      break;
-    case 'prompt':
-      // TODO: Send prompt to session
-      sendResponse(ws, req.id, { status: 'ok' });
-      break;
-    case 'interrupt':
-      // TODO: Interrupt current session
-      sendResponse(ws, req.id, { status: 'ok' });
-      break;
-    case 'close':
-      // TODO: Close session
-      sendResponse(ws, req.id, { status: 'ok' });
-      break;
-    case 'list':
-      // TODO: List active sessions
-      sendResponse(ws, req.id, { sessions: [] });
-      break;
-    default:
-      sendError(ws, req.id, `Unknown session action: ${action}`);
+async function handleSessionMethod(
+  ws: ServerWebSocket<ClientState>,
+  req: Request,
+  action: string
+): Promise<void> {
+  try {
+    switch (action) {
+      case 'info': {
+        const s = session;
+        sendResponse(ws, req.id, {
+          sessionId: s?.id || null,
+          isActive: s?.isActive || false,
+          isProcessRunning: s?.isProcessRunning || false,
+        });
+        break;
+      }
+
+      case 'prompt': {
+        const content = req.params?.content as string;
+        if (!content) {
+          sendError(ws, req.id, 'Missing content parameter');
+          return;
+        }
+
+        // Ensure session is initialized
+        const s = await initSession();
+
+        // Send prompt (non-blocking - events will stream back)
+        s.prompt(content);
+        sendResponse(ws, req.id, { status: 'ok', sessionId: s.id });
+        break;
+      }
+
+      case 'interrupt': {
+        if (session) {
+          session.interrupt();
+          sendResponse(ws, req.id, { status: 'interrupted' });
+        } else {
+          sendError(ws, req.id, 'No active session');
+        }
+        break;
+      }
+
+      case 'reset': {
+        // Close existing session and remove session file
+        if (session) {
+          await session.close();
+          session = null;
+        }
+        if (existsSync(SESSION_FILE)) {
+          await Bun.write(SESSION_FILE, ''); // Clear file
+          require('node:fs').unlinkSync(SESSION_FILE);
+        }
+        sendResponse(ws, req.id, { status: 'reset' });
+        break;
+      }
+
+      default:
+        sendError(ws, req.id, `Unknown session action: ${action}`);
+    }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    sendError(ws, req.id, errorMessage);
   }
 }
 
@@ -166,9 +278,16 @@ const server = Bun.serve<ClientState>({
 
     // Health check endpoint
     if (url.pathname === '/health') {
-      return new globalThis.Response(JSON.stringify({ status: 'ok', clients: clients.size }), {
-        headers: { 'Content-Type': 'application/json' },
-      });
+      return new globalThis.Response(
+        JSON.stringify({
+          status: 'ok',
+          clients: clients.size,
+          session: session
+            ? { id: session.id, active: session.isActive, running: session.isProcessRunning }
+            : null,
+        }),
+        { headers: { 'Content-Type': 'application/json' } }
+      );
     }
 
     // WebSocket upgrade
@@ -212,5 +331,15 @@ console.log(`
 ║                                                           ║
 ╚═══════════════════════════════════════════════════════════╝
 `);
+
+// Graceful shutdown
+process.on('SIGINT', async () => {
+  console.log('\nShutting down...');
+  if (session) {
+    await session.close();
+  }
+  server.stop();
+  process.exit(0);
+});
 
 export { server, broadcastEvent };

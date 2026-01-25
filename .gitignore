@@ -40,3 +40,6 @@ clients/menubar/DerivedData/
 clients/ios/ios/build/
 clients/ios/android/build/
 clients/ios/android/.gradle/
+
+# Claudia data
+.claudia/

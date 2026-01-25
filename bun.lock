@@ -47,6 +47,16 @@
         "@claudia/shared": "workspace:*",
       },
     },
+    "packages/cli": {
+      "name": "@claudia/cli",
+      "version": "0.1.0",
+      "bin": {
+        "claudia": "./src/index.ts",
+      },
+      "dependencies": {
+        "@claudia/shared": "workspace:*",
+      },
+    },
     "packages/gateway": {
       "name": "@claudia/gateway",
       "version": "0.1.0",
@@ -68,6 +78,8 @@
     },
   },
   "packages": {
+    "@claudia/cli": ["@claudia/cli@workspace:packages/cli"],
+
     "@claudia/gateway": ["@claudia/gateway@workspace:packages/gateway"],
 
     "@claudia/imessage": ["@claudia/imessage@workspace:extensions/imessage"],

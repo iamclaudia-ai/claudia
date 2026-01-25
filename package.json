@@ -8,6 +8,7 @@
   ],
   "scripts": {
     "dev": "bun run --filter @claudia/gateway dev",
+    "cli": "bun run packages/cli/src/index.ts",
     "build": "bun run --filter '*' build",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
