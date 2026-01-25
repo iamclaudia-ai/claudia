@@ -45,7 +45,12 @@
 
 ### Extensions
 - [x] **Voice Extension** - ElevenLabs TTS ✅
-- [ ] **Memory Extension** - Libby/Oracle integration
+- [ ] **Memory Extension** - Replaces Libby/Oracle git-based sync
+  - Vector DB storage (on Anima Sedes as primary)
+  - Local replica on other gateways
+  - Real-time sync between gateways (no more git push/pull)
+  - Memory ingestion, indexing, and retrieval
+  - Offline capable with sync-on-reconnect
 - [ ] **Browser Extension** - DOMINATRIX integration
 - [ ] iMessage bridge
 
@@ -70,8 +75,18 @@ Features needed:
 - [ ] Gateway discovery and pairing (via Tailscale)
 - [ ] Presence/status sync between gateways
 - [ ] Session routing - start sessions on specific gateway
-- [ ] Shared memory/context across gateways
+- [ ] Shared memory via Memory Extension (replaces git-based Libby sync)
 - [ ] Project locality - each gateway works on local filesystem
+
+Architecture:
+```
+┌─────────────────┐              ┌─────────────────┐
+│ Gateway (laptop)│◄────────────►│ Gateway (Anima) │
+│                 │   Tailscale  │                 │
+│ Memory (replica)│    sync      │ Memory (primary)│
+│ Local projects  │              │ Vector DB       │
+└─────────────────┘              └─────────────────┘
+```
 
 ## 💡 Ideas / Future
 
