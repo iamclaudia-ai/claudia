@@ -51,9 +51,19 @@ extensions.setEmitCallback(async (type, payload, source) => {
 
   // Handle prompt requests from extensions (e.g., iMessage)
   if (type.endsWith('.prompt_request')) {
-    const req = payload as { content: string; source?: string; metadata?: Record<string, unknown> };
+    const req = payload as {
+      content: string | unknown[];  // String for text-only, array for multimodal
+      source?: string;
+      metadata?: Record<string, unknown>;
+    };
+
     if (req.content) {
-      console.log(`[Gateway] Prompt request from ${source}: "${req.content.substring(0, 50)}..."`);
+      // Log differently based on content type
+      const isMultimodal = Array.isArray(req.content);
+      const preview = isMultimodal
+        ? `[${req.content.length} content blocks]`
+        : `"${String(req.content).substring(0, 50)}..."`;
+      console.log(`[Gateway] Prompt request from ${source}: ${preview}`);
 
       // Set request context for routing
       currentRequestWantsVoice = false; // Extensions don't get voice by default
@@ -61,8 +71,9 @@ extensions.setEmitCallback(async (type, payload, source) => {
       currentResponseText = '';
 
       // Ensure session is initialized and send prompt
+      // SDK accepts both string and array of content blocks
       const s = await initSession();
-      s.prompt(req.content);
+      s.prompt(req.content as string | unknown[]);
     }
   }
 });

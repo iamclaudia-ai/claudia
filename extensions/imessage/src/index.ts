@@ -12,7 +12,36 @@
  */
 
 import type { ClaudiaExtension, ExtensionContext, GatewayEvent } from '@claudia/shared';
-import { ImsgRpcClient, type ImsgMessage } from './imsg-client';
+import { ImsgRpcClient, type ImsgMessage, type ImsgAttachment } from './imsg-client';
+
+// ============================================================================
+// Content Block Types (Claude API format)
+// ============================================================================
+
+interface TextContentBlock {
+  type: 'text';
+  text: string;
+}
+
+interface ImageContentBlock {
+  type: 'image';
+  source: {
+    type: 'base64';
+    media_type: string;
+    data: string;
+  };
+}
+
+interface DocumentContentBlock {
+  type: 'document';
+  source: {
+    type: 'base64';
+    media_type: string;
+    data: string;
+  };
+}
+
+type ContentBlock = TextContentBlock | ImageContentBlock | DocumentContentBlock;
 
 // ============================================================================
 // Configuration
@@ -52,6 +81,99 @@ export function createIMessageExtension(config: IMessageConfig = {}): ClaudiaExt
 
   // Track pending responses by source (so we can send replies)
   const pendingResponses = new Map<string, { chatId: number; text: string }>();
+
+  /**
+   * Convert an attachment to a content block
+   * Reads the file from disk and converts to base64
+   */
+  async function attachmentToContentBlock(
+    attachment: ImsgAttachment
+  ): Promise<ContentBlock | null> {
+    // Skip missing attachments
+    if (attachment.missing) {
+      ctx?.log.warn(`Attachment missing: ${attachment.filename}`);
+      return null;
+    }
+
+    // Resolve the path (handle ~ expansion)
+    let filePath = attachment.original_path;
+    if (filePath.startsWith('~')) {
+      filePath = filePath.replace('~', process.env.HOME || '');
+    }
+
+    try {
+      const file = Bun.file(filePath);
+      const exists = await file.exists();
+      if (!exists) {
+        ctx?.log.warn(`Attachment file not found: ${filePath}`);
+        return null;
+      }
+
+      const bytes = await file.arrayBuffer();
+      const base64 = Buffer.from(bytes).toString('base64');
+      const mimeType = attachment.mime_type || 'application/octet-stream';
+
+      ctx?.log.info(`Read attachment: ${attachment.filename} (${mimeType}, ${bytes.byteLength} bytes)`);
+
+      // Images
+      if (mimeType.startsWith('image/')) {
+        return {
+          type: 'image',
+          source: {
+            type: 'base64',
+            media_type: mimeType,
+            data: base64,
+          },
+        };
+      }
+
+      // PDFs and text documents
+      if (mimeType === 'application/pdf' || mimeType.startsWith('text/')) {
+        return {
+          type: 'document',
+          source: {
+            type: 'base64',
+            media_type: mimeType,
+            data: base64,
+          },
+        };
+      }
+
+      // Other file types - skip for now
+      ctx?.log.info(`Skipping unsupported attachment type: ${mimeType}`);
+      return null;
+    } catch (err) {
+      ctx?.log.error(`Failed to read attachment ${filePath}: ${err}`);
+      return null;
+    }
+  }
+
+  /**
+   * Build content blocks from a message (text + attachments)
+   */
+  async function buildContentBlocks(message: ImsgMessage): Promise<ContentBlock[]> {
+    const blocks: ContentBlock[] = [];
+
+    // Add attachments first (images before text is better for Claude)
+    if (message.attachments?.length) {
+      for (const attachment of message.attachments) {
+        const block = await attachmentToContentBlock(attachment);
+        if (block) {
+          blocks.push(block);
+        }
+      }
+    }
+
+    // Add text if present
+    if (message.text?.trim()) {
+      blocks.push({
+        type: 'text',
+        text: message.text,
+      });
+    }
+
+    return blocks;
+  }
 
   /**
    * Check if a sender is allowed
@@ -96,13 +218,19 @@ export function createIMessageExtension(config: IMessageConfig = {}): ClaudiaExt
       return;
     }
 
-    // Filter: skip empty messages
-    if (!message.text?.trim()) {
-      ctx?.log.info('Ignoring empty message');
+    // Check if message has content (text or attachments)
+    const hasText = !!message.text?.trim();
+    const hasAttachments = !!message.attachments?.length;
+
+    if (!hasText && !hasAttachments) {
+      ctx?.log.info('Ignoring empty message (no text or attachments)');
       return;
     }
 
-    ctx?.log.info(`Processing message: "${message.text?.substring(0, 50)}..."`);
+    ctx?.log.info(
+      `Processing message: "${message.text?.substring(0, 50) || '(no text)'}"` +
+      (hasAttachments ? ` + ${message.attachments!.length} attachment(s)` : '')
+    );
 
     // Track last rowid for resuming
     lastRowId = message.rowid;
@@ -116,26 +244,40 @@ export function createIMessageExtension(config: IMessageConfig = {}): ClaudiaExt
       text: '',
     });
 
+    // Build content blocks (handles text + attachments)
+    const contentBlocks = await buildContentBlocks(message);
+
+    if (contentBlocks.length === 0) {
+      ctx?.log.warn('No valid content blocks to send');
+      pendingResponses.delete(source);
+      return;
+    }
+
     // Emit event to trigger gateway prompt
-    // The gateway will send this to the session with the source attached
     ctx?.emit('imessage.message', {
       source,
       chatId: message.chat_id,
       sender: message.sender,
       text: message.text,
+      attachmentCount: message.attachments?.length || 0,
       isGroup: message.is_group,
       participants: message.participants,
     });
 
-    // Also emit a prompt request that the gateway can handle
-    // This uses the internal event bus to request a prompt
+    // Emit prompt request with content blocks
+    // If only text, send as string for simplicity; otherwise send blocks array
+    const content = contentBlocks.length === 1 && contentBlocks[0].type === 'text'
+      ? (contentBlocks[0] as TextContentBlock).text
+      : contentBlocks;
+
     ctx?.emit('imessage.prompt_request', {
-      content: message.text,
+      content,
       source,
       metadata: {
         chatId: message.chat_id,
         sender: message.sender,
         isGroup: message.is_group,
+        hasAttachments,
       },
     });
   }
