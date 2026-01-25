@@ -12,6 +12,7 @@
   "dependencies": {
     "@claudia/sdk": "workspace:*",
     "@claudia/shared": "workspace:*",
-    "@claudia/voice": "workspace:*"
+    "@claudia/voice": "workspace:*",
+    "@claudia/ext-imessage": "workspace:*"
   }
 }

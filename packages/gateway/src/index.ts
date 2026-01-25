@@ -37,6 +37,7 @@ let session: ClaudiaSession | null = null;
 // Track per-request state
 let currentRequestWantsVoice = false;
 let currentRequestSource: string | null = null;
+let currentResponseText = ''; // Accumulate response text for source routing
 
 // Session config (can be set before first prompt)
 let pendingSessionConfig: { thinking?: boolean; thinkingBudget?: number } = {};
@@ -45,8 +46,25 @@ let pendingSessionConfig: { thinking?: boolean; thinkingBudget?: number } = {};
 const extensions = new ExtensionManager();
 
 // Wire up extension event emitting to broadcast
-extensions.setEmitCallback((type, payload, source) => {
+extensions.setEmitCallback(async (type, payload, source) => {
   broadcastEvent(type, payload, source);
+
+  // Handle prompt requests from extensions (e.g., iMessage)
+  if (type.endsWith('.prompt_request')) {
+    const req = payload as { content: string; source?: string; metadata?: Record<string, unknown> };
+    if (req.content) {
+      console.log(`[Gateway] Prompt request from ${source}: "${req.content.substring(0, 50)}..."`);
+
+      // Set request context for routing
+      currentRequestWantsVoice = false; // Extensions don't get voice by default
+      currentRequestSource = req.source || null;
+      currentResponseText = '';
+
+      // Ensure session is initialized and send prompt
+      const s = await initSession();
+      s.prompt(req.content);
+    }
+  }
 });
 
 // Generate unique IDs
@@ -111,13 +129,33 @@ async function initSession(): Promise<ClaudiaSession> {
       ...event,
     };
 
+    // Accumulate text from content deltas for source routing
+    if (event.type === 'content_block_start') {
+      // Reset text buffer when a new text block starts
+      const block = (event as Record<string, unknown>).content_block as { type: string } | undefined;
+      if (block?.type === 'text') {
+        currentResponseText = '';
+      }
+    } else if (event.type === 'content_block_delta') {
+      // Accumulate text deltas
+      const delta = (event as Record<string, unknown>).delta as { type: string; text?: string } | undefined;
+      if (delta?.type === 'text_delta' && delta.text) {
+        currentResponseText += delta.text;
+      }
+    }
+
     // Broadcast to WebSocket clients
     broadcastEvent(eventName, payload, 'session');
 
     // Build gateway event for extensions
     const gatewayEvent: GatewayEvent = {
       type: eventName,
-      payload: { ...payload, speakResponse: currentRequestWantsVoice },
+      payload: {
+        ...payload,
+        speakResponse: currentRequestWantsVoice,
+        // Include accumulated response text for source routing
+        responseText: event.type === 'message_stop' ? currentResponseText : undefined,
+      },
       timestamp: Date.now(),
       origin: 'session',
       source: currentRequestSource || undefined,
@@ -130,6 +168,8 @@ async function initSession(): Promise<ClaudiaSession> {
     // On message complete, also route to source if applicable
     if (event.type === 'message_stop' && currentRequestSource) {
       extensions.routeToSource(currentRequestSource, gatewayEvent);
+      // Reset for next request
+      currentResponseText = '';
     }
   });
 

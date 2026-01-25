@@ -16,6 +16,7 @@ import { getEnabledExtensions } from '@claudia/shared';
 
 // Import available extensions
 import { createVoiceExtension } from '@claudia/voice';
+import { createIMessageExtension } from '@claudia/ext-imessage';
 
 // Extension factory registry
 type ExtensionFactory = (config: Record<string, unknown>) => ReturnType<typeof createVoiceExtension>;
@@ -28,6 +29,14 @@ const EXTENSION_FACTORIES: Record<string, ExtensionFactory> = {
       model: config.model as string,
       autoSpeak: config.autoSpeak as boolean,
       summarizeThreshold: config.summarizeThreshold as number,
+    }),
+  imessage: (config) =>
+    createIMessageExtension({
+      cliPath: config.cliPath as string,
+      dbPath: config.dbPath as string,
+      allowedSenders: config.allowedSenders as string[],
+      includeAttachments: config.includeAttachments as boolean,
+      historyLimit: config.historyLimit as number,
     }),
   // Add more extensions here as they're created
   // memory: (config) => createMemoryExtension(config),

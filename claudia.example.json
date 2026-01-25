@@ -44,14 +44,17 @@
       }
     },
 
-    // iMessage Extension (future) - runs on Anima Sedes
+    // iMessage Extension - requires macOS with Messages signed in
+    // Uses `imsg` CLI: brew install steipete/tap/imsg
     "imessage": {
       "enabled": false,
       "sourceRoutes": ["imessage"],  // Handles "imessage/*" sources
       "config": {
-        "chatDbPath": "/Users/claudia/Library/Messages/chat.db",
-        "allowedContacts": ["+15551234567", "michael@email.com"],
-        "pollInterval": 1000
+        "cliPath": "imsg",  // Path to imsg CLI (default: "imsg")
+        "dbPath": null,     // Messages DB path (default: ~/Library/Messages/chat.db)
+        "allowedSenders": ["claudia@iamclaudia.ai"],  // ONLY process messages from these senders
+        "includeAttachments": false,
+        "historyLimit": 0   // Include N recent messages as context (0 = disabled)
       }
     },
 
