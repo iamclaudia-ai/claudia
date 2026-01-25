@@ -12,7 +12,7 @@
  */
 
 import { extensions } from './index';
-import { loadConfig, type ExtensionConfig } from '@claudia/shared';
+import { getEnabledExtensions } from '@claudia/shared';
 
 // Import available extensions
 import { createVoiceExtension } from '@claudia/voice';
@@ -38,8 +38,7 @@ const EXTENSION_FACTORIES: Record<string, ExtensionFactory> = {
  * Load configured extensions from config file or env vars
  */
 async function loadExtensions(): Promise<void> {
-  const config = loadConfig();
-  const enabledExtensions = config.extensions.filter((ext) => ext.enabled);
+  const enabledExtensions = getEnabledExtensions();
 
   if (enabledExtensions.length === 0) {
     console.log('[Startup] No extensions enabled');
@@ -47,13 +46,13 @@ async function loadExtensions(): Promise<void> {
   }
 
   console.log(
-    `[Startup] Loading extensions: ${enabledExtensions.map((e) => e.id).join(', ')}`
+    `[Startup] Loading extensions: ${enabledExtensions.map(([id]) => id).join(', ')}`
   );
 
-  for (const ext of enabledExtensions) {
-    const factory = EXTENSION_FACTORIES[ext.id];
+  for (const [id, ext] of enabledExtensions) {
+    const factory = EXTENSION_FACTORIES[id];
     if (!factory) {
-      console.warn(`[Startup] Unknown extension: ${ext.id}`);
+      console.warn(`[Startup] Unknown extension: ${id}`);
       continue;
     }
 
@@ -61,7 +60,7 @@ async function loadExtensions(): Promise<void> {
       const extension = factory(ext.config);
       await extensions.register(extension);
     } catch (error) {
-      console.error(`[Startup] Failed to load extension ${ext.id}:`, error);
+      console.error(`[Startup] Failed to load extension ${id}:`, error);
     }
   }
 }

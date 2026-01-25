@@ -14,10 +14,9 @@
     "systemPrompt": null  // Or path to file: "./prompts/system.md"
   },
 
-  "extensions": [
-    {
-      // Voice Extension - ElevenLabs TTS
-      "id": "voice",
+  "extensions": {
+    // Voice Extension - ElevenLabs TTS
+    "voice": {
       "enabled": true,
       "config": {
         "apiKey": "${ELEVENLABS_API_KEY}",
@@ -27,24 +26,24 @@
         "summarizeThreshold": 150
       }
     },
-    {
-      // Memory Extension (future)
-      "id": "memory",
+
+    // Memory Extension (future)
+    "memory": {
       "enabled": false,
       "config": {
         "vectorDbUrl": "http://anima-sedes:6333",
         "collection": "claudia-memory"
       }
     },
-    {
-      // Browser Extension - DOMINATRIX (future)
-      "id": "browser",
+
+    // Browser Extension - DOMINATRIX (future)
+    "browser": {
       "enabled": false,
       "config": {
         "dominatrixPath": "/opt/homebrew/bin/dominatrix"
       }
     }
-  ],
+  },
 
   "federation": {
     // Multi-gateway federation (future)
@@ -54,7 +53,7 @@
       {
         "id": "anima-sedes",
         "url": "ws://anima-sedes:3033/ws",
-        "role": "primary"  // primary | replica
+        "role": "primary"
       }
     ]
   }

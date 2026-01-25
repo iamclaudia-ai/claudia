@@ -28,10 +28,11 @@ export interface SessionConfig {
 }
 
 export interface ExtensionConfig {
-  id: string;
   enabled: boolean;
   config: Record<string, unknown>;
 }
+
+export type ExtensionsConfig = Record<string, ExtensionConfig>;
 
 export interface FederationPeer {
   id: string;
@@ -48,7 +49,7 @@ export interface FederationConfig {
 export interface ClaudiaConfig {
   gateway: GatewayConfig;
   session: SessionConfig;
-  extensions: ExtensionConfig[];
+  extensions: ExtensionsConfig;
   federation: FederationConfig;
 }
 
@@ -66,7 +67,7 @@ const DEFAULT_CONFIG: ClaudiaConfig = {
     thinkingBudget: 10000,
     systemPrompt: null,
   },
-  extensions: [],
+  extensions: {},
   federation: {
     enabled: false,
     nodeId: 'default',
@@ -168,7 +169,7 @@ export function loadConfig(configPath?: string): ClaudiaConfig {
   const config: ClaudiaConfig = {
     gateway: { ...DEFAULT_CONFIG.gateway, ...interpolated.gateway },
     session: { ...DEFAULT_CONFIG.session, ...interpolated.session },
-    extensions: interpolated.extensions || DEFAULT_CONFIG.extensions,
+    extensions: interpolated.extensions ?? DEFAULT_CONFIG.extensions,
     federation: { ...DEFAULT_CONFIG.federation, ...interpolated.federation },
   };
 
@@ -190,7 +191,7 @@ function buildConfigFromEnv(): Partial<ClaudiaConfig> {
       thinkingBudget: parseInt(process.env.CLAUDIA_THINKING_BUDGET || '10000'),
       systemPrompt: process.env.CLAUDIA_SYSTEM_PROMPT || null,
     },
-    extensions: [],
+    extensions: {},
   };
 
   // Build extensions from CLAUDIA_EXTENSIONS env var
@@ -198,22 +199,20 @@ function buildConfigFromEnv(): Partial<ClaudiaConfig> {
 
   for (const id of extensionIds) {
     if (id === 'voice') {
-      config.extensions!.push({
-        id: 'voice',
+      config.extensions![id] = {
         enabled: true,
         config: {
           apiKey: process.env.ELEVENLABS_API_KEY || '',
           voiceId: process.env.ELEVENLABS_VOICE_ID,
           autoSpeak: process.env.CLAUDIA_VOICE_AUTO_SPEAK === 'true',
         },
-      });
+      };
     } else {
       // Generic extension
-      config.extensions!.push({
-        id,
+      config.extensions![id] = {
         enabled: true,
         config: {},
-      });
+      };
     }
   }
 
@@ -225,7 +224,7 @@ function buildConfigFromEnv(): Partial<ClaudiaConfig> {
  */
 export function getExtensionConfig(id: string): ExtensionConfig | undefined {
   const config = loadConfig();
-  return config.extensions.find(ext => ext.id === id);
+  return config.extensions[id];
 }
 
 /**
@@ -234,6 +233,14 @@ export function getExtensionConfig(id: string): ExtensionConfig | undefined {
 export function isExtensionEnabled(id: string): boolean {
   const ext = getExtensionConfig(id);
   return ext?.enabled ?? false;
+}
+
+/**
+ * Get all enabled extensions as [id, config] pairs
+ */
+export function getEnabledExtensions(): [string, ExtensionConfig][] {
+  const config = loadConfig();
+  return Object.entries(config.extensions).filter(([_, ext]) => ext.enabled);
 }
 
 /**
