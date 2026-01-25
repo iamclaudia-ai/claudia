@@ -2,5 +2,12 @@
   "name": "@claudia/menubar",
   "version": "0.1.0",
   "private": true,
-  "description": "macOS menubar app - 💋 Hey babe wake word activation"
+  "description": "macOS menubar app - 💋 Hey babe wake word activation",
+  "scripts": {
+    "open": "open Claudia.xcodeproj || open -a Xcode Claudia/",
+    "build": "xcodebuild -project Claudia.xcodeproj -scheme Claudia -configuration Release build",
+    "run": "open -a Claudia"
+  },
+  "keywords": ["macos", "menubar", "swiftui", "voice", "tts"],
+  "os": ["darwin"]
 }

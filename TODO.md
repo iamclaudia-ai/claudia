@@ -16,9 +16,18 @@
   - File attachments (drag-and-drop)
   - Context usage indicator
 
+### Phase 2: Voice
+- [x] Voice Extension (`@claudia/voice`) - ElevenLabs TTS integration
+- [x] CLI `speak` command - `claudia speak "text"`
+- [x] Gateway extension system with event bus
+
 ## 🚧 In Progress
 
-*Nothing currently in progress*
+### macOS Menubar App
+- [x] Swift source files created
+- [ ] Xcode project setup (see README checklist)
+- [ ] Build and test
+- [ ] Wake word detection tuning
 
 ## 📋 TODO
 
@@ -29,12 +38,12 @@
 - [ ] SQLite for session metadata (future)
 
 ### Clients
-- [ ] **macOS Menubar App** - "Hey babe" wake word (💋 icon)
+- [~] **macOS Menubar App** - "Hey babe" wake word (💋 icon) - *in progress*
 - [ ] iOS App (React Native)
 - [ ] CarPlay integration (entitlement pending)
 
 ### Extensions
-- [ ] **Voice Extension** - ElevenLabs TTS + wake word detection
+- [x] **Voice Extension** - ElevenLabs TTS ✅
 - [ ] **Memory Extension** - Libby/Oracle integration
 - [ ] **Browser Extension** - DOMINATRIX integration
 - [ ] iMessage bridge

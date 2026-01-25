@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- App is menubar-only (no dock icon) -->
+    <key>LSUIElement</key>
+    <true/>
+
+    <!-- App name -->
+    <key>CFBundleName</key>
+    <string>Claudia</string>
+
+    <key>CFBundleDisplayName</key>
+    <string>Claudia</string>
+
+    <key>CFBundleIdentifier</key>
+    <string>ai.iamclaudia.menubar</string>
+
+    <key>CFBundleVersion</key>
+    <string>1</string>
+
+    <key>CFBundleShortVersionString</key>
+    <string>0.1.0</string>
+
+    <!-- Required permissions descriptions -->
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Claudia needs microphone access to listen for "Hey babe" wake word and voice commands.</string>
+
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>Claudia uses speech recognition to understand your voice commands.</string>
+
+    <!-- Minimum macOS version -->
+    <key>LSMinimumSystemVersion</key>
+    <string>13.0</string>
+
+    <!-- Launch at login support -->
+    <key>LSBackgroundOnly</key>
+    <false/>
+</dict>
+</plist>
