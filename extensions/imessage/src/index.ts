@@ -146,7 +146,7 @@ export function createIMessageExtension(config: IMessageConfig = {}): ClaudiaExt
         ctx?.log.info(`Audio attachment detected: ${filePath}`);
         return {
           type: 'text',
-          text: `[Voice message received: ${filePath}]\n\nPlease transcribe this audio file using: parakeet-mlx "${filePath}" --output-format txt --output-dir /tmp\nThen read the transcript and respond to what was said.`,
+          text: `[Voice message: ${filePath}] - Please transcribe this audio and respond to what was said.`,
         };
       }
 
