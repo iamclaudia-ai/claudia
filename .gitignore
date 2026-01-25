@@ -1,0 +1,42 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+*.tsbuildinfo
+
+# Bun
+bun.lockb
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+logs/
+
+# Test coverage
+coverage/
+
+# macOS app build artifacts
+clients/menubar/build/
+clients/menubar/*.xcodeproj/xcuserdata/
+clients/menubar/DerivedData/
+
+# iOS build artifacts
+clients/ios/ios/build/
+clients/ios/android/build/
+clients/ios/android/.gradle/

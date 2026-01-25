@@ -1,0 +1,22 @@
+{
+  "name": "claudia",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "clients/*",
+    "extensions/*"
+  ],
+  "scripts": {
+    "dev": "bun run --filter @claudia/gateway dev",
+    "build": "bun run --filter '*' build",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint .",
+    "format": "oxfmt --write ."
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.7.0",
+    "oxlint": "latest"
+  }
+}

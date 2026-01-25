@@ -1,0 +1,7 @@
+[install]
+# Use exact versions by default
+exact = true
+
+[test]
+# Test configuration
+coverage = true

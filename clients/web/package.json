@@ -1,0 +1,13 @@
+{
+  "name": "@claudia/web",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@claudia/shared": "workspace:*"
+  }
+}

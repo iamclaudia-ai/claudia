@@ -1,0 +1,15 @@
+{
+  "name": "@claudia/gateway",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "bun run --watch src/index.ts",
+    "build": "bun build src/index.ts --outdir dist --target bun",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@claudia/sdk": "workspace:*",
+    "@claudia/shared": "workspace:*"
+  }
+}
