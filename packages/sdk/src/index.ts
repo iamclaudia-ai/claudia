@@ -10,6 +10,10 @@
  */
 
 // Re-export from the main SDK file
-// TODO: Refactor claudia-sdk.ts into proper module structure
-export { ClaudiaSession } from '../claudia-sdk';
-export type { StreamEvent, ClaudiaSessionOptions } from '../claudia-sdk';
+export {
+  ClaudiaSession,
+  createSession,
+  resumeSession,
+} from './claudia-sdk';
+
+export type { SessionOptions, StreamEvent } from './claudia-sdk';

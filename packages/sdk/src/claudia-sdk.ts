@@ -25,7 +25,7 @@
  *   await session.close();
  */
 
-import { spawn, type Subprocess } from "bun";
+import { spawn, type Subprocess, type FileSink } from "bun";
 import {
   createServer,
   type Server,
@@ -77,7 +77,7 @@ export class ClaudiaSession extends EventEmitter {
   private proxyPort: number;
   private proxyServer: Server | null = null;
   private proc: Subprocess | null = null;
-  private stdin: ReturnType<Subprocess["stdin"]> | null = null;
+  private stdin: FileSink | null = null;
   private isStarted = false;
   private isFirstPrompt = true;
   private isClosed = false;
@@ -178,7 +178,7 @@ export class ClaudiaSession extends EventEmitter {
     });
 
     this.proc = proc;
-    this.stdin = proc.stdin;
+    this.stdin = proc.stdin as FileSink;
 
     // Handle process exit
     proc.exited.then(() => {
