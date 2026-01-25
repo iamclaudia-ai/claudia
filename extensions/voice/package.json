@@ -8,6 +8,7 @@
     "test": "bun test"
   },
   "dependencies": {
-    "@claudia/shared": "workspace:*"
+    "@claudia/shared": "workspace:*",
+    "@elevenlabs/elevenlabs-js": "^2.12.2"
   }
 }

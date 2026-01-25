@@ -5,6 +5,7 @@
  * Usage:
  *   claudia "Hello, how are you?"
  *   claudia -p "What's 2+2?"
+ *   claudia speak "Hello darling!"      # TTS via voice extension
  *   echo "Hello" | claudia
  */
 
@@ -29,11 +30,99 @@ function generateId(): string {
 }
 
 /**
+ * Speak text using voice extension
+ */
+async function speak(text: string): Promise<void> {
+  const ws = new WebSocket(GATEWAY_URL);
+
+  return new Promise((resolve, reject) => {
+    ws.onopen = () => {
+      // Subscribe to voice events
+      ws.send(JSON.stringify({
+        type: 'req',
+        id: generateId(),
+        method: 'subscribe',
+        params: { events: ['voice.*'] },
+      }));
+
+      // Send speak request
+      ws.send(JSON.stringify({
+        type: 'req',
+        id: generateId(),
+        method: 'voice.speak',
+        params: { text },
+      }));
+    };
+
+    ws.onmessage = async (event) => {
+      const msg: Message = JSON.parse(event.data as string);
+
+      if (msg.type === 'res' && !msg.ok) {
+        console.error('Error:', msg.error);
+        ws.close();
+        reject(new Error(msg.error));
+        return;
+      }
+
+      if (msg.type === 'event') {
+        if (msg.event === 'voice.speaking') {
+          console.log('Speaking...');
+        } else if (msg.event === 'voice.audio') {
+          // Play the audio!
+          const payload = msg.payload as { format: string; data: string };
+          const audioBuffer = Buffer.from(payload.data, 'base64');
+          const tempFile = `/tmp/claudia-speech-${Date.now()}.mp3`;
+          await Bun.write(tempFile, audioBuffer);
+
+          // Play with afplay (macOS)
+          const proc = Bun.spawn(['afplay', tempFile], {
+            stdout: 'ignore',
+            stderr: 'ignore',
+          });
+          await proc.exited;
+
+          // Clean up
+          await Bun.file(tempFile).exists() && Bun.spawn(['rm', tempFile]);
+        } else if (msg.event === 'voice.done') {
+          console.log('Done.');
+          ws.close();
+          resolve();
+        } else if (msg.event === 'voice.error') {
+          const payload = msg.payload as { error: string };
+          console.error('Voice error:', payload.error);
+          ws.close();
+          reject(new Error(payload.error));
+        }
+      }
+    };
+
+    ws.onerror = (error) => {
+      console.error('WebSocket error:', error);
+      reject(error);
+    };
+  });
+}
+
+/**
  * Main CLI function
  */
 async function main(): Promise<void> {
+  // Get args
+  const args = process.argv.slice(2);
+
+  // Check for speak command
+  if (args[0] === 'speak') {
+    const text = args.slice(1).join(' ');
+    if (!text) {
+      console.error('Usage: claudia speak "text to speak"');
+      process.exit(1);
+    }
+    await speak(text);
+    return;
+  }
+
   // Get prompt from args or stdin
-  let prompt = process.argv.slice(2).join(' ');
+  let prompt = args.join(' ');
 
   // Handle -p flag (just ignore it, for compatibility with claude -p)
   if (prompt.startsWith('-p ')) {
@@ -48,6 +137,7 @@ async function main(): Promise<void> {
 
   if (!prompt) {
     console.error('Usage: claudia "your message here"');
+    console.error('       claudia speak "text to speak"');
     console.error('       echo "your message" | claudia');
     process.exit(1);
   }

@@ -70,3 +70,59 @@ export interface ErrorEvent extends StreamEvent {
   type: 'error';
   error: string;
 }
+
+// ============================================================================
+// Extension System
+// ============================================================================
+
+/**
+ * Gateway event that flows through the event bus
+ */
+export interface GatewayEvent {
+  type: string;
+  payload: unknown;
+  timestamp: number;
+  source?: string; // "session" | "extension:voice" | "gateway"
+  sessionId?: string;
+}
+
+/**
+ * Context passed to extensions on start
+ */
+export interface ExtensionContext {
+  /** Subscribe to gateway events */
+  on(pattern: string, handler: (event: GatewayEvent) => void | Promise<void>): () => void;
+  /** Emit an event to the gateway */
+  emit(type: string, payload: unknown): void;
+  /** Extension configuration */
+  config: Record<string, unknown>;
+  /** Logger */
+  log: {
+    info(msg: string, ...args: unknown[]): void;
+    warn(msg: string, ...args: unknown[]): void;
+    error(msg: string, ...args: unknown[]): void;
+  };
+}
+
+/**
+ * Extension interface - all extensions must implement this
+ */
+export interface ClaudiaExtension {
+  /** Unique extension ID (e.g., "voice", "memory") */
+  id: string;
+  /** Human-readable name */
+  name: string;
+  /** Methods this extension handles (e.g., ["voice.speak", "voice.stop"]) */
+  methods: string[];
+  /** Events this extension emits (e.g., ["voice.speaking", "voice.done"]) */
+  events: string[];
+
+  /** Called when the extension is loaded */
+  start(ctx: ExtensionContext): Promise<void>;
+  /** Called when the extension is unloaded */
+  stop(): Promise<void>;
+  /** Handle a method call from a client */
+  handleMethod(method: string, params: Record<string, unknown>): Promise<unknown>;
+  /** Health check */
+  health(): { ok: boolean; details?: Record<string, unknown> };
+}

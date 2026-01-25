@@ -6,10 +6,11 @@
  */
 
 import type { ServerWebSocket } from 'bun';
-import type { Request, Response, Event, Message } from '@claudia/shared';
+import type { Request, Response, Event, Message, GatewayEvent } from '@claudia/shared';
 import { ClaudiaSession, createSession, resumeSession } from '@claudia/sdk';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { ExtensionManager } from './extensions';
 
 const PORT = process.env.CLAUDIA_PORT ? parseInt(process.env.CLAUDIA_PORT) : 3033;
 const DATA_DIR = process.env.CLAUDIA_DATA_DIR || join(import.meta.dir, '../../../.claudia');
@@ -31,6 +32,14 @@ const clients = new Map<ServerWebSocket<ClientState>, ClientState>();
 
 // The main session (singleton for now - KISS!)
 let session: ClaudiaSession | null = null;
+
+// Extension manager
+const extensions = new ExtensionManager();
+
+// Wire up extension event emitting to broadcast
+extensions.setEmitCallback((type, payload, source) => {
+  broadcastEvent(type, payload, source);
+});
 
 // Generate unique IDs
 const generateId = () => crypto.randomUUID();
@@ -82,15 +91,27 @@ async function initSession(): Promise<ClaudiaSession> {
   session.on('sse', (event) => {
     // Map SSE events to our event format
     const eventName = `session.${event.type}`;
-    broadcastEvent(eventName, { sessionId: session!.id, ...event });
+    const payload = { sessionId: session!.id, ...event };
+
+    // Broadcast to WebSocket clients
+    broadcastEvent(eventName, payload, 'session');
+
+    // Also broadcast to extensions (for voice, etc.)
+    extensions.broadcast({
+      type: eventName,
+      payload,
+      timestamp: Date.now(),
+      source: 'session',
+      sessionId: session!.id,
+    });
   });
 
   session.on('process_started', () => {
-    broadcastEvent('session.process_started', { sessionId: session!.id });
+    broadcastEvent('session.process_started', { sessionId: session!.id }, 'session');
   });
 
   session.on('process_ended', () => {
-    broadcastEvent('session.process_ended', { sessionId: session!.id });
+    broadcastEvent('session.process_ended', { sessionId: session!.id }, 'session');
   });
 
   return session;
@@ -129,8 +150,12 @@ function handleRequest(ws: ServerWebSocket<ClientState>, req: Request): void {
       handleUnsubscribe(ws, req);
       break;
     default:
-      // TODO: Route to extension handlers
-      sendError(ws, req.id, `Unknown method: ${req.method}`);
+      // Check if an extension handles this method
+      if (extensions.hasMethod(req.method)) {
+        handleExtensionMethod(ws, req);
+      } else {
+        sendError(ws, req.id, `Unknown method: ${req.method}`);
+      }
   }
 }
 
@@ -204,6 +229,19 @@ async function handleSessionMethod(
 }
 
 /**
+ * Handle extension method calls
+ */
+async function handleExtensionMethod(ws: ServerWebSocket<ClientState>, req: Request): Promise<void> {
+  try {
+    const result = await extensions.handleMethod(req.method, (req.params as Record<string, unknown>) || {});
+    sendResponse(ws, req.id, result);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    sendError(ws, req.id, errorMessage);
+  }
+}
+
+/**
  * Handle subscription requests
  */
 function handleSubscribe(ws: ServerWebSocket<ClientState>, req: Request): void {
@@ -248,7 +286,7 @@ function sendError(ws: ServerWebSocket<ClientState>, id: string, error: string):
 /**
  * Broadcast an event to subscribed clients
  */
-function broadcastEvent(eventName: string, payload: unknown): void {
+function broadcastEvent(eventName: string, payload: unknown, source?: string): void {
   const event: Event = { type: 'event', event: eventName, payload };
   const data = JSON.stringify(event);
 
@@ -285,6 +323,7 @@ const server = Bun.serve<ClientState>({
           session: session
             ? { id: session.id, active: session.isActive, running: session.isProcessRunning }
             : null,
+          extensions: extensions.getHealth(),
         }),
         { headers: { 'Content-Type': 'application/json' } }
       );
@@ -342,4 +381,4 @@ process.on('SIGINT', async () => {
   process.exit(0);
 });
 
-export { server, broadcastEvent };
+export { server, broadcastEvent, extensions };

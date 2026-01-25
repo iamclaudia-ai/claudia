@@ -4,12 +4,14 @@
   "type": "module",
   "main": "src/index.ts",
   "scripts": {
-    "dev": "bun run --watch src/index.ts",
-    "build": "bun build src/index.ts --outdir dist --target bun",
+    "dev": "bun run --watch src/start.ts",
+    "start": "bun run src/start.ts",
+    "build": "bun build src/start.ts --outdir dist --target bun",
     "test": "bun test"
   },
   "dependencies": {
     "@claudia/sdk": "workspace:*",
-    "@claudia/shared": "workspace:*"
+    "@claudia/shared": "workspace:*",
+    "@claudia/voice": "workspace:*"
   }
 }
