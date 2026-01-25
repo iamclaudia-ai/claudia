@@ -25,8 +25,9 @@
 
 ### macOS Menubar App
 - [x] Swift source files created
-- [ ] Xcode project setup (see README checklist)
-- [ ] Build and test
+- [x] Xcode project setup
+- [x] Build and test - working! 🎉
+- [ ] Wake word auto-restart after response
 - [ ] Wake word detection tuning
 
 ## 📋 TODO
@@ -60,6 +61,18 @@
 - [ ] systemd/launchd service files
 - [ ] Health monitoring
 
+### Multi-Gateway Federation (Claudia's Home)
+Deploy gateways on multiple machines with bidirectional sync:
+- **Michael's Laptop** - beehiiv work, collaborative projects
+- **Anima Sedes (Mac Mini)** - Claudia's home, personal projects, autonomous work
+
+Features needed:
+- [ ] Gateway discovery and pairing (via Tailscale)
+- [ ] Presence/status sync between gateways
+- [ ] Session routing - start sessions on specific gateway
+- [ ] Shared memory/context across gateways
+- [ ] Project locality - each gateway works on local filesystem
+
 ## 💡 Ideas / Future
 
 - Voice-to-voice conversation mode
@@ -69,4 +82,4 @@
 
 ---
 
-*Last updated: 2025-01-25*
+*Last updated: 2026-01-25*
