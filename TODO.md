@@ -27,13 +27,13 @@
 - [x] Swift source files created
 - [x] Xcode project setup
 - [x] Build and test - working! 🎉
-- [ ] Wake word auto-restart after response
+- [x] Wake word auto-restart after response
 - [ ] Wake word detection tuning
 
 ## 📋 TODO
 
 ### Gateway Improvements
-- [ ] **Session-level thinking config** - Enable/disable thinking per session, not just global env var
+- [x] **Session-level thinking config** - `session.config` or `thinking` param on first prompt
 - [ ] Session history loading from Claude Code JSONL files
 - [ ] Multiple named sessions support
 - [ ] SQLite for session metadata (future)
