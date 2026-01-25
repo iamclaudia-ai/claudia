@@ -7,6 +7,7 @@
 
 import type { ServerWebSocket } from 'bun';
 import type { Request, Response, Event, Message, GatewayEvent } from '@claudia/shared';
+export type { GatewayEvent };
 import { ClaudiaSession, createSession, resumeSession } from '@claudia/sdk';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -33,8 +34,9 @@ const clients = new Map<ServerWebSocket<ClientState>, ClientState>();
 // The main session (singleton for now - KISS!)
 let session: ClaudiaSession | null = null;
 
-// Track per-request voice preference
+// Track per-request state
 let currentRequestWantsVoice = false;
+let currentRequestSource: string | null = null;
 
 // Session config (can be set before first prompt)
 let pendingSessionConfig: { thinking?: boolean; thinkingBudget?: number } = {};
@@ -103,20 +105,32 @@ async function initSession(): Promise<ClaudiaSession> {
   session.on('sse', (event) => {
     // Map SSE events to our event format
     const eventName = `session.${event.type}`;
-    const payload = { sessionId: session!.id, ...event };
+    const payload = {
+      sessionId: session!.id,
+      source: currentRequestSource,
+      ...event,
+    };
 
     // Broadcast to WebSocket clients
     broadcastEvent(eventName, payload, 'session');
 
-    // Also broadcast to extensions (for voice, etc.)
-    // Include voice preference so voice extension knows whether to speak
-    extensions.broadcast({
+    // Build gateway event for extensions
+    const gatewayEvent: GatewayEvent = {
       type: eventName,
       payload: { ...payload, speakResponse: currentRequestWantsVoice },
       timestamp: Date.now(),
-      source: 'session',
+      origin: 'session',
+      source: currentRequestSource || undefined,
       sessionId: session!.id,
-    });
+    };
+
+    // Broadcast to extensions (for voice, etc.)
+    extensions.broadcast(gatewayEvent);
+
+    // On message complete, also route to source if applicable
+    if (event.type === 'message_stop' && currentRequestSource) {
+      extensions.routeToSource(currentRequestSource, gatewayEvent);
+    }
   });
 
   session.on('process_started', () => {
@@ -220,8 +234,9 @@ async function handleSessionMethod(
           return;
         }
 
-        // Track if this request wants voice response
+        // Track request metadata for routing
         currentRequestWantsVoice = req.params?.speakResponse === true;
+        currentRequestSource = (req.params?.source as string) || null;
 
         // If thinking is specified and no session exists yet, set pending config
         if (!session && req.params?.thinking !== undefined) {
@@ -233,7 +248,7 @@ async function handleSessionMethod(
 
         // Send prompt (non-blocking - events will stream back)
         s.prompt(content);
-        sendResponse(ws, req.id, { status: 'ok', sessionId: s.id });
+        sendResponse(ws, req.id, { status: 'ok', sessionId: s.id, source: currentRequestSource });
         break;
       }
 
@@ -366,6 +381,7 @@ const server = Bun.serve<ClientState>({
             ? { id: session.id, active: session.isActive, running: session.isProcessRunning }
             : null,
           extensions: extensions.getHealth(),
+          sourceRoutes: extensions.getSourceRoutes(),
         }),
         { headers: { 'Content-Type': 'application/json' } }
       );

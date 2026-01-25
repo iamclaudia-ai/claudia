@@ -82,8 +82,24 @@ export interface GatewayEvent {
   type: string;
   payload: unknown;
   timestamp: number;
-  source?: string; // "session" | "extension:voice" | "gateway"
+  /** Event origin (e.g., "session", "extension:voice", "gateway") */
+  origin?: string;
+  /** Message source for routing (e.g., "imessage/+1555...", "web", "menubar") */
+  source?: string;
   sessionId?: string;
+}
+
+/**
+ * Source routing - maps source prefixes to handlers
+ * e.g., "imessage" -> iMessage extension handles all "imessage/*" sources
+ */
+export interface SourceRoute {
+  /** Source prefix this route handles (e.g., "imessage", "slack") */
+  prefix: string;
+  /** Extension ID that handles this source */
+  extensionId: string;
+  /** Callback to route responses back to this source */
+  handler: (event: GatewayEvent) => Promise<void>;
 }
 
 /**
@@ -116,6 +132,8 @@ export interface ClaudiaExtension {
   methods: string[];
   /** Events this extension emits (e.g., ["voice.speaking", "voice.done"]) */
   events: string[];
+  /** Source prefixes this extension handles for routing (e.g., ["imessage", "slack"]) */
+  sourceRoutes?: string[];
 
   /** Called when the extension is loaded */
   start(ctx: ExtensionContext): Promise<void>;
@@ -123,6 +141,8 @@ export interface ClaudiaExtension {
   stop(): Promise<void>;
   /** Handle a method call from a client */
   handleMethod(method: string, params: Record<string, unknown>): Promise<unknown>;
+  /** Handle a response that needs to be routed back to a source this extension owns */
+  handleSourceResponse?(source: string, event: GatewayEvent): Promise<void>;
   /** Health check */
   health(): { ok: boolean; details?: Record<string, unknown> };
 }

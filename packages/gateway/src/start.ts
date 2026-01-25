@@ -58,6 +58,12 @@ async function loadExtensions(): Promise<void> {
 
     try {
       const extension = factory(ext.config);
+
+      // Add source routes from config if specified
+      if (ext.sourceRoutes?.length) {
+        extension.sourceRoutes = ext.sourceRoutes;
+      }
+
       await extensions.register(extension);
     } catch (error) {
       console.error(`[Startup] Failed to load extension ${id}:`, error);

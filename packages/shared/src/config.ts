@@ -29,6 +29,8 @@ export interface SessionConfig {
 
 export interface ExtensionConfig {
   enabled: boolean;
+  /** Source prefixes this extension handles for routing (e.g., ["imessage"]) */
+  sourceRoutes?: string[];
   config: Record<string, unknown>;
 }
 

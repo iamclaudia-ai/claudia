@@ -2,6 +2,7 @@
  * Extension Manager
  *
  * Loads, manages, and routes to extensions.
+ * Supports source-based routing for responses (e.g., "imessage/+1555..." -> iMessage extension)
  */
 
 import type { ClaudiaExtension, ExtensionContext, GatewayEvent } from '@claudia/shared';
@@ -11,7 +12,10 @@ type EventHandler = (event: GatewayEvent) => void | Promise<void>;
 export class ExtensionManager {
   private extensions = new Map<string, ClaudiaExtension>();
   private eventHandlers = new Map<string, Set<EventHandler>>();
-  private emitCallback: ((type: string, payload: unknown, source: string) => void) | null = null;
+  private emitCallback: ((type: string, payload: unknown, origin: string) => void) | null = null;
+
+  // Source routing: maps source prefix -> extension ID
+  private sourceRoutes = new Map<string, string>();
 
   /**
    * Set the callback for when extensions emit events
@@ -37,6 +41,15 @@ export class ExtensionManager {
     await extension.start(ctx);
 
     this.extensions.set(extension.id, extension);
+
+    // Register source routes if extension handles any
+    if (extension.sourceRoutes?.length) {
+      for (const prefix of extension.sourceRoutes) {
+        this.sourceRoutes.set(prefix, extension.id);
+        console.log(`[ExtensionManager] Registered source route: ${prefix}/* -> ${extension.id}`);
+      }
+    }
+
     console.log(`[ExtensionManager] Extension ${extension.id} started`);
   }
 
@@ -96,6 +109,51 @@ export class ExtensionManager {
   }
 
   /**
+   * Route a response event back to the source that originated the request
+   * Source format: "prefix/id" (e.g., "imessage/+15551234567", "slack/C123")
+   */
+  async routeToSource(source: string, event: GatewayEvent): Promise<boolean> {
+    // Extract prefix from source (e.g., "imessage/+1555..." -> "imessage")
+    const prefix = source.split('/')[0];
+
+    const extensionId = this.sourceRoutes.get(prefix);
+    if (!extensionId) {
+      // No route registered for this source prefix
+      return false;
+    }
+
+    const extension = this.extensions.get(extensionId);
+    if (!extension?.handleSourceResponse) {
+      console.warn(`[ExtensionManager] Extension ${extensionId} has no handleSourceResponse`);
+      return false;
+    }
+
+    try {
+      await extension.handleSourceResponse(source, event);
+      return true;
+    } catch (error) {
+      console.error(`[ExtensionManager] Failed to route to source ${source}:`, error);
+      return false;
+    }
+  }
+
+  /**
+   * Check if a source has a registered route
+   */
+  hasSourceRoute(source: string): boolean {
+    const prefix = source.split('/')[0];
+    return this.sourceRoutes.has(prefix);
+  }
+
+  /**
+   * Get the extension ID that handles a source
+   */
+  getSourceHandler(source: string): string | undefined {
+    const prefix = source.split('/')[0];
+    return this.sourceRoutes.get(prefix);
+  }
+
+  /**
    * Check if a method is handled by any extension
    */
   hasMethod(method: string): boolean {
@@ -120,6 +178,17 @@ export class ExtensionManager {
       health[id] = extension.health();
     }
     return health;
+  }
+
+  /**
+   * Get all registered source routes
+   */
+  getSourceRoutes(): Record<string, string> {
+    const routes: Record<string, string> = {};
+    for (const [prefix, extensionId] of this.sourceRoutes) {
+      routes[prefix] = extensionId;
+    }
+    return routes;
   }
 
   /**

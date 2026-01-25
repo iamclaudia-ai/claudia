@@ -42,6 +42,27 @@
       "config": {
         "dominatrixPath": "/opt/homebrew/bin/dominatrix"
       }
+    },
+
+    // iMessage Extension (future) - runs on Anima Sedes
+    "imessage": {
+      "enabled": false,
+      "sourceRoutes": ["imessage"],  // Handles "imessage/*" sources
+      "config": {
+        "chatDbPath": "/Users/claudia/Library/Messages/chat.db",
+        "allowedContacts": ["+15551234567", "michael@email.com"],
+        "pollInterval": 1000
+      }
+    },
+
+    // Slack Extension (example)
+    "slack": {
+      "enabled": false,
+      "sourceRoutes": ["slack"],  // Handles "slack/*" sources
+      "config": {
+        "botToken": "${SLACK_BOT_TOKEN}",
+        "appToken": "${SLACK_APP_TOKEN}"
+      }
     }
   },
 
