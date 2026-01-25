@@ -1,0 +1,21 @@
+{
+  "name": "@claudia/memory-mcp",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "claudia-memory-mcp": "./src/index.ts"
+  },
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "gray-matter": "^4.0.3"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}
