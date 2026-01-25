@@ -44,3 +44,6 @@ clients/ios/android/.gradle/
 
 # Claudia data
 .claudia/
+
+# Config (contains secrets - use claudia.example.json as template)
+claudia.json

@@ -11,5 +11,8 @@
   "scripts": {
     "build": "bun build src/index.ts --outdir dist --target bun",
     "test": "bun test"
+  },
+  "dependencies": {
+    "json5": "2.2.3"
   }
 }

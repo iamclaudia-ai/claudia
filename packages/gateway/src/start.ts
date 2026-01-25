@@ -5,60 +5,63 @@
  * Loads the gateway and registers configured extensions.
  * This is the main entry point for running the gateway with extensions.
  *
- * Extensions are loaded based on environment variables:
- *   CLAUDIA_EXTENSIONS=voice,memory  (comma-separated list)
- *
- * Or load all available extensions:
- *   CLAUDIA_EXTENSIONS=all
+ * Configuration sources (in order of precedence):
+ *   1. CLAUDIA_CONFIG env var (explicit path)
+ *   2. ./claudia.json in working directory
+ *   3. Environment variables (backward compatibility)
  */
 
 import { extensions } from './index';
+import { loadConfig, type ExtensionConfig } from '@claudia/shared';
 
 // Import available extensions
 import { createVoiceExtension } from '@claudia/voice';
 
-// Extension registry
-const AVAILABLE_EXTENSIONS = {
-  voice: () =>
+// Extension factory registry
+type ExtensionFactory = (config: Record<string, unknown>) => ReturnType<typeof createVoiceExtension>;
+
+const EXTENSION_FACTORIES: Record<string, ExtensionFactory> = {
+  voice: (config) =>
     createVoiceExtension({
-      apiKey: process.env.ELEVENLABS_API_KEY,
-      voiceId: process.env.ELEVENLABS_VOICE_ID,
-      autoSpeak: process.env.CLAUDIA_VOICE_AUTO_SPEAK === 'true',
+      apiKey: config.apiKey as string,
+      voiceId: config.voiceId as string,
+      model: config.model as string,
+      autoSpeak: config.autoSpeak as boolean,
+      summarizeThreshold: config.summarizeThreshold as number,
     }),
   // Add more extensions here as they're created
-  // memory: () => createMemoryExtension({ ... }),
+  // memory: (config) => createMemoryExtension(config),
+  // browser: (config) => createBrowserExtension(config),
 };
 
 /**
- * Load configured extensions
+ * Load configured extensions from config file or env vars
  */
 async function loadExtensions(): Promise<void> {
-  const extensionList = process.env.CLAUDIA_EXTENSIONS || '';
+  const config = loadConfig();
+  const enabledExtensions = config.extensions.filter((ext) => ext.enabled);
 
-  if (!extensionList) {
-    console.log('[Startup] No extensions configured (set CLAUDIA_EXTENSIONS to enable)');
+  if (enabledExtensions.length === 0) {
+    console.log('[Startup] No extensions enabled');
     return;
   }
 
-  const toLoad =
-    extensionList === 'all'
-      ? Object.keys(AVAILABLE_EXTENSIONS)
-      : extensionList.split(',').map((s) => s.trim());
+  console.log(
+    `[Startup] Loading extensions: ${enabledExtensions.map((e) => e.id).join(', ')}`
+  );
 
-  console.log(`[Startup] Loading extensions: ${toLoad.join(', ')}`);
-
-  for (const name of toLoad) {
-    const factory = AVAILABLE_EXTENSIONS[name as keyof typeof AVAILABLE_EXTENSIONS];
+  for (const ext of enabledExtensions) {
+    const factory = EXTENSION_FACTORIES[ext.id];
     if (!factory) {
-      console.warn(`[Startup] Unknown extension: ${name}`);
+      console.warn(`[Startup] Unknown extension: ${ext.id}`);
       continue;
     }
 
     try {
-      const extension = factory();
+      const extension = factory(ext.config);
       await extensions.register(extension);
     } catch (error) {
-      console.error(`[Startup] Failed to load extension ${name}:`, error);
+      console.error(`[Startup] Failed to load extension ${ext.id}:`, error);
     }
   }
 }

@@ -1,0 +1,61 @@
+{
+  // Claudia Gateway Configuration
+  // Copy to claudia.json and customize
+
+  "gateway": {
+    "port": 3033,
+    "host": "localhost"
+  },
+
+  "session": {
+    // Default session settings (can be overridden per-request)
+    "thinking": false,
+    "thinkingBudget": 10000,
+    "systemPrompt": null  // Or path to file: "./prompts/system.md"
+  },
+
+  "extensions": [
+    {
+      // Voice Extension - ElevenLabs TTS
+      "id": "voice",
+      "enabled": true,
+      "config": {
+        "apiKey": "${ELEVENLABS_API_KEY}",
+        "voiceId": "${ELEVENLABS_VOICE_ID}",
+        "model": "eleven_turbo_v2_5",
+        "autoSpeak": false,
+        "summarizeThreshold": 150
+      }
+    },
+    {
+      // Memory Extension (future)
+      "id": "memory",
+      "enabled": false,
+      "config": {
+        "vectorDbUrl": "http://anima-sedes:6333",
+        "collection": "claudia-memory"
+      }
+    },
+    {
+      // Browser Extension - DOMINATRIX (future)
+      "id": "browser",
+      "enabled": false,
+      "config": {
+        "dominatrixPath": "/opt/homebrew/bin/dominatrix"
+      }
+    }
+  ],
+
+  "federation": {
+    // Multi-gateway federation (future)
+    "enabled": false,
+    "nodeId": "laptop",
+    "peers": [
+      {
+        "id": "anima-sedes",
+        "url": "ws://anima-sedes:3033/ws",
+        "role": "primary"  // primary | replica
+      }
+    ]
+  }
+}

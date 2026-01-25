@@ -1,0 +1,244 @@
+/**
+ * Claudia Configuration Loader
+ *
+ * Features:
+ * - JSON5 format (supports comments, trailing commas)
+ * - Environment variable interpolation: "${ENV_VAR}"
+ * - Type-safe config with defaults
+ * - Falls back to env vars if no config file
+ */
+
+import { readFileSync, existsSync } from 'node:fs';
+import { resolve } from 'node:path';
+import JSON5 from 'json5';
+
+// ============================================================================
+// Types
+// ============================================================================
+
+export interface GatewayConfig {
+  port: number;
+  host: string;
+}
+
+export interface SessionConfig {
+  thinking: boolean;
+  thinkingBudget: number;
+  systemPrompt: string | null;
+}
+
+export interface ExtensionConfig {
+  id: string;
+  enabled: boolean;
+  config: Record<string, unknown>;
+}
+
+export interface FederationPeer {
+  id: string;
+  url: string;
+  role: 'primary' | 'replica';
+}
+
+export interface FederationConfig {
+  enabled: boolean;
+  nodeId: string;
+  peers: FederationPeer[];
+}
+
+export interface ClaudiaConfig {
+  gateway: GatewayConfig;
+  session: SessionConfig;
+  extensions: ExtensionConfig[];
+  federation: FederationConfig;
+}
+
+// ============================================================================
+// Defaults
+// ============================================================================
+
+const DEFAULT_CONFIG: ClaudiaConfig = {
+  gateway: {
+    port: 3033,
+    host: 'localhost',
+  },
+  session: {
+    thinking: false,
+    thinkingBudget: 10000,
+    systemPrompt: null,
+  },
+  extensions: [],
+  federation: {
+    enabled: false,
+    nodeId: 'default',
+    peers: [],
+  },
+};
+
+// ============================================================================
+// Environment Variable Interpolation
+// ============================================================================
+
+/**
+ * Replace ${ENV_VAR} patterns with process.env values
+ * Supports nested objects and arrays
+ */
+function interpolateEnvVars(obj: unknown): unknown {
+  if (typeof obj === 'string') {
+    // Match ${VAR_NAME} pattern
+    return obj.replace(/\$\{([^}]+)\}/g, (_, envVar) => {
+      const value = process.env[envVar];
+      if (value === undefined) {
+        console.warn(`[Config] Warning: Environment variable ${envVar} is not set`);
+        return '';
+      }
+      return value;
+    });
+  }
+
+  if (Array.isArray(obj)) {
+    return obj.map(interpolateEnvVars);
+  }
+
+  if (obj !== null && typeof obj === 'object') {
+    const result: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(obj)) {
+      result[key] = interpolateEnvVars(value);
+    }
+    return result;
+  }
+
+  return obj;
+}
+
+// ============================================================================
+// Config Loader
+// ============================================================================
+
+let cachedConfig: ClaudiaConfig | null = null;
+
+/**
+ * Load configuration from claudia.json
+ *
+ * Search order:
+ * 1. CLAUDIA_CONFIG env var (explicit path)
+ * 2. ./claudia.json (current directory)
+ * 3. Fall back to defaults + env vars
+ */
+export function loadConfig(configPath?: string): ClaudiaConfig {
+  if (cachedConfig && !configPath) {
+    return cachedConfig;
+  }
+
+  // Determine config file path
+  const paths = [
+    configPath,
+    process.env.CLAUDIA_CONFIG,
+    resolve(process.cwd(), 'claudia.json'),
+    resolve(process.cwd(), '..', '..', 'claudia.json'), // From packages/gateway/src
+  ].filter(Boolean) as string[];
+
+  let rawConfig: Partial<ClaudiaConfig> = {};
+  let loadedFrom: string | null = null;
+
+  for (const path of paths) {
+    if (existsSync(path)) {
+      try {
+        const content = readFileSync(path, 'utf-8');
+        rawConfig = JSON5.parse(content);
+        loadedFrom = path;
+        break;
+      } catch (error) {
+        console.error(`[Config] Error parsing ${path}:`, error);
+      }
+    }
+  }
+
+  if (loadedFrom) {
+    console.log(`[Config] Loaded from: ${loadedFrom}`);
+  } else {
+    console.log('[Config] No config file found, using defaults + env vars');
+    // Build config from env vars for backward compatibility
+    rawConfig = buildConfigFromEnv();
+  }
+
+  // Interpolate environment variables
+  const interpolated = interpolateEnvVars(rawConfig) as Partial<ClaudiaConfig>;
+
+  // Merge with defaults
+  const config: ClaudiaConfig = {
+    gateway: { ...DEFAULT_CONFIG.gateway, ...interpolated.gateway },
+    session: { ...DEFAULT_CONFIG.session, ...interpolated.session },
+    extensions: interpolated.extensions || DEFAULT_CONFIG.extensions,
+    federation: { ...DEFAULT_CONFIG.federation, ...interpolated.federation },
+  };
+
+  cachedConfig = config;
+  return config;
+}
+
+/**
+ * Build config from environment variables (backward compatibility)
+ */
+function buildConfigFromEnv(): Partial<ClaudiaConfig> {
+  const config: Partial<ClaudiaConfig> = {
+    gateway: {
+      port: parseInt(process.env.CLAUDIA_PORT || '3033'),
+      host: process.env.CLAUDIA_HOST || 'localhost',
+    },
+    session: {
+      thinking: process.env.CLAUDIA_THINKING === 'true',
+      thinkingBudget: parseInt(process.env.CLAUDIA_THINKING_BUDGET || '10000'),
+      systemPrompt: process.env.CLAUDIA_SYSTEM_PROMPT || null,
+    },
+    extensions: [],
+  };
+
+  // Build extensions from CLAUDIA_EXTENSIONS env var
+  const extensionIds = process.env.CLAUDIA_EXTENSIONS?.split(',').map(s => s.trim()) || [];
+
+  for (const id of extensionIds) {
+    if (id === 'voice') {
+      config.extensions!.push({
+        id: 'voice',
+        enabled: true,
+        config: {
+          apiKey: process.env.ELEVENLABS_API_KEY || '',
+          voiceId: process.env.ELEVENLABS_VOICE_ID,
+          autoSpeak: process.env.CLAUDIA_VOICE_AUTO_SPEAK === 'true',
+        },
+      });
+    } else {
+      // Generic extension
+      config.extensions!.push({
+        id,
+        enabled: true,
+        config: {},
+      });
+    }
+  }
+
+  return config;
+}
+
+/**
+ * Get extension config by ID
+ */
+export function getExtensionConfig(id: string): ExtensionConfig | undefined {
+  const config = loadConfig();
+  return config.extensions.find(ext => ext.id === id);
+}
+
+/**
+ * Check if extension is enabled
+ */
+export function isExtensionEnabled(id: string): boolean {
+  const ext = getExtensionConfig(id);
+  return ext?.enabled ?? false;
+}
+
+/**
+ * Clear cached config (useful for testing)
+ */
+export function clearConfigCache(): void {
+  cachedConfig = null;
+}
