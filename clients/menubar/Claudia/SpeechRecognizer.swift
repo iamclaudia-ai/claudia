@@ -1,6 +1,7 @@
 import Foundation
 import Speech
 import AVFoundation
+import Combine
 
 /**
  * Speech recognition manager
@@ -50,12 +51,8 @@ class SpeechRecognizer: NSObject, ObservableObject {
                 break
             }
         }
-
-        AVAudioSession.sharedInstance().requestRecordPermission { granted in
-            if !granted {
-                self.onError?("Microphone access not granted")
-            }
-        }
+        // Note: On macOS, microphone permission is requested automatically
+        // when accessing the audio input node
     }
 
     /**
@@ -98,15 +95,8 @@ class SpeechRecognizer: NSObject, ObservableObject {
         recognitionTask?.cancel()
         recognitionTask = nil
 
-        // Configure audio session
-        let audioSession = AVAudioSession.sharedInstance()
-        do {
-            try audioSession.setCategory(.record, mode: .measurement, options: .duckOthers)
-            try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
-        } catch {
-            onError?("Audio session error: \(error.localizedDescription)")
-            return
-        }
+        // Note: macOS doesn't need AVAudioSession configuration like iOS
+        // The audio engine handles input directly
 
         // Create recognition request
         recognitionRequest = SFSpeechAudioBufferRecognitionRequest()

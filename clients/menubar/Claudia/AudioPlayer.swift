@@ -1,5 +1,6 @@
 import Foundation
 import AVFoundation
+import Combine
 
 /**
  * Audio player for TTS playback
@@ -17,17 +18,7 @@ class AudioPlayer: NSObject, ObservableObject {
 
     override init() {
         super.init()
-        setupAudioSession()
-    }
-
-    private func setupAudioSession() {
-        do {
-            // Configure for playback (allows mixing with other audio)
-            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.mixWithOthers])
-            try AVAudioSession.sharedInstance().setActive(true)
-        } catch {
-            print("[Audio] Session setup error: \(error)")
-        }
+        // Note: macOS doesn't need AVAudioSession configuration like iOS
     }
 
     /**

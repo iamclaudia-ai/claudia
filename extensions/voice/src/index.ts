@@ -108,6 +108,7 @@ export function createVoiceExtension(config: VoiceConfig = {}): ClaudiaExtension
   let currentBlockType: string | null = null;
   let textBuffer = '';
   let isSpeaking = false;
+  let currentRequestWantsVoice = false;
 
   /**
    * Speak text using ElevenLabs
@@ -177,7 +178,7 @@ export function createVoiceExtension(config: VoiceConfig = {}): ClaudiaExtension
    * Process accumulated text and speak if appropriate
    */
   async function processAndSpeak(): Promise<void> {
-    if (!textBuffer.trim() || !cfg.autoSpeak) {
+    if (!textBuffer.trim()) {
       textBuffer = '';
       return;
     }
@@ -223,42 +224,59 @@ export function createVoiceExtension(config: VoiceConfig = {}): ClaudiaExtension
         ctx.log.warn('No ELEVENLABS_API_KEY - TTS will not work');
       }
 
-      // Subscribe to session events for auto-speak
-      if (cfg.autoSpeak) {
-        ctx.log.info('Auto-speak enabled, subscribing to session events...');
+      // Subscribe to session events for voice
+      // We always subscribe, but only speak if autoSpeak is on OR the request asked for voice
+      ctx.log.info('Subscribing to session events for voice...');
 
-        // Track content block type
-        unsubscribers.push(
-          ctx.on('session.content_block_start', (event: GatewayEvent) => {
-            const payload = event.payload as { content_block?: { type: string } };
-            currentBlockType = payload.content_block?.type || null;
-            if (currentBlockType === 'text') {
-              textBuffer = '';
-            }
-          })
-        );
+      // Track content block type and per-request voice preference
+      unsubscribers.push(
+        ctx.on('session.content_block_start', (event: GatewayEvent) => {
+          const payload = event.payload as { content_block?: { type: string }; speakResponse?: boolean };
+          currentBlockType = payload.content_block?.type || null;
+          // Track if this request wants voice (from gateway)
+          if (payload.speakResponse !== undefined) {
+            currentRequestWantsVoice = payload.speakResponse;
+          }
+          if (currentBlockType === 'text') {
+            textBuffer = '';
+          }
+        })
+      );
 
-        // Accumulate text deltas
-        unsubscribers.push(
-          ctx.on('session.content_block_delta', (event: GatewayEvent) => {
-            if (currentBlockType === 'text') {
-              const payload = event.payload as { delta?: { type: string; text?: string } };
-              if (payload.delta?.type === 'text_delta' && payload.delta.text) {
-                textBuffer += payload.delta.text;
-              }
+      // Accumulate text deltas
+      unsubscribers.push(
+        ctx.on('session.content_block_delta', (event: GatewayEvent) => {
+          if (currentBlockType === 'text') {
+            const payload = event.payload as { delta?: { type: string; text?: string }; speakResponse?: boolean };
+            // Update voice preference if present
+            if (payload.speakResponse !== undefined) {
+              currentRequestWantsVoice = payload.speakResponse;
             }
-          })
-        );
+            if (payload.delta?.type === 'text_delta' && payload.delta.text) {
+              textBuffer += payload.delta.text;
+            }
+          }
+        })
+      );
 
-        // On message complete, process and speak
-        unsubscribers.push(
-          ctx.on('session.message_stop', async () => {
-            if (textBuffer) {
-              await processAndSpeak();
-            }
-          })
-        );
-      }
+      // On message complete, process and speak (if autoSpeak OR request wants voice)
+      unsubscribers.push(
+        ctx.on('session.message_stop', async (event: GatewayEvent) => {
+          const payload = event.payload as { speakResponse?: boolean };
+          // Check both global autoSpeak and per-request flag
+          const shouldSpeak = cfg.autoSpeak || payload.speakResponse || currentRequestWantsVoice;
+
+          if (textBuffer && shouldSpeak) {
+            ctx?.log.info(`Speaking response (autoSpeak=${cfg.autoSpeak}, requestWantsVoice=${currentRequestWantsVoice})`);
+            await processAndSpeak();
+          } else if (textBuffer) {
+            ctx?.log.info('Skipping voice (not requested)');
+            textBuffer = '';
+          }
+          // Reset for next request
+          currentRequestWantsVoice = false;
+        })
+      );
 
       ctx.log.info('Voice extension started');
     },

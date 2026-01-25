@@ -33,6 +33,9 @@ const clients = new Map<ServerWebSocket<ClientState>, ClientState>();
 // The main session (singleton for now - KISS!)
 let session: ClaudiaSession | null = null;
 
+// Track per-request voice preference
+let currentRequestWantsVoice = false;
+
 // Extension manager
 const extensions = new ExtensionManager();
 
@@ -97,9 +100,10 @@ async function initSession(): Promise<ClaudiaSession> {
     broadcastEvent(eventName, payload, 'session');
 
     // Also broadcast to extensions (for voice, etc.)
+    // Include voice preference so voice extension knows whether to speak
     extensions.broadcast({
       type: eventName,
-      payload,
+      payload: { ...payload, speakResponse: currentRequestWantsVoice },
       timestamp: Date.now(),
       source: 'session',
       sessionId: session!.id,
@@ -185,6 +189,9 @@ async function handleSessionMethod(
           sendError(ws, req.id, 'Missing content parameter');
           return;
         }
+
+        // Track if this request wants voice response
+        currentRequestWantsVoice = req.params?.speakResponse === true;
 
         // Ensure session is initialized
         const s = await initSession();

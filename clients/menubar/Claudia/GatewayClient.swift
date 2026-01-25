@@ -66,17 +66,16 @@ class GatewayClient: NSObject {
         // Subscribe to events first
         sendRequest(method: "subscribe", params: ["events": ["session.*", "voice.*"]]) { _ in }
 
-        // Send the prompt
-        sendRequest(method: "session.prompt", params: ["content": content]) { [weak self] result in
+        // Send the prompt with speakResponse flag for voice extension
+        var params: [String: Any] = ["content": content]
+        if withVoice {
+            params["speakResponse"] = true
+        }
+
+        sendRequest(method: "session.prompt", params: params) { [weak self] result in
             if case .failure(let error) = result {
                 self?.onError?(error.localizedDescription)
             }
-        }
-
-        // If voice is requested, also trigger TTS
-        if withVoice {
-            // The voice extension will auto-speak if configured, or we can trigger manually
-            // For now, we rely on the voice extension listening to session events
         }
     }
 
