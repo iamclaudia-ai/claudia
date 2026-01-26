@@ -109,17 +109,18 @@ Architecture:
 ```
 
 ### Reminder System
-Claudia needs to be notified when reminders trigger:
-- [ ] Research Apple Reminders programmatic access
-  - EventKit framework can read/write reminders
-  - Need to detect when reminder fires (not just read them)
-  - Maybe: poll for due reminders, or use Shortcuts automation?
-- [ ] Alternatives if Apple Reminders doesn't work:
-  - Build custom reminder service with cron/scheduler
-  - OSS tools (ntfy, gotify, etc.)
-  - Hammerspoon for local notifications → gateway webhook
-- [ ] Gateway endpoint to receive reminder triggers
-- [ ] Extension to handle reminders and prompt Claudia
+Simple SQLite-based reminder system as a gateway extension:
+- [ ] Reminder extension with SQLite storage
+  - Table: `reminders (id, message, due_at, recurring_rule, completed, created_at)`
+  - Timer checks every minute for due reminders
+  - Emits `reminder.triggered` event to gateway → prompts Claudia
+- [ ] Support both single-shot and recurring reminders
+  - Single-shot: mark completed after firing
+  - Recurring: calculate next due_at based on rule (daily, weekly, etc.)
+- [ ] MCP tools for Claudia to manage reminders
+  - `reminder_create` - "remind me in 2 hours", "remind me every Thursday at 9pm"
+  - `reminder_list` - show upcoming reminders
+  - `reminder_cancel` - remove a reminder
 
 ## 💡 Ideas / Future
 
