@@ -5,10 +5,40 @@
 import { readdir, readFile, writeFile, mkdir, stat } from 'node:fs/promises';
 import { join, dirname, basename, relative } from 'node:path';
 import { homedir } from 'node:os';
+import { spawn } from 'bun';
 import matter from 'gray-matter';
 import type { ParsedMemory, MemoryFrontmatter, MemorySection, MemoryCategory } from './types.js';
 
 const MEMORY_ROOT = join(homedir(), 'memory');
+
+/**
+ * Git commit and push a memory file (runs async, doesn't block)
+ */
+export function gitCommitAndPush(filepath: string, message: string): void {
+  const resolved = resolvePath(filepath);
+  const relativePath = getRelativePath(filepath);
+
+  // Run git operations in background (don't await)
+  (async () => {
+    try {
+      // git add
+      const add = spawn(['git', 'add', resolved], { cwd: MEMORY_ROOT });
+      await add.exited;
+
+      // git commit
+      const commit = spawn(['git', 'commit', '-m', message], { cwd: MEMORY_ROOT });
+      await commit.exited;
+
+      // git push
+      const push = spawn(['git', 'push'], { cwd: MEMORY_ROOT });
+      await push.exited;
+
+      console.error(`[memory] Git pushed: ${relativePath}`);
+    } catch (err) {
+      console.error(`[memory] Git push failed for ${relativePath}:`, err);
+    }
+  })();
+}
 
 /**
  * Get the memory root path
@@ -224,6 +254,10 @@ export async function appendToSection(
   const newFile = matter.stringify(newBody, frontmatter);
   await writeFile(resolved, newFile);
 
+  // Git commit and push (async, non-blocking)
+  const action = isNewSection ? 'Add section' : 'Update';
+  gitCommitAndPush(filepath, `memory: ${action} "${section}" in ${filepath}`);
+
   return { isNewSection };
 }
 
@@ -271,6 +305,9 @@ export async function createMemoryFile(
   const file = matter.stringify(body, frontmatter);
 
   await writeFile(resolved, file);
+
+  // Git commit and push (async, non-blocking)
+  gitCommitAndPush(filepath, `memory: Add "${section}" to ${filepath}`);
 }
 
 /**
