@@ -113,7 +113,7 @@ Simple SQLite-based reminder system as a gateway extension:
 - [ ] Reminder extension with SQLite storage
   - Table: `reminders (id, message, due_at, recurring_rule, completed, created_at)`
   - Timer checks every minute for due reminders
-  - Emits `reminder.triggered` event to gateway → prompts Claudia
+  - Emits `reminder.triggered` event on event bus → prompts Claudia
 - [ ] Support both single-shot and recurring reminders
   - Single-shot: mark completed after firing
   - Recurring: calculate next due_at based on rule (daily, weekly, etc.)
