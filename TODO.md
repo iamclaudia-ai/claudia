@@ -45,14 +45,17 @@
 
 ### Extensions
 - [x] **Voice Extension** - ElevenLabs TTS ✅
-- [ ] **Memory Extension** - Replaces Libby/Oracle git-based sync
-  - Vector DB storage (on Anima Sedes as primary)
-  - Local replica on other gateways
-  - Real-time sync between gateways (no more git push/pull)
-  - Memory ingestion, indexing, and retrieval
-  - Offline capable with sync-on-reconnect
+- [x] **iMessage Extension** - imsg CLI integration ✅
+  - Multimodal support (images, voice messages)
+  - Sender filtering (claudia@iamclaudia.ai)
+  - Source routing for responses
+- [~] **Memory Extension** - *partially complete*
+  - [x] MCP server (`@claudia/memory-mcp`) with tools: remember, recall, read, list, sections, sync
+  - [x] Section consistency tracking (SQLite)
+  - [x] Auto git commit/push after writes
+  - [ ] Gateway extension for context injection (before prompts)
+  - [ ] Vector search with Qdrant
 - [ ] **Browser Extension** - DOMINATRIX integration
-- [ ] iMessage bridge
 
 ### Web UI Enhancements
 - [ ] Session history on connect (load from gateway)
@@ -66,6 +69,22 @@
 - [ ] systemd/launchd service files
 - [ ] Health monitoring
 
+### MCP → Gateway Event Bus
+Allow MCP tools to publish events to the gateway's event bus:
+- [ ] MCP tools can emit events (e.g., `memory.pushed` after git push)
+- [ ] Gateway extension listens and reacts (e.g., `git pull` to sync)
+- [ ] Communication options: WebSocket client, HTTP endpoint, or Unix socket
+
+Use case:
+```
+MCP (memory_remember)     Gateway Event Bus        Memory Extension
+        │                        │                        │
+        │─── emit ───────────────▶│                        │
+        │   "memory.pushed"      │───── broadcast ────────▶│
+        │                        │                        │
+        │                        │                   git pull
+```
+
 ### Multi-Gateway Federation (Claudia's Home)
 Deploy gateways on multiple machines with bidirectional sync:
 - **Michael's Laptop** - beehiiv work, collaborative projects
@@ -77,6 +96,7 @@ Features needed:
 - [ ] Session routing - start sessions on specific gateway
 - [ ] Shared memory via Memory Extension (replaces git-based Libby sync)
 - [ ] Project locality - each gateway works on local filesystem
+- [ ] Event federation - gateways share events across the network
 
 Architecture:
 ```
@@ -84,7 +104,7 @@ Architecture:
 │ Gateway (laptop)│◄────────────►│ Gateway (Anima) │
 │                 │   Tailscale  │                 │
 │ Memory (replica)│    sync      │ Memory (primary)│
-│ Local projects  │              │ Vector DB       │
+│ Local projects  │   events     │ Vector DB       │
 └─────────────────┘              └─────────────────┘
 ```
 
