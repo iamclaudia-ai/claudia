@@ -1,4 +1,7 @@
 # Claudia
+<div style="text-align: center; background-color:white; padding: 16px;">
+  <img src="./assets/claudia-github.svg" alt="Claudia Code" width="720" />
+</div>
 
 A personal AI assistant platform built around Claude, providing a unified gateway for multi-client interaction with voice capabilities.
 
