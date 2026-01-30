@@ -119,7 +119,25 @@ export class ClaudiaPanelProvider {
           vscode.window.showErrorMessage(message.text);
         }
         break;
+
+      case 'openTerminal':
+        // Open terminal split below Claudia panel
+        this.openTerminalBelow();
+        break;
     }
+  }
+
+  public async openTerminalBelow() {
+    // Focus our panel first
+    this._panel.reveal(vscode.ViewColumn.Beside);
+
+    // Small delay to ensure focus, then split down and create terminal
+    setTimeout(async () => {
+      // Split the current editor group downward
+      await vscode.commands.executeCommand('workbench.action.splitEditorDown');
+      // Create terminal in the new split (which is now active)
+      await vscode.commands.executeCommand('workbench.action.createTerminalEditor');
+    }, 100);
   }
 
   private async _applyEdit(message: { path: string; content: string }) {
@@ -199,6 +217,30 @@ export class ClaudiaPanelProvider {
             display: flex;
             align-items: center;
             gap: 8px;
+          }
+
+          .header-right {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+          }
+
+          .icon-btn {
+            background: none;
+            border: none;
+            padding: 4px;
+            cursor: pointer;
+            color: var(--vscode-foreground);
+            opacity: 0.7;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+          }
+
+          .icon-btn:hover {
+            opacity: 1;
+            background: var(--vscode-toolbar-hoverBackground);
           }
 
           .status {
@@ -379,9 +421,16 @@ export class ClaudiaPanelProvider {
       <body>
         <div class="header">
           <h1>💙 Claudia</h1>
-          <div class="status">
-            <span class="status-dot" id="statusDot"></span>
-            <span id="statusText">Connecting...</span>
+          <div class="header-right">
+            <button class="icon-btn" id="terminalBtn" title="Open Terminal (split below)">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M0 3h16v10H0V3zm15 9V4H1v8h14zM2 5l4 2.5L2 10V5zm5 5h6v1H7v-1z"/>
+              </svg>
+            </button>
+            <div class="status">
+              <span class="status-dot" id="statusDot"></span>
+              <span id="statusText">Connecting...</span>
+            </div>
           </div>
         </div>
 
@@ -427,6 +476,12 @@ export class ClaudiaPanelProvider {
           const emptyState = document.getElementById('emptyState');
           const input = document.getElementById('input');
           const sendBtn = document.getElementById('sendBtn');
+          const terminalBtn = document.getElementById('terminalBtn');
+
+          // Terminal button - open terminal in editor
+          terminalBtn.addEventListener('click', () => {
+            vscode.postMessage({ type: 'openTerminal' });
+          });
 
           // Connect to gateway
           function connect() {

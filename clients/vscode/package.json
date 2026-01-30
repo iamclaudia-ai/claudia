@@ -93,6 +93,16 @@
           "type": "boolean",
           "default": true,
           "description": "Automatically include current file context in messages"
+        },
+        "claudia.openOnStartup": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically open Claudia panel when VS Code starts"
+        },
+        "claudia.openTerminalOnStartup": {
+          "type": "boolean",
+          "default": false,
+          "description": "Also open terminal below Claudia panel on startup (requires openOnStartup)"
         }
       }
     },

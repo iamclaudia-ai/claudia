@@ -110,6 +110,22 @@ export function activate(context: vscode.ExtensionContext) {
       }
     })
   );
+
+  // Auto-open on startup if configured
+  const config = vscode.workspace.getConfiguration('claudia');
+  if (config.get<boolean>('openOnStartup', false)) {
+    // Small delay to let VS Code fully initialize
+    setTimeout(() => {
+      vscode.commands.executeCommand('claudia.openChat').then(() => {
+        // Also open terminal if configured
+        if (config.get<boolean>('openTerminalOnStartup', false) && claudiaPanel) {
+          setTimeout(() => {
+            claudiaPanel?.openTerminalBelow();
+          }, 500);
+        }
+      });
+    }, 1000);
+  }
 }
 
 export function deactivate() {
