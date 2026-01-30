@@ -40,6 +40,11 @@
 
 ### Clients
 - [~] **macOS Menubar App** - "Hey babe" wake word (💋 icon) - *in progress*
+- [x] **VS Code Extension** - Editor panel with toolbar icon 💙
+  - WebviewPanel (opens beside files like Claude Code)
+  - File context tracking (current file, selection, diagnostics)
+  - Right-click menu commands (Send Selection, Explain, Fix)
+  - Streaming support via gateway WebSocket
 - [ ] iOS App (React Native)
 - [ ] CarPlay integration (entitlement pending)
 
@@ -68,6 +73,16 @@
 - [ ] Tailscale integration for remote access
 - [ ] systemd/launchd service files
 - [ ] Health monitoring
+
+### Security
+- [ ] **Security audit CLI** - `claudia security check`
+  - Verify gateway binds to localhost only
+  - Check file/directory permissions (~/.claudia, ~/memory)
+  - Scan config for exposed credentials
+  - Verify memory repo is private
+  - Check for common misconfigurations
+  - `--fix` flag to auto-fix safe issues
+  - `--verbose` for detailed output
 
 ### MCP → Gateway Event Bus
 Allow MCP tools to publish events to the gateway's event bus:
@@ -131,4 +146,4 @@ Simple SQLite-based reminder system as a gateway extension:
 
 ---
 
-*Last updated: 2026-01-25*
+*Last updated: 2026-01-30*

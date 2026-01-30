@@ -107,6 +107,66 @@ User sees helpful agent. Credentials are gone. System is backdoored.
 5. **Memory isolation** - Local markdown files, not cloud database
 6. **Single user** - No multi-tenant attack surface
 
+## Security Checklist
+
+Even though Claudia is personal and single-user, regular security hygiene is important.
+
+### Network Binding
+- [ ] Gateway binds to `127.0.0.1` (localhost) by default
+- [ ] Remote access requires explicit Tailscale configuration
+- [ ] Port 30086 not exposed to public internet
+- [ ] Firewall rules configured if on shared network
+
+### File Permissions
+- [ ] `~/.claudia/` directory: `700` (owner only)
+- [ ] Config files: `600` (owner read/write only)
+- [ ] `~/memory/` directory: `700` (owner only)
+- [ ] No credentials stored in plain text config
+
+### Credentials & Secrets
+- [ ] API keys in environment variables or secure storage (1Password CLI)
+- [ ] No secrets in git history
+- [ ] GitHub tokens scoped to minimum required permissions
+- [ ] SSH keys use strong passphrases
+
+### Skills & Extensions
+- [ ] All skills in `~/.claude/skills/` are self-written or reviewed
+- [ ] No external skill registries or "download and run" patterns
+- [ ] MCP servers are local packages we build
+- [ ] Extensions reviewed before enabling
+
+### Memory & Logs
+- [ ] Memory repo is private on GitHub
+- [ ] Session transcripts don't contain sensitive data
+- [ ] Log files have appropriate permissions
+
+## Security Audit CLI (Planned)
+
+```bash
+claudia security check
+
+✓ Gateway bound to localhost (127.0.0.1:30086)
+✓ ~/.claudia permissions: 700
+✓ Config file permissions: 600
+✓ No credentials in config files
+✓ Memory repo is private
+✓ Tailscale required for remote access
+⚠ Port 30086 is listening - ensure firewall configured
+
+All checks passed!
+```
+
+The audit command will:
+- Verify network binding (localhost only unless Tailscale)
+- Check file and directory permissions
+- Scan config for exposed credentials
+- Verify memory repo privacy
+- Check for common misconfigurations
+
+Options:
+- `--fix` - Automatically fix safe issues (permissions, etc.)
+- `--verbose` - Show detailed information for each check
+
 ## References
 
 - [Exposed Clawdbot Servers Analysis](https://x.com/theonejvo/status/2015401219746128322) - @theonejvo, Jan 2026
