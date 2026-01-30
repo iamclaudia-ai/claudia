@@ -25,29 +25,15 @@
   ],
   "main": "./dist/extension.js",
   "contributes": {
-    "viewsContainers": {
-      "activitybar": [
-        {
-          "id": "claudia",
-          "title": "Claudia",
-          "icon": "resources/icon.svg"
-        }
-      ]
-    },
-    "views": {
-      "claudia": [
-        {
-          "type": "webview",
-          "id": "claudia.chat",
-          "name": "Chat"
-        }
-      ]
-    },
     "commands": [
       {
         "command": "claudia.openChat",
         "title": "Open Claudia Chat",
-        "category": "Claudia"
+        "category": "Claudia",
+        "icon": {
+          "light": "resources/icon-light.svg",
+          "dark": "resources/icon-dark.svg"
+        }
       },
       {
         "command": "claudia.sendSelection",
@@ -66,6 +52,12 @@
       }
     ],
     "menus": {
+      "editor/title": [
+        {
+          "command": "claudia.openChat",
+          "group": "navigation@-100"
+        }
+      ],
       "editor/context": [
         {
           "command": "claudia.sendSelection",
