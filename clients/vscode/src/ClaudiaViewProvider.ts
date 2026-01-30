@@ -137,7 +137,7 @@ export class ClaudiaViewProvider implements vscode.WebviewViewProvider {
 
   private _getHtmlContent(_webview: vscode.Webview): string {
     const config = vscode.workspace.getConfiguration('claudia');
-    const gatewayUrl = config.get<string>('gatewayUrl', 'ws://localhost:3033/ws');
+    const gatewayUrl = config.get<string>('gatewayUrl', 'ws://localhost:30086/ws');
     const includeFileContext = config.get<boolean>('includeFileContext', true);
 
     // For now, we'll create a simple embedded chat UI

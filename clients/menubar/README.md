@@ -122,16 +122,16 @@ menubar/
 
 ## Configuration
 
-The gateway URL defaults to `ws://localhost:3033/ws`. To change it:
+The gateway URL defaults to `ws://localhost:30086/ws`. To change it:
 
 1. **Environment variable:**
    ```bash
-   export CLAUDIA_GATEWAY_URL=ws://your-host:3033/ws
+   export CLAUDIA_GATEWAY_URL=ws://your-host:30086/ws
    ```
 
 2. **UserDefaults** (in app):
    ```swift
-   UserDefaults.standard.set("ws://your-host:3033/ws", forKey: "gatewayURL")
+   UserDefaults.standard.set("ws://your-host:30086/ws", forKey: "gatewayURL")
    ```
 
 ## Troubleshooting

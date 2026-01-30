@@ -61,7 +61,7 @@ export interface ClaudiaConfig {
 
 const DEFAULT_CONFIG: ClaudiaConfig = {
   gateway: {
-    port: 3033,
+    port: 30086,
     host: 'localhost',
   },
   session: {
@@ -185,7 +185,7 @@ export function loadConfig(configPath?: string): ClaudiaConfig {
 function buildConfigFromEnv(): Partial<ClaudiaConfig> {
   const config: Partial<ClaudiaConfig> = {
     gateway: {
-      port: parseInt(process.env.CLAUDIA_PORT || '3033'),
+      port: parseInt(process.env.CLAUDIA_PORT || '30086'),
       host: process.env.CLAUDIA_HOST || 'localhost',
     },
     session: {

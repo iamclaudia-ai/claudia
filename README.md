@@ -17,7 +17,7 @@ Claudia is a gateway-centric architecture that lets you interact with Claude thr
 │  │   Manager   │  │   Bus       │  │    System           │  │
 │  └─────────────┘  └─────────────┘  └─────────────────────┘  │
 └─────────────────────────┬───────────────────────────────────┘
-                          │ WebSocket (ws://localhost:3033)
+                          │ WebSocket (ws://localhost:30086)
         ┌─────────────────┼─────────────────┐
         │                 │                 │
    ┌────┴────┐      ┌─────┴─────┐     ┌─────┴─────┐
@@ -112,7 +112,7 @@ Environment variables:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `CLAUDIA_PORT` | Gateway port | `3033` |
+| `CLAUDIA_PORT` | Gateway port | `30086` |
 | `CLAUDIA_EXTENSIONS` | Comma-separated extensions to load | none |
 | `ELEVENLABS_API_KEY` | ElevenLabs API key | required for voice |
 | `ELEVENLABS_VOICE_ID` | Voice ID to use | ElevenLabs default |

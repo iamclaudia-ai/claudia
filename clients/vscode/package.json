@@ -81,7 +81,7 @@
       "properties": {
         "claudia.gatewayUrl": {
           "type": "string",
-          "default": "ws://localhost:3033/ws",
+          "default": "ws://localhost:30086/ws",
           "description": "Claudia Gateway WebSocket URL"
         },
         "claudia.webUiUrl": {

@@ -7,7 +7,7 @@ import { ToolCallBlock } from "./components/ToolCallBlock";
 import { ClaudiaThinking } from "./components/ClaudiaThinking";
 
 // Gateway URL - connects directly to Claudia Gateway
-const GATEWAY_URL = "ws://localhost:3033/ws";
+const GATEWAY_URL = "ws://localhost:30086/ws";
 
 // Attachment types
 interface Attachment {

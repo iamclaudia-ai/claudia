@@ -9,7 +9,7 @@
  *   echo "Hello" | claudia
  */
 
-const GATEWAY_URL = process.env.CLAUDIA_GATEWAY_URL || 'ws://localhost:3033/ws';
+const GATEWAY_URL = process.env.CLAUDIA_GATEWAY_URL || 'ws://localhost:30086/ws';
 
 interface Message {
   type: 'req' | 'res' | 'event';

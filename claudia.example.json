@@ -3,7 +3,7 @@
   // Copy to claudia.json and customize
 
   "gateway": {
-    "port": 3033,
+    "port": 30086,
     "host": "localhost"
   },
 
@@ -76,7 +76,7 @@
     "peers": [
       {
         "id": "anima-sedes",
-        "url": "ws://anima-sedes:3033/ws",
+        "url": "ws://anima-sedes:30086/ws",
         "role": "primary"
       }
     ]

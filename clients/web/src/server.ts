@@ -8,7 +8,7 @@
 import index from "../index.html";
 
 const PORT = Number(process.env.PORT || 3000);
-const GATEWAY_URL = process.env.CLAUDIA_GATEWAY_URL || "ws://localhost:3033/ws";
+const GATEWAY_URL = process.env.CLAUDIA_GATEWAY_URL || "ws://localhost:30086/ws";
 
 Bun.serve({
   port: PORT,

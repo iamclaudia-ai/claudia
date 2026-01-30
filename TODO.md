@@ -6,7 +6,7 @@
 - [x] Monorepo structure with Bun workspaces
 - [x] TypeScript configuration for workspace resolution
 - [x] SDK integration (`@claudia/sdk`) - Claude Code CLI wrapper
-- [x] Gateway (`@claudia/gateway`) - WebSocket server on port 3033
+- [x] Gateway (`@claudia/gateway`) - WebSocket server on port 30086
 - [x] Session persistence via `.session-id` file (KISS approach)
 - [x] CLI client (`@claudia/cli`) - one-shot testing tool
 - [x] Web UI (`@claudia/web`) - React app with streaming support

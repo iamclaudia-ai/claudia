@@ -3,7 +3,7 @@ import Foundation
 /**
  * WebSocket client for Claudia Gateway
  *
- * Connects to ws://localhost:3033/ws and handles the JSON protocol:
+ * Connects to ws://localhost:30086/ws and handles the JSON protocol:
  * - Sends: { type: "req", id, method, params }
  * - Receives: { type: "res", id, ok, payload/error }
  * - Receives: { type: "event", event, payload }
@@ -34,7 +34,7 @@ class GatewayClient: NSObject {
         // Default to localhost, can be configured via environment or defaults
         let urlString = ProcessInfo.processInfo.environment["CLAUDIA_GATEWAY_URL"]
             ?? UserDefaults.standard.string(forKey: "gatewayURL")
-            ?? "ws://localhost:3033/ws"
+            ?? "ws://localhost:30086/ws"
         self.gatewayURL = URL(string: urlString)!
 
         super.init()

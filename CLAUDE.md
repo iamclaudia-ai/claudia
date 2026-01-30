@@ -21,7 +21,7 @@ Claudia is a personal AI assistant platform built around Claude Code CLI. It pro
 │  │   Manager   │  │   Bus       │  │    Loader           │  │
 │  └─────────────┘  └─────────────┘  └─────────────────────┘  │
 └─────────────────────────┬───────────────────────────────────┘
-                          │ WebSocket (ws://localhost:3033)
+                          │ WebSocket (ws://localhost:30086)
         ┌─────────────────┼─────────────────┬─────────────────┐
         │                 │                 │                 │
    ┌────┴────┐      ┌─────┴─────┐     ┌─────┴─────┐     ┌─────┴─────┐

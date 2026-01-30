@@ -11,7 +11,7 @@ Claudia AI assistant integrated directly into VS Code.
 
 ## Requirements
 
-- Claudia Gateway running locally (`ws://localhost:3033/ws`)
+- Claudia Gateway running locally (`ws://localhost:30086/ws`)
 
 ## Commands
 
@@ -26,7 +26,7 @@ Claudia AI assistant integrated directly into VS Code.
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `claudia.gatewayUrl` | `ws://localhost:3033/ws` | Gateway WebSocket URL |
+| `claudia.gatewayUrl` | `ws://localhost:30086/ws` | Gateway WebSocket URL |
 | `claudia.webUiUrl` | `http://localhost:3034` | Web UI URL (for iframe mode) |
 | `claudia.includeFileContext` | `true` | Include file context in messages |
 
@@ -63,7 +63,7 @@ npm run package
                     │ WebSocket
                     ▼
 ┌─────────────────────────────────────────┐
-│  Claudia Gateway (localhost:3033)       │
+│  Claudia Gateway (localhost:30086)       │
 └─────────────────────────────────────────┘
 ```
 
