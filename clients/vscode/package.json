@@ -1,0 +1,133 @@
+{
+  "name": "claudia",
+  "displayName": "Claudia",
+  "description": "Claudia AI assistant for VS Code",
+  "version": "0.1.0",
+  "publisher": "iamclaudia-ai",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "AI",
+    "Chat",
+    "Programming Languages"
+  ],
+  "keywords": [
+    "ai",
+    "assistant",
+    "claudia",
+    "claude",
+    "coding"
+  ],
+  "icon": "resources/icon.png",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "claudia",
+          "title": "Claudia",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "claudia": [
+        {
+          "type": "webview",
+          "id": "claudia.chat",
+          "name": "Chat"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "claudia.openChat",
+        "title": "Open Claudia Chat",
+        "category": "Claudia"
+      },
+      {
+        "command": "claudia.sendSelection",
+        "title": "Send Selection to Claudia",
+        "category": "Claudia"
+      },
+      {
+        "command": "claudia.explainCode",
+        "title": "Explain This Code",
+        "category": "Claudia"
+      },
+      {
+        "command": "claudia.fixCode",
+        "title": "Fix This Code",
+        "category": "Claudia"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "claudia.sendSelection",
+          "when": "editorHasSelection",
+          "group": "claudia@1"
+        },
+        {
+          "command": "claudia.explainCode",
+          "when": "editorHasSelection",
+          "group": "claudia@2"
+        },
+        {
+          "command": "claudia.fixCode",
+          "when": "editorHasSelection",
+          "group": "claudia@3"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Claudia",
+      "properties": {
+        "claudia.gatewayUrl": {
+          "type": "string",
+          "default": "ws://localhost:3033/ws",
+          "description": "Claudia Gateway WebSocket URL"
+        },
+        "claudia.webUiUrl": {
+          "type": "string",
+          "default": "http://localhost:3034",
+          "description": "Claudia Web UI URL (for iframe mode)"
+        },
+        "claudia.includeFileContext": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically include current file context in messages"
+        }
+      }
+    },
+    "keybindings": [
+      {
+        "command": "claudia.openChat",
+        "key": "ctrl+shift+c",
+        "mac": "cmd+shift+c"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package",
+    "lint": "eslint src --ext ts"
+  },
+  "devDependencies": {
+    "@types/node": "^20.x",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^6.x",
+    "@typescript-eslint/parser": "^6.x",
+    "eslint": "^8.x",
+    "typescript": "^5.x"
+  },
+  "dependencies": {
+    "ws": "^8.x"
+  }
+}
