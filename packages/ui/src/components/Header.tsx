@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useBridge } from "../bridge";
-import type { WorkspaceInfo, SessionInfo } from "../hooks/useGateway";
+import type { WorkspaceInfo, SessionInfo, SessionConfigInfo } from "../hooks/useGateway";
 
 interface HeaderProps {
   isConnected: boolean;
@@ -8,6 +8,7 @@ interface HeaderProps {
   sessionRecordId: string | null;
   workspace: WorkspaceInfo | null;
   sessions: SessionInfo[];
+  sessionConfig: SessionConfigInfo | null;
   onCreateSession: () => void;
   onSwitchSession: (sessionId: string) => void;
 }
@@ -18,6 +19,7 @@ export function Header({
   sessionRecordId,
   workspace,
   sessions,
+  sessionConfig,
   onCreateSession,
   onSwitchSession,
 }: HeaderProps) {
@@ -178,6 +180,24 @@ export function Header({
           </div>
         </div>
       </div>
+
+      {/* Session config badges */}
+      {sessionConfig && (
+        <div className="flex items-center gap-2 mt-2 text-xs">
+          <span className="px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 font-medium">
+            {sessionConfig.model}
+          </span>
+          <span
+            className={`px-2 py-0.5 rounded-full font-medium ${
+              sessionConfig.thinking
+                ? "bg-purple-50 text-purple-600"
+                : "bg-gray-100 text-gray-400"
+            }`}
+          >
+            {sessionConfig.thinking ? `🧠 thinking (${(sessionConfig.thinkingBudget / 1000).toFixed(0)}k)` : "thinking off"}
+          </span>
+        </div>
+      )}
     </header>
   );
 }

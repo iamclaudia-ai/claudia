@@ -29,7 +29,17 @@ export interface ToolUseBlock {
   };
 }
 
-export type ContentBlock = TextBlock | ImageBlock | FileBlock | ToolUseBlock;
+export interface ErrorBlock {
+  type: "error";
+  message: string;
+  status?: number;
+  isRetrying?: boolean;
+  attempt?: number;
+  maxRetries?: number;
+  retryInMs?: number;
+}
+
+export type ContentBlock = TextBlock | ImageBlock | FileBlock | ToolUseBlock | ErrorBlock;
 
 export interface Message {
   role: "user" | "assistant";

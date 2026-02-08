@@ -5,6 +5,7 @@ import type {
   ContentBlock,
   TextBlock,
   ToolUseBlock,
+  ErrorBlock,
   Usage,
   Attachment,
   GatewayMessage,
@@ -34,6 +35,13 @@ export interface SessionInfo {
   previousSessionId: string | null;
   lastActivity: string;
   createdAt: string;
+}
+
+export interface SessionConfigInfo {
+  model: string;
+  thinking: boolean;
+  thinkingBudget: number;
+  systemPrompt: string | null;
 }
 
 // ─── Options ─────────────────────────────────────────────────
@@ -68,6 +76,7 @@ export interface UseGatewayReturn {
   visibleCount: number;
   workspace: WorkspaceInfo | null;
   sessions: SessionInfo[];
+  sessionConfig: SessionConfigInfo | null;
   sendPrompt(text: string, attachments: Attachment[]): void;
   sendInterrupt(): void;
   loadEarlierMessages(): void;
@@ -95,6 +104,7 @@ export function useGateway(
   const [visibleCount, setVisibleCount] = useState(50);
   const [workspace, setWorkspace] = useState<WorkspaceInfo | null>(null);
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
+  const [sessionConfig, setSessionConfig] = useState<SessionConfigInfo | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
@@ -252,6 +262,49 @@ export function useGateway(
           }
           break;
         }
+
+        case "api_error": {
+          console.error(`[API Error] ${payload.status}: ${payload.message}`);
+          const errorBlock: ErrorBlock = {
+            type: "error",
+            message: payload.message as string || `API error ${payload.status}`,
+            status: payload.status as number,
+          };
+          // Ensure there's an assistant message to attach to
+          setMessages((draft) => {
+            const lastMsg = draft[draft.length - 1];
+            if (lastMsg?.role === "assistant") {
+              lastMsg.blocks.push(errorBlock);
+            } else {
+              draft.push({ role: "assistant", blocks: [errorBlock] });
+            }
+          });
+          setIsQuerying(false);
+          break;
+        }
+
+        case "api_warning": {
+          console.warn(`[API Retry] Attempt ${payload.attempt}/${payload.maxRetries}: ${payload.message}`);
+          const warningBlock: ErrorBlock = {
+            type: "error",
+            message: payload.message as string || `API retry ${payload.attempt}/${payload.maxRetries}`,
+            status: payload.status as number,
+            isRetrying: true,
+            attempt: payload.attempt as number,
+            maxRetries: payload.maxRetries as number,
+            retryInMs: payload.retryInMs as number,
+          };
+          // Add retry indicator to current assistant message
+          setMessages((draft) => {
+            const lastMsg = draft[draft.length - 1];
+            if (lastMsg?.role === "assistant") {
+              lastMsg.blocks.push(warningBlock);
+            } else {
+              draft.push({ role: "assistant", blocks: [warningBlock] });
+            }
+          });
+          break;
+        }
       }
     },
     [addBlock, appendToCurrentBlock, updateToolResult, setMessages],
@@ -386,6 +439,12 @@ export function useGateway(
                 name: payload.workspaceName as string,
               } : null);
             }
+            // Extract session config (model, thinking, etc.)
+            const cfg = payload.sessionConfig as SessionConfigInfo | undefined;
+            if (cfg) {
+              setSessionConfig(cfg);
+              console.log(`[Config] model: ${cfg.model}, thinking: ${cfg.thinking}, budget: ${cfg.thinkingBudget}`);
+            }
           }
         }
         return;
@@ -410,9 +469,9 @@ export function useGateway(
       console.log("Connected to Claudia Gateway");
       setIsConnected(true);
 
-      // Always subscribe to session events
+      // Always subscribe to session events and fetch session config
       sendRequest("subscribe", { events: ["session.*"] });
-      sendRequest("session.config", { thinking: true, thinkingBudget: 10000 });
+      sendRequest("session.info");
 
       const opts = optionsRef.current;
 
@@ -499,7 +558,7 @@ export function useGateway(
 
   return {
     messages, isConnected, isQuerying, sessionId, sessionRecordId,
-    usage, eventCount, visibleCount, workspace, sessions,
+    usage, eventCount, visibleCount, workspace, sessions, sessionConfig,
     sendPrompt, sendInterrupt, loadEarlierMessages,
     createNewSession, switchSession, sendRequest,
     messagesContainerRef, messagesEndRef,

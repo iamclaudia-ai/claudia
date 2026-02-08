@@ -7,6 +7,7 @@
 
 import type { ServerWebSocket } from 'bun';
 import type { Request, Response, Event, Message, GatewayEvent } from '@claudia/shared';
+import { loadConfig } from '@claudia/shared';
 export type { GatewayEvent };
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -14,7 +15,9 @@ import { ExtensionManager } from './extensions';
 import { getDb, closeDb } from './db/index';
 import { SessionManager } from './session-manager';
 
-const PORT = process.env.CLAUDIA_PORT ? parseInt(process.env.CLAUDIA_PORT) : 30086;
+// Load configuration (claudia.json or env var fallback)
+const config = loadConfig();
+const PORT = config.gateway.port;
 const DATA_DIR = process.env.CLAUDIA_DATA_DIR || join(import.meta.dir, '../../../.claudia');
 
 // Ensure data directory exists
@@ -41,6 +44,7 @@ const db = getDb();
 const sessionManager = new SessionManager({
   db,
   dataDir: DATA_DIR,
+  config,
   broadcastEvent,
   broadcastExtension: (event) => extensions.broadcast(event),
   routeToSource: (source, event) => extensions.routeToSource(source, event),
@@ -463,6 +467,9 @@ console.log(`
 ║                                                           ║
 ║   WebSocket: ws://localhost:${PORT}/ws                     ║
 ║   Health:    http://localhost:${PORT}/health               ║
+║                                                           ║
+║   Model:    ${config.session.model.padEnd(42)}║
+║   Thinking: ${String(config.session.thinking).padEnd(42)}║
 ║                                                           ║
 ╚═══════════════════════════════════════════════════════════╝
 `);

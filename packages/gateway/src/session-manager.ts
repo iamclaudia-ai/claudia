@@ -10,7 +10,7 @@
  */
 
 import type { Database } from "bun:sqlite";
-import type { Workspace, SessionRecord, GatewayEvent } from "@claudia/shared";
+import type { Workspace, SessionRecord, GatewayEvent, ClaudiaConfig } from "@claudia/shared";
 import { ClaudiaSession, createSession, resumeSession } from "@claudia/sdk";
 import { existsSync, readFileSync, readdirSync, unlinkSync, statSync } from "node:fs";
 import { join, basename } from "node:path";
@@ -23,6 +23,7 @@ import { parseSessionFile, parseSessionUsage, resolveSessionPath } from "./parse
 export interface SessionManagerOptions {
   db: Database;
   dataDir: string;
+  config: ClaudiaConfig;
   broadcastEvent: (eventName: string, payload: unknown, source?: string) => void;
   broadcastExtension: (event: GatewayEvent) => void;
   routeToSource: (source: string, event: GatewayEvent) => void;
@@ -31,6 +32,7 @@ export interface SessionManagerOptions {
 export class SessionManager {
   private db: Database;
   private dataDir: string;
+  private config: ClaudiaConfig;
   private broadcastEvent: SessionManagerOptions["broadcastEvent"];
   private broadcastExtension: SessionManagerOptions["broadcastExtension"];
   private routeToSource: SessionManagerOptions["routeToSource"];
@@ -51,6 +53,7 @@ export class SessionManager {
   constructor(options: SessionManagerOptions) {
     this.db = options.db;
     this.dataDir = options.dataDir;
+    this.config = options.config;
     this.broadcastEvent = options.broadcastEvent;
     this.broadcastExtension = options.broadcastExtension;
     this.routeToSource = options.routeToSource;
@@ -134,9 +137,11 @@ export class SessionManager {
 
       // Set workspace context from the session's workspace
       this.currentWorkspace = workspaceModel.getWorkspace(this.db, record.workspaceId);
+      const cwd = this.currentWorkspace?.cwd;
+      if (!cwd) throw new Error(`Workspace not found for session: ${record.workspaceId}`);
 
-      console.log(`[SessionManager] Resuming session: ${record.ccSessionId} (from record ${record.id})`);
-      this.session = await resumeSession(record.ccSessionId);
+      console.log(`[SessionManager] Resuming session: ${record.ccSessionId} (from record ${record.id}, cwd: ${cwd})`);
+      this.session = await resumeSession(record.ccSessionId, { cwd });
       this.currentSessionRecord = record;
       this.wireSession();
       return this.session;
@@ -155,8 +160,8 @@ export class SessionManager {
     if (this.currentWorkspace.activeSessionId) {
       const record = sessionModel.getSession(this.db, this.currentWorkspace.activeSessionId);
       if (record) {
-        console.log(`[SessionManager] Resuming session: ${record.ccSessionId}`);
-        this.session = await resumeSession(record.ccSessionId);
+        console.log(`[SessionManager] Resuming session: ${record.ccSessionId} (cwd: ${this.currentWorkspace.cwd})`);
+        this.session = await resumeSession(record.ccSessionId, { cwd: this.currentWorkspace.cwd });
         this.currentSessionRecord = record;
         this.wireSession();
         return this.session;
@@ -188,21 +193,27 @@ export class SessionManager {
 
     // Archive current active session
     const workspace = workspaceModel.getWorkspace(this.db, wsId);
-    if (workspace?.activeSessionId) {
+    if (!workspace) {
+      throw new Error(`Workspace not found: ${wsId}`);
+    }
+    if (workspace.activeSessionId) {
       sessionModel.archiveSession(this.db, workspace.activeSessionId);
       previousSessionId = workspace.activeSessionId;
     }
 
-    // Create the new Claude Code session
-    const thinking = this.pendingSessionConfig.thinking ?? (process.env.CLAUDIA_THINKING === "true");
-    const thinkingBudget = this.pendingSessionConfig.thinkingBudget ??
-      (process.env.CLAUDIA_THINKING_BUDGET ? parseInt(process.env.CLAUDIA_THINKING_BUDGET) : undefined);
+    // Create the new Claude Code session using config defaults + any pending overrides
+    const sessionConfig = this.config.session;
+    const thinking = this.pendingSessionConfig.thinking ?? sessionConfig.thinking;
+    const thinkingBudget = this.pendingSessionConfig.thinkingBudget ?? sessionConfig.thinkingBudget;
+    const model = sessionConfig.model || undefined;
 
-    console.log(`[SessionManager] Creating new session (thinking: ${thinking})...`);
+    console.log(`[SessionManager] Creating new session (model: ${model || "default"}, thinking: ${thinking}, cwd: ${workspace.cwd})...`);
     this.session = await createSession({
-      systemPrompt: process.env.CLAUDIA_SYSTEM_PROMPT,
+      systemPrompt: sessionConfig.systemPrompt || undefined,
+      cwd: workspace.cwd,
       thinking,
       thinkingBudget,
+      model,
     });
 
     // Record in DB
@@ -243,14 +254,18 @@ export class SessionManager {
       this.session = null;
     }
 
+    // Get workspace for CWD
+    const workspace = workspaceModel.getWorkspace(this.db, record.workspaceId);
+    if (!workspace) throw new Error(`Workspace not found: ${record.workspaceId}`);
+
     // Resume the target session
-    console.log(`[SessionManager] Switching to session: ${record.ccSessionId}`);
-    this.session = await resumeSession(record.ccSessionId);
+    console.log(`[SessionManager] Switching to session: ${record.ccSessionId} (cwd: ${workspace.cwd})`);
+    this.session = await resumeSession(record.ccSessionId, { cwd: workspace.cwd });
     this.currentSessionRecord = record;
 
     // Update workspace active session
     workspaceModel.setActiveSession(this.db, record.workspaceId, record.id);
-    this.currentWorkspace = workspaceModel.getWorkspace(this.db, record.workspaceId);
+    this.currentWorkspace = workspace;
 
     // Mark as active if it was archived
     if (record.status === "archived") {
@@ -334,6 +349,15 @@ export class SessionManager {
    * Get session info
    */
   getInfo() {
+    // Get session config (current config for active session, or what would be used for new sessions)
+    const sessionConfig = this.config.session;
+    const effectiveConfig = {
+      thinking: this.pendingSessionConfig.thinking ?? sessionConfig.thinking,
+      thinkingBudget: this.pendingSessionConfig.thinkingBudget ?? sessionConfig.thinkingBudget,
+      model: sessionConfig.model,
+      systemPrompt: sessionConfig.systemPrompt,
+    };
+
     return {
       sessionId: this.session?.id || this.currentSessionRecord?.ccSessionId || null,
       isActive: this.session?.isActive || false,
@@ -341,6 +365,7 @@ export class SessionManager {
       workspaceId: this.currentWorkspace?.id || null,
       workspaceName: this.currentWorkspace?.name || null,
       session: this.currentSessionRecord,
+      sessionConfig: effectiveConfig,
       pendingConfig: !this.session ? this.pendingSessionConfig : undefined,
     };
   }
@@ -489,6 +514,27 @@ export class SessionManager {
 
     sessionRef.on("sse", (event) => {
       const eventName = `session.${event.type}`;
+
+      // ── Streaming event logging ──
+      if (event.type === "message_start") {
+        console.log(`[Stream] ▶ message_start (session: ${sessionRef.id.slice(0, 8)}…)`);
+      } else if (event.type === "message_stop") {
+        console.log(`[Stream] ■ message_stop`);
+      } else if (event.type === "content_block_start") {
+        const block = (event as Record<string, unknown>).content_block as { type: string; name?: string } | undefined;
+        const label = block?.type === "tool_use" ? `tool_use(${block.name})` : block?.type || "unknown";
+        console.log(`[Stream]   ┌ content_block_start: ${label}`);
+      } else if (event.type === "content_block_stop") {
+        console.log(`[Stream]   └ content_block_stop`);
+      } else if (event.type === "api_error") {
+        const e = event as Record<string, unknown>;
+        console.error(`[Stream] ✖ API ERROR ${e.status}: ${e.message}`);
+      } else if (event.type === "api_warning") {
+        const w = event as Record<string, unknown>;
+        console.warn(`[Stream] ⚠ API RETRY attempt ${w.attempt}/${w.maxRetries}: ${w.message}`);
+      }
+      // Don't log content_block_delta (too noisy) or message_delta (just usage)
+
       const payload = {
         sessionId: sessionRef.id,
         source: this.currentRequestSource,

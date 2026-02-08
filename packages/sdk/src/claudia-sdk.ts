@@ -101,7 +101,9 @@ export class ClaudiaSession extends EventEmitter {
    * Derive a deterministic port from session ID
    */
   private derivePort(sessionId: string): number {
-    const hash = sessionId.split("").reduce((acc, c) => acc + c.charCodeAt(0), 0);
+    const hash = sessionId
+      .split("")
+      .reduce((acc, c) => acc + c.charCodeAt(0), 0);
     const range = 1000;
     return (this.options.basePort || DEFAULT_BASE_PORT) + (hash % range);
   }
@@ -162,15 +164,26 @@ export class ClaudiaSession extends EventEmitter {
     if (this.isFirstPrompt) {
       args.push("--session-id", this.id);
     } else {
-      args.push("--continue");
+      args.push("--resume", this.id);
     }
 
+    if (!this.options.cwd) {
+      throw new Error(
+        "SessionOptions.cwd is required — never fall back to process.cwd()",
+      );
+    }
+
+    const cmd = ["claude", ...args];
+    console.log(`[SDK] Spawning: ${cmd.join(" ")}`);
+    console.log(`[SDK]   cwd: ${this.options.cwd}`);
+    console.log(`[SDK]   proxy: http://localhost:${this.proxyPort}`);
+
     const proc = spawn({
-      cmd: ["claude", ...args],
+      cmd,
       stdin: "pipe",
       stdout: "ignore",
       stderr: "inherit",
-      cwd: this.options.cwd || process.cwd(),
+      cwd: this.options.cwd,
       env: {
         ...process.env,
         ANTHROPIC_BASE_URL: `http://localhost:${this.proxyPort}`,
@@ -231,11 +244,17 @@ export class ClaudiaSession extends EventEmitter {
         this.openBlockIndices.clear();
       }
 
-      if (event.type === "content_block_start" && typeof event.index === "number") {
+      if (
+        event.type === "content_block_start" &&
+        typeof event.index === "number"
+      ) {
         this.openBlockIndices.add(event.index);
       }
 
-      if (event.type === "content_block_stop" && typeof event.index === "number") {
+      if (
+        event.type === "content_block_stop" &&
+        typeof event.index === "number"
+      ) {
         this.openBlockIndices.delete(event.index);
       }
 
@@ -374,7 +393,7 @@ export class ClaudiaSession extends EventEmitter {
 
   private async handleProxyRequest(
     req: IncomingMessage,
-    res: ServerResponse
+    res: ServerResponse,
   ): Promise<void> {
     const targetUrl = `${ANTHROPIC_API}${req.url}`;
 
@@ -408,7 +427,7 @@ export class ClaudiaSession extends EventEmitter {
                 timestamp: new Date().toISOString(),
                 budget_tokens: thinkingBudget,
                 max_tokens: requestBody.max_tokens,
-              }) + "\n"
+              }) + "\n",
             );
           }
         }
@@ -417,7 +436,7 @@ export class ClaudiaSession extends EventEmitter {
         const toolResults = requestBody.messages?.filter(
           (m: any) =>
             m.role === "user" &&
-            m.content?.some?.((c: any) => c.type === "tool_result")
+            m.content?.some?.((c: any) => c.type === "tool_result"),
         );
         if (toolResults?.length > 0) {
           const logEntry = {
@@ -431,11 +450,14 @@ export class ClaudiaSession extends EventEmitter {
                   tool_use_id: c.tool_use_id,
                   content: c.content?.substring?.(0, 500) || c.content,
                   is_error: c.is_error,
-                }))
+                })),
             ),
           };
           if (this.options.logEvents) {
-            fs.appendFileSync(this.options.logEvents, JSON.stringify(logEntry) + "\n");
+            fs.appendFileSync(
+              this.options.logEvents,
+              JSON.stringify(logEntry) + "\n",
+            );
           }
           this.emit("sse", logEntry);
         }
@@ -453,57 +475,130 @@ export class ClaudiaSession extends EventEmitter {
     }
     headers["accept-encoding"] = "identity";
 
-    try {
-      const response = await fetch(targetUrl, {
-        method: req.method || "GET",
-        headers,
-        body: ["POST", "PUT", "PATCH"].includes(req.method || "")
-          ? (modifiedBody?.toString() || body.toString())
-          : undefined,
-      });
+    const MAX_RETRIES = 3;
+    const RETRYABLE_STATUSES = new Set([429, 503, 529]);
 
-      const contentType = response.headers.get("content-type") || "";
-      res.statusCode = response.status;
-      response.headers.forEach((value, key) => {
-        res.setHeader(key, value);
-      });
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        const response = await fetch(targetUrl, {
+          method: req.method || "GET",
+          headers,
+          body: ["POST", "PUT", "PATCH"].includes(req.method || "")
+            ? modifiedBody?.toString() || body.toString()
+            : undefined,
+        });
 
-      if (contentType.includes("text/event-stream") && response.body) {
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
+        // Retry on transient errors with exponential backoff
+        if (RETRYABLE_STATUSES.has(response.status) && attempt < MAX_RETRIES) {
+          const delay = Math.min(1000 * Math.pow(2, attempt), 8000);
+          const errorBody = await response.text().catch(() => "");
+          console.warn(`[${this.id}] API ${response.status} (attempt ${attempt + 1}/${MAX_RETRIES + 1}), retrying in ${delay}ms...`);
+          this.emit("sse", {
+            type: "api_warning",
+            status: response.status,
+            attempt: attempt + 1,
+            maxRetries: MAX_RETRIES + 1,
+            retryInMs: delay,
+            message: `API returned ${response.status}, retrying (${attempt + 1}/${MAX_RETRIES + 1})...`,
+            body: errorBody.substring(0, 500),
+          });
+          await new Promise((r) => setTimeout(r, delay));
+          continue;
+        }
 
-        const pump = async (): Promise<void> => {
-          const { done, value } = await reader.read();
+        const contentType = response.headers.get("content-type") || "";
+        res.statusCode = response.status;
+        response.headers.forEach((value, key) => {
+          res.setHeader(key, value);
+        });
 
-          if (done) {
-            if (buffer.trim()) this.processSSE(buffer);
-            res.end();
-            return;
+        // Handle API error responses (non-2xx)
+        if (response.status >= 400) {
+          const errorBody = await response.text().catch(() => "Unknown error");
+          let errorMessage = `API error ${response.status}`;
+          let errorDetail: unknown = errorBody;
+
+          try {
+            const parsed = JSON.parse(errorBody);
+            errorMessage = parsed.error?.message || parsed.message || errorMessage;
+            errorDetail = parsed;
+          } catch {
+            // Not JSON
           }
 
-          const text = decoder.decode(value, { stream: true });
-          buffer += text;
-          const lines = buffer.split("\n");
-          buffer = lines.pop() || "";
+          console.error(`[${this.id}] API error ${response.status}: ${errorMessage}`);
+          this.emit("sse", {
+            type: "api_error",
+            status: response.status,
+            message: errorMessage,
+            detail: errorDetail,
+          });
 
-          for (const line of lines) {
-            this.processSSE(line);
-          }
+          res.end(errorBody);
+          return;
+        }
 
-          res.write(value);
-          return pump();
-        };
+        if (contentType.includes("text/event-stream") && response.body) {
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = "";
 
-        await pump();
-      } else {
-        const responseBody = await response.arrayBuffer();
-        res.end(Buffer.from(responseBody));
+          const pump = async (): Promise<void> => {
+            const { done, value } = await reader.read();
+
+            if (done) {
+              if (buffer.trim()) this.processSSE(buffer);
+              res.end();
+              return;
+            }
+
+            const text = decoder.decode(value, { stream: true });
+            buffer += text;
+            const lines = buffer.split("\n");
+            buffer = lines.pop() || "";
+
+            for (const line of lines) {
+              this.processSSE(line);
+            }
+
+            res.write(value);
+            return pump();
+          };
+
+          await pump();
+        } else {
+          const responseBody = await response.arrayBuffer();
+          res.end(Buffer.from(responseBody));
+        }
+
+        return; // Success — exit retry loop
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : String(err);
+
+        if (attempt < MAX_RETRIES) {
+          const delay = Math.min(1000 * Math.pow(2, attempt), 8000);
+          console.warn(`[${this.id}] Proxy error (attempt ${attempt + 1}/${MAX_RETRIES + 1}): ${errorMessage}, retrying in ${delay}ms...`);
+          this.emit("sse", {
+            type: "api_warning",
+            attempt: attempt + 1,
+            maxRetries: MAX_RETRIES + 1,
+            retryInMs: delay,
+            message: `Connection error: ${errorMessage}, retrying (${attempt + 1}/${MAX_RETRIES + 1})...`,
+          });
+          await new Promise((r) => setTimeout(r, delay));
+          continue;
+        }
+
+        console.error(`[${this.id}] Proxy error (all retries exhausted): ${errorMessage}`);
+        this.emit("sse", {
+          type: "api_error",
+          status: 502,
+          message: `Connection failed after ${MAX_RETRIES + 1} attempts: ${errorMessage}`,
+        });
+        res.statusCode = 502;
+        res.end("Proxy error");
+        return;
       }
-    } catch (err) {
-      console.error(`[${this.id}] Proxy error:`, err);
-      res.statusCode = 502;
-      res.end("Proxy error");
     }
   }
 
@@ -529,7 +624,9 @@ export class ClaudiaSession extends EventEmitter {
 
 // ============ FACTORY FUNCTIONS ============
 
-export async function createSession(options?: SessionOptions): Promise<ClaudiaSession> {
+export async function createSession(
+  options?: SessionOptions,
+): Promise<ClaudiaSession> {
   const session = new ClaudiaSession(options);
   await session.start();
   return session;
@@ -537,7 +634,7 @@ export async function createSession(options?: SessionOptions): Promise<ClaudiaSe
 
 export async function resumeSession(
   sessionId: string,
-  options?: Omit<SessionOptions, "resume" | "systemPrompt">
+  options?: Omit<SessionOptions, "resume" | "systemPrompt">,
 ): Promise<ClaudiaSession> {
   const session = new ClaudiaSession({
     ...options,

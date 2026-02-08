@@ -13,6 +13,7 @@ export type {
   ImageBlock,
   FileBlock,
   ToolUseBlock,
+  ErrorBlock,
   Usage,
   Attachment,
   GatewayMessage,
@@ -21,7 +22,7 @@ export type {
 
 // Hooks
 export { useGateway } from "./hooks/useGateway";
-export type { UseGatewayOptions, UseGatewayReturn, WorkspaceInfo, SessionInfo } from "./hooks/useGateway";
+export type { UseGatewayOptions, UseGatewayReturn, WorkspaceInfo, SessionInfo, SessionConfigInfo } from "./hooks/useGateway";
 
 // Page components (for web client routing)
 export { WorkspaceList } from "./components/WorkspaceList";

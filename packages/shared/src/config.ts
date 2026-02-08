@@ -9,7 +9,8 @@
  */
 
 import { readFileSync, existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { resolve, join } from 'node:path';
+import { homedir } from 'node:os';
 import JSON5 from 'json5';
 
 // ============================================================================
@@ -19,9 +20,12 @@ import JSON5 from 'json5';
 export interface GatewayConfig {
   port: number;
   host: string;
+  /** Public endpoint hostname for remote clients (e.g., "claudia-gateway.kiliman.dev") */
+  endpoint?: string;
 }
 
 export interface SessionConfig {
+  model: string;
   thinking: boolean;
   thinkingBudget: number;
   systemPrompt: string | null;
@@ -65,6 +69,7 @@ const DEFAULT_CONFIG: ClaudiaConfig = {
     host: 'localhost',
   },
   session: {
+    model: 'sonnet',
     thinking: false,
     thinkingBudget: 10000,
     systemPrompt: null,
@@ -133,11 +138,11 @@ export function loadConfig(configPath?: string): ClaudiaConfig {
   }
 
   // Determine config file path
+  // Search order: explicit path → env var → ~/.claudia/claudia.json
   const paths = [
     configPath,
     process.env.CLAUDIA_CONFIG,
-    resolve(process.cwd(), 'claudia.json'),
-    resolve(process.cwd(), '..', '..', 'claudia.json'), // From packages/gateway/src
+    join(homedir(), '.claudia', 'claudia.json'),
   ].filter(Boolean) as string[];
 
   let rawConfig: Partial<ClaudiaConfig> = {};

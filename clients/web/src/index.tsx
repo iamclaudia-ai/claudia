@@ -4,9 +4,6 @@ import { ClaudiaChat, WorkspaceList, SessionList } from "@claudia/ui";
 import type { PlatformBridge } from "@claudia/ui";
 import "@claudia/ui/styles";
 
-// Gateway URL - connects directly to Claudia Gateway
-const GATEWAY_URL = "ws://localhost:30086/ws";
-
 // ── Hash Router ─────────────────────────────────────────────
 
 type Route =
@@ -45,23 +42,43 @@ function navigate(hash: string) {
   window.location.hash = hash;
 }
 
-// ── Platform Bridge ─────────────────────────────────────────
+// ── Gateway URL Discovery ───────────────────────────────────
 
-const webBridge: PlatformBridge = {
-  platform: "web",
-  gatewayUrl: GATEWAY_URL,
-  showContextBar: false,
-  includeFileContext: false,
+// Fallback for local dev — overridden by /api/config at runtime
+const DEFAULT_GATEWAY_URL = "ws://localhost:30086/ws";
 
-  saveDraft: (text) => localStorage.setItem("claudia-draft", text),
-  loadDraft: () => localStorage.getItem("claudia-draft") || "",
-  copyToClipboard: (text) => navigator.clipboard.writeText(text),
-};
+function makeBridge(gatewayUrl: string): PlatformBridge {
+  return {
+    platform: "web",
+    gatewayUrl,
+    showContextBar: false,
+    includeFileContext: false,
+    saveDraft: (text) => localStorage.setItem("claudia-draft", text),
+    loadDraft: () => localStorage.getItem("claudia-draft") || "",
+    copyToClipboard: (text) => navigator.clipboard.writeText(text),
+  };
+}
 
 // ── App ─────────────────────────────────────────────────────
 
 function App() {
   const route = useHashRoute();
+  const [gatewayUrl, setGatewayUrl] = useState<string | null>(null);
+
+  // Fetch gateway URL from server config on startup
+  useEffect(() => {
+    fetch("/api/config")
+      .then((res) => res.json())
+      .then((data) => {
+        const url = data.gatewayUrl || DEFAULT_GATEWAY_URL;
+        console.log(`[Config] Gateway URL: ${url}`);
+        setGatewayUrl(url);
+      })
+      .catch(() => {
+        console.warn("[Config] Failed to fetch /api/config, using default");
+        setGatewayUrl(DEFAULT_GATEWAY_URL);
+      });
+  }, []);
 
   const handleSelectWorkspace = useCallback((workspaceId: string) => {
     navigate(`#/workspace/${workspaceId}`);
@@ -71,7 +88,6 @@ function App() {
     navigate(`#/session/${sessionId}`);
   }, []);
 
-  // When a new workspace is created with its first session, go straight to chat
   const handleSessionReady = useCallback((sessionId: string) => {
     navigate(`#/session/${sessionId}`);
   }, []);
@@ -80,11 +96,22 @@ function App() {
     navigate("#/");
   }, []);
 
+  // Show loading while discovering gateway
+  if (!gatewayUrl) {
+    return (
+      <div className="flex items-center justify-center h-screen text-gray-400 text-sm">
+        Connecting to Claudia Gateway…
+      </div>
+    );
+  }
+
+  const bridge = makeBridge(gatewayUrl);
+
   switch (route.page) {
     case "workspaces":
       return (
         <WorkspaceList
-          gatewayUrl={GATEWAY_URL}
+          gatewayUrl={gatewayUrl}
           onSelectWorkspace={handleSelectWorkspace}
           onSessionReady={handleSessionReady}
         />
@@ -93,7 +120,7 @@ function App() {
     case "workspace":
       return (
         <SessionList
-          gatewayUrl={GATEWAY_URL}
+          gatewayUrl={gatewayUrl}
           workspaceId={route.workspaceId}
           onSelectSession={handleSelectSession}
           onBack={handleBack}
@@ -103,7 +130,7 @@ function App() {
     case "session":
       return (
         <ClaudiaChat
-          bridge={webBridge}
+          bridge={bridge}
           gatewayOptions={{ sessionId: route.sessionId }}
         />
       );

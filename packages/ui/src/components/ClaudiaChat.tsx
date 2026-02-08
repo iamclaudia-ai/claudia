@@ -71,6 +71,7 @@ function ChatInner({ gatewayOptions }: { gatewayOptions?: UseGatewayOptions }) {
         sessionRecordId={gateway.sessionRecordId}
         workspace={gateway.workspace}
         sessions={gateway.sessions}
+        sessionConfig={gateway.sessionConfig}
         onCreateSession={gateway.createNewSession}
         onSwitchSession={gateway.switchSession}
       />
