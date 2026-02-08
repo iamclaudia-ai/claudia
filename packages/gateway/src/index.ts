@@ -10,6 +10,7 @@ import type { Request, Response, Event, Message, GatewayEvent } from '@claudia/s
 export type { GatewayEvent };
 import { ClaudiaSession, createSession, resumeSession } from '@claudia/sdk';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { parseSessionFile, parseSessionUsage, resolveSessionPath } from './parse-session';
 import { join } from 'node:path';
 import { ExtensionManager } from './extensions';
 
@@ -309,6 +310,33 @@ async function handleSessionMethod(
           sendResponse(ws, req.id, { status: 'interrupted' });
         } else {
           sendError(ws, req.id, 'No active session');
+        }
+        break;
+      }
+
+      case 'history': {
+        // Return parsed conversation history from the session's JSONL file
+        const sessionId = session?.id || getSessionId();
+        if (!sessionId) {
+          sendResponse(ws, req.id, { messages: [], usage: null });
+          break;
+        }
+
+        const sessionPath = resolveSessionPath(sessionId);
+        if (!sessionPath) {
+          console.warn(`[Gateway] Session JSONL not found for: ${sessionId}`);
+          sendResponse(ws, req.id, { messages: [], usage: null });
+          break;
+        }
+
+        try {
+          const messages = parseSessionFile(sessionPath);
+          const usage = parseSessionUsage(sessionPath);
+          console.log(`[Gateway] Loaded ${messages.length} messages from history`);
+          sendResponse(ws, req.id, { messages, usage });
+        } catch (err) {
+          console.error('[Gateway] Failed to parse session history:', err);
+          sendResponse(ws, req.id, { messages: [], usage: null });
         }
         break;
       }

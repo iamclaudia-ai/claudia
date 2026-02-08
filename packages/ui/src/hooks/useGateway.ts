@@ -42,26 +42,31 @@ export function useGateway(gatewayUrl: string): UseGatewayReturn {
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const isQueryingRef = useRef(isQuerying);
+  const historyLoadedRef = useRef(false);
+  const pendingRequestsRef = useRef<Map<string, string>>(new Map()); // id -> method
 
   useEffect(() => {
     isQueryingRef.current = isQuerying;
   }, [isQuerying]);
 
-  // Auto-scroll to bottom
+  // Auto-scroll to bottom (instant for history load, smooth for streaming)
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    const behavior = historyLoadedRef.current ? "smooth" : "instant";
+    messagesEndRef.current?.scrollIntoView({ behavior });
   }, [messages]);
 
   // Send a request to the gateway
   const sendRequest = useCallback(
     (method: string, params?: Record<string, unknown>) => {
       if (!wsRef.current) return;
+      const id = generateId();
       const msg: GatewayMessage = {
         type: "req",
-        id: generateId(),
+        id,
         method,
         params,
       };
+      pendingRequestsRef.current.set(id, method);
       wsRef.current.send(JSON.stringify(msg));
     },
     [],
@@ -241,8 +246,32 @@ export function useGateway(gatewayUrl: string): UseGatewayReturn {
       if (msg.type === "res") {
         if (msg.ok && msg.payload) {
           const payload = msg.payload as Record<string, unknown>;
+
+          // Check what method this response is for
+          const method = msg.id ? pendingRequestsRef.current.get(msg.id) : undefined;
+          if (msg.id) pendingRequestsRef.current.delete(msg.id);
+
           if (payload.sessionId) {
             setSessionId(payload.sessionId as string);
+          }
+
+          // Handle session.history response
+          if (method === "session.history") {
+            const historyMessages = payload.messages as Message[] | undefined;
+            const historyUsage = payload.usage as Usage | undefined;
+
+            if (historyMessages && historyMessages.length > 0) {
+              setMessages(() => historyMessages);
+              setVisibleCount(50);
+              console.log(`[History] Loaded ${historyMessages.length} messages`);
+              // Delay marking loaded so initial scroll is instant
+              setTimeout(() => {
+                historyLoadedRef.current = true;
+              }, 100);
+            }
+            if (historyUsage) {
+              setUsage(historyUsage);
+            }
           }
         }
         return;
@@ -254,7 +283,7 @@ export function useGateway(gatewayUrl: string): UseGatewayReturn {
         handleStreamEvent(eventType, payload);
       }
     },
-    [handleStreamEvent],
+    [handleStreamEvent, setMessages],
   );
 
   // WebSocket connection
@@ -268,6 +297,7 @@ export function useGateway(gatewayUrl: string): UseGatewayReturn {
       sendRequest("subscribe", { events: ["session.*"] });
       sendRequest("session.config", { thinking: true, thinkingBudget: 10000 });
       sendRequest("session.info");
+      sendRequest("session.history");
     };
 
     ws.onclose = () => {
