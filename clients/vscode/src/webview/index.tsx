@@ -41,9 +41,10 @@ window.addEventListener("message", (event) => {
   }
 });
 
-// Read gateway URL injected by the extension
+// Read config injected by the extension via data-* attributes
 const gatewayUrl =
   document.documentElement.dataset.gatewayUrl || "ws://localhost:30086/ws";
+const workspaceCwd = document.documentElement.dataset.workspaceCwd || "";
 
 const vscodeBridge: PlatformBridge = {
   platform: "vscode",
@@ -92,7 +93,12 @@ const vscodeBridge: PlatformBridge = {
 // Notify extension we're ready
 vscode.postMessage({ type: "ready" });
 
+// Gateway options: auto-discover workspace by CWD
+const gatewayOptions = workspaceCwd
+  ? { autoDiscoverCwd: workspaceCwd }
+  : undefined;
+
 // Render
 createRoot(document.getElementById("root")!).render(
-  <ClaudiaChat bridge={vscodeBridge} />,
+  <ClaudiaChat bridge={vscodeBridge} gatewayOptions={gatewayOptions} />,
 );

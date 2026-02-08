@@ -4,6 +4,7 @@ import { BridgeContext, useBridge } from "../bridge";
 import type { PlatformBridge } from "../bridge";
 import type { Attachment } from "../types";
 import { useGateway } from "../hooks/useGateway";
+import type { UseGatewayOptions } from "../hooks/useGateway";
 import { Header } from "./Header";
 import { ContextBar } from "./ContextBar";
 import { MessageList } from "./MessageList";
@@ -12,19 +13,21 @@ import { ClaudiaThinking } from "./ClaudiaThinking";
 
 interface ClaudiaChatProps {
   bridge: PlatformBridge;
+  /** Gateway options (sessionId for web, autoDiscoverCwd for VS Code) */
+  gatewayOptions?: UseGatewayOptions;
 }
 
-export function ClaudiaChat({ bridge }: ClaudiaChatProps) {
+export function ClaudiaChat({ bridge, gatewayOptions }: ClaudiaChatProps) {
   return (
     <BridgeContext.Provider value={bridge}>
-      <ChatInner />
+      <ChatInner gatewayOptions={gatewayOptions} />
     </BridgeContext.Provider>
   );
 }
 
-function ChatInner() {
+function ChatInner({ gatewayOptions }: { gatewayOptions?: UseGatewayOptions }) {
   const bridge = useBridge();
-  const gateway = useGateway(bridge.gatewayUrl);
+  const gateway = useGateway(bridge.gatewayUrl, gatewayOptions);
 
   const [input, setInput] = useState(() => bridge.loadDraft());
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -65,6 +68,11 @@ function ChatInner() {
       <Header
         isConnected={gateway.isConnected}
         sessionId={gateway.sessionId}
+        sessionRecordId={gateway.sessionRecordId}
+        workspace={gateway.workspace}
+        sessions={gateway.sessions}
+        onCreateSession={gateway.createNewSession}
+        onSwitchSession={gateway.switchSession}
       />
 
       {bridge.showContextBar && <ContextBar context={editorContext} />}

@@ -21,6 +21,11 @@ export type {
 
 // Hooks
 export { useGateway } from "./hooks/useGateway";
+export type { UseGatewayOptions, UseGatewayReturn, WorkspaceInfo, SessionInfo } from "./hooks/useGateway";
+
+// Page components (for web client routing)
+export { WorkspaceList } from "./components/WorkspaceList";
+export { SessionList } from "./components/SessionList";
 
 // Components (for direct use if needed)
 export { Header } from "./components/Header";

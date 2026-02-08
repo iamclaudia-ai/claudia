@@ -2,11 +2,36 @@
  * Core types for Claudia
  */
 
-export interface Session {
+export interface SessionState {
   id: string;
   createdAt: Date;
   lastActiveAt: Date;
   status: 'idle' | 'thinking' | 'streaming' | 'error';
+}
+
+// ============================================================================
+// Workspace & Session Management
+// ============================================================================
+
+export interface Workspace {
+  id: string;              // TypeID: ws_<ulid>
+  name: string;
+  cwd: string;
+  activeSessionId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SessionRecord {
+  id: string;              // TypeID: ses_<ulid>
+  workspaceId: string;
+  ccSessionId: string;     // Claude Code UUID (for resume)
+  status: 'active' | 'archived';
+  title: string | null;
+  summary: string | null;
+  previousSessionId: string | null;
+  lastActivity: string;
+  createdAt: string;
 }
 
 export interface Extension {

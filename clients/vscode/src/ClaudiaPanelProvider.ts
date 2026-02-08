@@ -222,8 +222,11 @@ export class ClaudiaPanelProvider {
       `img-src ${webview.cspSource} data:`,
     ].join('; ');
 
+    // Get workspace CWD for auto-discover mode
+    const workspaceCwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
+
     return /* html */ `<!DOCTYPE html>
-<html lang="en" data-platform="vscode" data-gateway-url="${gatewayUrl}">
+<html lang="en" data-platform="vscode" data-gateway-url="${gatewayUrl}" data-workspace-cwd="${workspaceCwd}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">

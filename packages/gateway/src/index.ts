@@ -8,15 +8,14 @@
 import type { ServerWebSocket } from 'bun';
 import type { Request, Response, Event, Message, GatewayEvent } from '@claudia/shared';
 export type { GatewayEvent };
-import { ClaudiaSession, createSession, resumeSession } from '@claudia/sdk';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { parseSessionFile, parseSessionUsage, resolveSessionPath } from './parse-session';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { ExtensionManager } from './extensions';
+import { getDb, closeDb } from './db/index';
+import { SessionManager } from './session-manager';
 
 const PORT = process.env.CLAUDIA_PORT ? parseInt(process.env.CLAUDIA_PORT) : 30086;
 const DATA_DIR = process.env.CLAUDIA_DATA_DIR || join(import.meta.dir, '../../../.claudia');
-const SESSION_FILE = join(DATA_DIR, '.session-id');
 
 // Ensure data directory exists
 if (!existsSync(DATA_DIR)) {
@@ -32,19 +31,23 @@ interface ClientState {
 // Client connections
 const clients = new Map<ServerWebSocket<ClientState>, ClientState>();
 
-// The main session (singleton for now - KISS!)
-let session: ClaudiaSession | null = null;
-
-// Track per-request state
-let currentRequestWantsVoice = false;
-let currentRequestSource: string | null = null;
-let currentResponseText = ''; // Accumulate response text for source routing
-
-// Session config (can be set before first prompt)
-let pendingSessionConfig: { thinking?: boolean; thinkingBudget?: number } = {};
-
 // Extension manager
 const extensions = new ExtensionManager();
+
+// Initialize database
+const db = getDb();
+
+// Session manager (replaces old singleton session)
+const sessionManager = new SessionManager({
+  db,
+  dataDir: DATA_DIR,
+  broadcastEvent,
+  broadcastExtension: (event) => extensions.broadcast(event),
+  routeToSource: (source, event) => extensions.routeToSource(source, event),
+});
+
+// Migrate legacy .session-id file if present
+await sessionManager.migrateLegacySession();
 
 // Wire up extension event emitting to broadcast
 extensions.setEmitCallback(async (type, payload, source) => {
@@ -53,13 +56,12 @@ extensions.setEmitCallback(async (type, payload, source) => {
   // Handle prompt requests from extensions (e.g., iMessage)
   if (type.endsWith('.prompt_request')) {
     const req = payload as {
-      content: string | unknown[];  // String for text-only, array for multimodal
+      content: string | unknown[];
       source?: string;
       metadata?: Record<string, unknown>;
     };
 
     if (req.content) {
-      // Log differently based on content type
       const isMultimodal = Array.isArray(req.content);
       const preview = isMultimodal
         ? `[${req.content.length} content blocks]`
@@ -67,134 +69,18 @@ extensions.setEmitCallback(async (type, payload, source) => {
       console.log(`[Gateway] Prompt request from ${source}: ${preview}`);
 
       // Set request context for routing
-      currentRequestWantsVoice = false; // Extensions don't get voice by default
-      currentRequestSource = req.source || null;
-      currentResponseText = '';
+      sessionManager.currentRequestWantsVoice = false;
+      sessionManager.currentRequestSource = req.source || null;
+      sessionManager.currentResponseText = '';
 
-      // Ensure session is initialized and send prompt
-      // SDK accepts both string and array of content blocks
-      const s = await initSession();
-      s.prompt(req.content as string | unknown[]);
+      // Send prompt through session manager
+      await sessionManager.prompt(req.content as string | unknown[]);
     }
   }
 });
 
 // Generate unique IDs
 const generateId = () => crypto.randomUUID();
-
-/**
- * Get or create the session ID from file
- */
-function getSessionId(): string | null {
-  if (existsSync(SESSION_FILE)) {
-    return readFileSync(SESSION_FILE, 'utf-8').trim();
-  }
-  return null;
-}
-
-/**
- * Save session ID to file
- */
-function saveSessionId(sessionId: string): void {
-  writeFileSync(SESSION_FILE, sessionId);
-}
-
-/**
- * Initialize or resume the main session
- */
-async function initSession(): Promise<ClaudiaSession> {
-  if (session?.isActive) {
-    return session;
-  }
-
-  const existingId = getSessionId();
-
-  if (existingId) {
-    console.log(`Resuming session: ${existingId}`);
-    session = await resumeSession(existingId);
-  } else {
-    // Use pending config if set, otherwise fall back to env vars
-    const thinking = pendingSessionConfig.thinking ?? (process.env.CLAUDIA_THINKING === 'true');
-    const thinkingBudget = pendingSessionConfig.thinkingBudget ??
-      (process.env.CLAUDIA_THINKING_BUDGET ? parseInt(process.env.CLAUDIA_THINKING_BUDGET) : undefined);
-
-    console.log(`Creating new session (thinking: ${thinking})...`);
-    session = await createSession({
-      systemPrompt: process.env.CLAUDIA_SYSTEM_PROMPT,
-      thinking,
-      thinkingBudget,
-    });
-    saveSessionId(session.id);
-    console.log(`Created session: ${session.id}`);
-
-    // Clear pending config
-    pendingSessionConfig = {};
-  }
-
-  // Wire up SSE event forwarding
-  session.on('sse', (event) => {
-    // Map SSE events to our event format
-    const eventName = `session.${event.type}`;
-    const payload = {
-      sessionId: session!.id,
-      source: currentRequestSource,
-      ...event,
-    };
-
-    // Accumulate text from content deltas for source routing
-    if (event.type === 'content_block_start') {
-      // Reset text buffer when a new text block starts
-      const block = (event as Record<string, unknown>).content_block as { type: string } | undefined;
-      if (block?.type === 'text') {
-        currentResponseText = '';
-      }
-    } else if (event.type === 'content_block_delta') {
-      // Accumulate text deltas
-      const delta = (event as Record<string, unknown>).delta as { type: string; text?: string } | undefined;
-      if (delta?.type === 'text_delta' && delta.text) {
-        currentResponseText += delta.text;
-      }
-    }
-
-    // Broadcast to WebSocket clients
-    broadcastEvent(eventName, payload, 'session');
-
-    // Build gateway event for extensions
-    const gatewayEvent: GatewayEvent = {
-      type: eventName,
-      payload: {
-        ...payload,
-        speakResponse: currentRequestWantsVoice,
-        // Include accumulated response text for source routing
-        responseText: event.type === 'message_stop' ? currentResponseText : undefined,
-      },
-      timestamp: Date.now(),
-      origin: 'session',
-      source: currentRequestSource || undefined,
-      sessionId: session!.id,
-    };
-
-    // Broadcast to extensions (for voice, etc.)
-    extensions.broadcast(gatewayEvent);
-
-    // On message complete, also route to source if applicable
-    if (event.type === 'message_stop' && currentRequestSource) {
-      extensions.routeToSource(currentRequestSource, gatewayEvent);
-      // Reset for next request
-      currentResponseText = '';
-    }
-  });
-
-  session.on('process_started', () => {
-    broadcastEvent('session.process_started', { sessionId: session!.id }, 'session');
-  });
-
-  session.on('process_ended', () => {
-    broadcastEvent('session.process_ended', { sessionId: session!.id }, 'session');
-  });
-
-  return session;
-}
 
 /**
  * Handle incoming WebSocket messages
@@ -222,6 +108,9 @@ function handleRequest(ws: ServerWebSocket<ClientState>, req: Request): void {
     case 'session':
       handleSessionMethod(ws, req, action);
       break;
+    case 'workspace':
+      handleWorkspaceMethod(ws, req, action);
+      break;
     case 'subscribe':
       handleSubscribe(ws, req);
       break;
@@ -239,6 +128,58 @@ function handleRequest(ws: ServerWebSocket<ClientState>, req: Request): void {
 }
 
 /**
+ * Handle workspace methods
+ */
+async function handleWorkspaceMethod(
+  ws: ServerWebSocket<ClientState>,
+  req: Request,
+  action: string
+): Promise<void> {
+  try {
+    switch (action) {
+      case 'list': {
+        const workspaces = sessionManager.listWorkspaces();
+        sendResponse(ws, req.id, { workspaces });
+        break;
+      }
+
+      case 'get': {
+        const workspaceId = req.params?.workspaceId as string;
+        if (!workspaceId) {
+          sendError(ws, req.id, 'Missing workspaceId parameter');
+          return;
+        }
+        const workspace = sessionManager.getWorkspace(workspaceId);
+        if (!workspace) {
+          sendError(ws, req.id, `Workspace not found: ${workspaceId}`);
+          return;
+        }
+        sendResponse(ws, req.id, { workspace });
+        break;
+      }
+
+      case 'getOrCreate': {
+        const cwd = req.params?.cwd as string;
+        if (!cwd) {
+          sendError(ws, req.id, 'Missing cwd parameter — workspace.getOrCreate requires an explicit CWD');
+          return;
+        }
+        const name = req.params?.name as string | undefined;
+        const result = sessionManager.getOrCreateWorkspace(cwd, name);
+        sendResponse(ws, req.id, result);
+        break;
+      }
+
+      default:
+        sendError(ws, req.id, `Unknown workspace action: ${action}`);
+    }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    sendError(ws, req.id, errorMessage);
+  }
+}
+
+/**
  * Handle session methods
  */
 async function handleSessionMethod(
@@ -249,27 +190,21 @@ async function handleSessionMethod(
   try {
     switch (action) {
       case 'info': {
-        const s = session;
-        sendResponse(ws, req.id, {
-          sessionId: s?.id || null,
-          isActive: s?.isActive || false,
-          isProcessRunning: s?.isProcessRunning || false,
-          pendingConfig: !session ? pendingSessionConfig : undefined,
-        });
+        sendResponse(ws, req.id, sessionManager.getInfo());
         break;
       }
 
       case 'config': {
         // Set session config before first prompt
-        // This only affects NEW sessions - ignored if session already exists
+        const { session } = sessionManager.getCurrentSession();
         if (!session) {
           if (req.params?.thinking !== undefined) {
-            pendingSessionConfig.thinking = req.params.thinking as boolean;
+            sessionManager.pendingSessionConfig.thinking = req.params.thinking as boolean;
           }
           if (req.params?.thinkingBudget !== undefined) {
-            pendingSessionConfig.thinkingBudget = req.params.thinkingBudget as number;
+            sessionManager.pendingSessionConfig.thinkingBudget = req.params.thinkingBudget as number;
           }
-          sendResponse(ws, req.id, { status: 'ok', pending: pendingSessionConfig });
+          sendResponse(ws, req.id, { status: 'ok', pending: sessionManager.pendingSessionConfig });
         } else {
           sendResponse(ws, req.id, {
             status: 'ignored',
@@ -287,26 +222,29 @@ async function handleSessionMethod(
         }
 
         // Track request metadata for routing
-        currentRequestWantsVoice = req.params?.speakResponse === true;
-        currentRequestSource = (req.params?.source as string) || null;
+        sessionManager.currentRequestWantsVoice = req.params?.speakResponse === true;
+        sessionManager.currentRequestSource = (req.params?.source as string) || null;
 
         // If thinking is specified and no session exists yet, set pending config
+        const { session } = sessionManager.getCurrentSession();
         if (!session && req.params?.thinking !== undefined) {
-          pendingSessionConfig.thinking = req.params.thinking as boolean;
+          sessionManager.pendingSessionConfig.thinking = req.params.thinking as boolean;
         }
 
-        // Ensure session is initialized
-        const s = await initSession();
-
-        // Send prompt (non-blocking - events will stream back)
-        s.prompt(content);
-        sendResponse(ws, req.id, { status: 'ok', sessionId: s.id, source: currentRequestSource });
+        // Send prompt through session manager
+        // Web clients pass sessionId (ses_...) to target a specific session
+        const targetSessionId = req.params?.sessionId as string | undefined;
+        const s = await sessionManager.prompt(content, targetSessionId);
+        sendResponse(ws, req.id, {
+          status: 'ok',
+          sessionId: s.id,
+          source: sessionManager.currentRequestSource,
+        });
         break;
       }
 
       case 'interrupt': {
-        if (session) {
-          session.interrupt();
+        if (sessionManager.interrupt()) {
           sendResponse(ws, req.id, { status: 'interrupted' });
         } else {
           sendError(ws, req.id, 'No active session');
@@ -314,42 +252,61 @@ async function handleSessionMethod(
         break;
       }
 
+      case 'get': {
+        const getSessionId = req.params?.sessionId as string;
+        if (!getSessionId) {
+          sendError(ws, req.id, 'Missing sessionId parameter');
+          return;
+        }
+        const sessionRecord = sessionManager.getSession(getSessionId);
+        if (!sessionRecord) {
+          sendError(ws, req.id, `Session not found: ${getSessionId}`);
+          return;
+        }
+        sendResponse(ws, req.id, { session: sessionRecord });
+        break;
+      }
+
       case 'history': {
-        // Return parsed conversation history from the session's JSONL file
-        const sessionId = session?.id || getSessionId();
+        // Accept explicit session ID (ses_...) for web client,
+        // or fall back to current session for VS Code auto-discover
+        const historySessionId = req.params?.sessionId as string | undefined;
+        const result = sessionManager.getSessionHistory(historySessionId);
+        sendResponse(ws, req.id, result);
+        break;
+      }
+
+      case 'list': {
+        const workspaceId = req.params?.workspaceId as string | undefined;
+        const sessions = sessionManager.listSessions(workspaceId);
+        sendResponse(ws, req.id, { sessions });
+        break;
+      }
+
+      case 'create': {
+        const workspaceId = req.params?.workspaceId as string | undefined;
+        const title = req.params?.title as string | undefined;
+        const result = await sessionManager.createNewSession(workspaceId, title);
+        sendResponse(ws, req.id, result);
+        break;
+      }
+
+      case 'switch': {
+        const sessionId = req.params?.sessionId as string;
         if (!sessionId) {
-          sendResponse(ws, req.id, { messages: [], usage: null });
-          break;
+          sendError(ws, req.id, 'Missing sessionId parameter');
+          return;
         }
-
-        const sessionPath = resolveSessionPath(sessionId);
-        if (!sessionPath) {
-          console.warn(`[Gateway] Session JSONL not found for: ${sessionId}`);
-          sendResponse(ws, req.id, { messages: [], usage: null });
-          break;
-        }
-
-        try {
-          const messages = parseSessionFile(sessionPath);
-          const usage = parseSessionUsage(sessionPath);
-          console.log(`[Gateway] Loaded ${messages.length} messages from history`);
-          sendResponse(ws, req.id, { messages, usage });
-        } catch (err) {
-          console.error('[Gateway] Failed to parse session history:', err);
-          sendResponse(ws, req.id, { messages: [], usage: null });
-        }
+        const sessionRecord = await sessionManager.switchSession(sessionId);
+        sendResponse(ws, req.id, { session: sessionRecord });
         break;
       }
 
       case 'reset': {
-        // Close existing session and remove session file
-        if (session) {
-          await session.close();
-          session = null;
-        }
-        if (existsSync(SESSION_FILE)) {
-          await Bun.write(SESSION_FILE, ''); // Clear file
-          require('node:fs').unlinkSync(SESSION_FILE);
+        // Archive current session and create a new one
+        const workspace = sessionManager.getCurrentWorkspace();
+        if (workspace) {
+          await sessionManager.createNewSession(workspace.id);
         }
         sendResponse(ws, req.id, { status: 'reset' });
         break;
@@ -452,12 +409,14 @@ const server = Bun.serve<ClientState>({
 
     // Health check endpoint
     if (url.pathname === '/health') {
+      const info = sessionManager.getInfo();
       return new globalThis.Response(
         JSON.stringify({
           status: 'ok',
           clients: clients.size,
-          session: session
-            ? { id: session.id, active: session.isActive, running: session.isProcessRunning }
+          workspace: sessionManager.getCurrentWorkspace(),
+          session: info.sessionId
+            ? { id: info.sessionId, active: info.isActive, running: info.isProcessRunning }
             : null,
           extensions: extensions.getHealth(),
           sourceRoutes: extensions.getSourceRoutes(),
@@ -511,11 +470,10 @@ console.log(`
 // Graceful shutdown
 process.on('SIGINT', async () => {
   console.log('\nShutting down...');
-  if (session) {
-    await session.close();
-  }
+  await sessionManager.close();
+  closeDb();
   server.stop();
   process.exit(0);
 });
 
-export { server, broadcastEvent, extensions };
+export { server, broadcastEvent, extensions, sessionManager };

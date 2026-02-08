@@ -105,9 +105,10 @@
     ]
   },
   "scripts": {
-    "vscode:prepublish": "npm run compile",
+    "vscode:prepublish": "npm run build",
+    "build": "tsc -p ./ && bun run build-webview.ts",
     "build:webview": "bun run build-webview.ts",
-    "compile": "tsc -p ./ && npm run build:webview",
+    "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "package": "vsce package",
     "lint": "eslint src --ext ts"
