@@ -13,12 +13,15 @@ export class ClaudiaPanelProvider {
   private _onDidDisposeEmitter = new vscode.EventEmitter<void>();
   public readonly onDidDispose = this._onDidDisposeEmitter.event;
 
-  constructor(extensionUri: vscode.Uri) {
+  private _onDidChangeViewColumnEmitter = new vscode.EventEmitter<number>();
+  public readonly onDidChangeViewColumn = this._onDidChangeViewColumnEmitter.event;
+
+  constructor(extensionUri: vscode.Uri, viewColumn: vscode.ViewColumn = vscode.ViewColumn.Beside) {
     // Create the webview panel
     this._panel = vscode.window.createWebviewPanel(
       ClaudiaPanelProvider.viewType,
       '💙 Claudia',
-      vscode.ViewColumn.Beside, // Open beside the current editor
+      viewColumn,
       {
         enableScripts: true,
         retainContextWhenHidden: true,
@@ -26,8 +29,11 @@ export class ClaudiaPanelProvider {
       }
     );
 
-    // Set icon for the tab
-    this._panel.iconPath = vscode.Uri.joinPath(extensionUri, 'resources', 'icon.svg');
+    // Set icon for the tab (blue heart)
+    this._panel.iconPath = {
+      light: vscode.Uri.joinPath(extensionUri, 'resources', 'icon-light.svg'),
+      dark: vscode.Uri.joinPath(extensionUri, 'resources', 'icon-dark.svg'),
+    };
 
     // Set the HTML content
     this._panel.webview.html = this._getHtmlContent();
@@ -42,6 +48,17 @@ export class ClaudiaPanelProvider {
     // Handle panel disposal
     this._panel.onDidDispose(
       () => this._dispose(),
+      null,
+      this._disposables
+    );
+
+    // Track viewColumn changes (when user drags panel to different group)
+    this._panel.onDidChangeViewState(
+      (e) => {
+        if (e.webviewPanel.viewColumn) {
+          this._onDidChangeViewColumnEmitter.fire(e.webviewPanel.viewColumn);
+        }
+      },
       null,
       this._disposables
     );
@@ -163,6 +180,7 @@ export class ClaudiaPanelProvider {
   private _dispose() {
     this._onDidDisposeEmitter.fire();
     this._onDidDisposeEmitter.dispose();
+    this._onDidChangeViewColumnEmitter.dispose();
 
     while (this._disposables.length) {
       const disposable = this._disposables.pop();
