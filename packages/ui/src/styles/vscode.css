@@ -1,0 +1,67 @@
+/**
+ * VS Code theme variable mappings
+ *
+ * When the UI runs inside a VS Code webview, the webview provides
+ * CSS variables for the current editor theme. This file maps those
+ * to our Tailwind custom properties so the same components render
+ * with VS Code-appropriate colors.
+ *
+ * Usage: Set <html data-platform="vscode"> on the webview root.
+ */
+
+[data-platform="vscode"] {
+  /* Core colors */
+  --color-background: var(--vscode-editor-background);
+  --color-foreground: var(--vscode-foreground);
+
+  /* Fonts */
+  --font-sans: var(--vscode-font-family);
+  --font-mono: var(--vscode-editor-font-family);
+
+  /* Override body directly */
+  background: var(--vscode-editor-background);
+  color: var(--vscode-foreground);
+}
+
+/* VS Code-specific overrides */
+[data-platform="vscode"] .border-gray-200 {
+  border-color: var(--vscode-panel-border);
+}
+
+[data-platform="vscode"] .bg-gray-50 {
+  background-color: var(--vscode-sideBar-background);
+}
+
+[data-platform="vscode"] .bg-gray-100 {
+  background-color: var(--vscode-editor-inactiveSelectionBackground);
+}
+
+[data-platform="vscode"] .text-gray-500 {
+  color: var(--vscode-descriptionForeground);
+}
+
+[data-platform="vscode"] .text-gray-400 {
+  color: var(--vscode-descriptionForeground);
+}
+
+[data-platform="vscode"] textarea {
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  border-color: var(--vscode-input-border);
+}
+
+[data-platform="vscode"] textarea:focus {
+  border-color: var(--vscode-focusBorder);
+}
+
+[data-platform="vscode"] textarea::placeholder {
+  color: var(--vscode-input-placeholderForeground);
+}
+
+[data-platform="vscode"] .bg-blue-500 {
+  background-color: var(--vscode-button-background);
+}
+
+[data-platform="vscode"] .bg-blue-500:hover {
+  background-color: var(--vscode-button-hoverBackground);
+}

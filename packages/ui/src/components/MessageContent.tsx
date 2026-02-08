@@ -5,18 +5,19 @@ import rehypeRaw from "rehype-raw";
 import remarkGfm from "remark-gfm";
 import remend from "remend";
 import { ChevronDown, ChevronUp, Brain, Copy, Check, Loader2 } from "lucide-react";
+import { useBridge } from "../bridge";
 
 interface MessageContentProps {
   content: string;
   type: "user" | "assistant" | "thinking";
-  isLoading?: boolean; // For thinking blocks - show spinner while streaming
+  isLoading?: boolean;
 }
 
 // Code block with copy button
 function CodeBlock({ children, className, ...props }: any) {
   const [copied, setCopied] = useState(false);
+  const bridge = useBridge();
 
-  // Extract text content from children
   const getCodeText = (node: any): string => {
     if (typeof node === "string") return node;
     if (Array.isArray(node)) return node.map(getCodeText).join("");
@@ -27,16 +28,14 @@ function CodeBlock({ children, className, ...props }: any) {
   const codeText = getCodeText(children);
 
   const handleCopy = useCallback(() => {
-    navigator.clipboard.writeText(codeText);
+    bridge.copyToClipboard(codeText);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
-  }, [codeText]);
+  }, [codeText, bridge]);
 
-  // Check if this is a code block (has language class) vs inline code
   const isBlock = className?.includes("language-") || className?.includes("hljs");
 
   if (!isBlock) {
-    // Inline code - no copy button
     return <code className={className} {...props}>{children}</code>;
   }
 
@@ -58,7 +57,6 @@ function CodeBlock({ children, className, ...props }: any) {
   );
 }
 
-// Custom pre wrapper to work with CodeBlock
 function PreBlock({ children, ...props }: any) {
   return <pre {...props}>{children}</pre>;
 }
@@ -68,10 +66,13 @@ const markdownComponents = {
   pre: PreBlock,
 };
 
-export const MessageContent = memo(function MessageContent({ content, type, isLoading }: MessageContentProps) {
+export const MessageContent = memo(function MessageContent({
+  content,
+  type,
+  isLoading,
+}: MessageContentProps) {
   const [isExpanded, setIsExpanded] = useState(false);
 
-  // Fix partial markdown from streaming
   const markdown = remend(content);
 
   if (type === "user") {
@@ -91,7 +92,6 @@ export const MessageContent = memo(function MessageContent({ content, type, isLo
   if (type === "thinking") {
     return (
       <div className="mb-2 border border-gray-200 rounded-lg overflow-hidden bg-gray-50">
-        {/* Collapsed header */}
         <button
           onClick={() => setIsExpanded(!isExpanded)}
           className="w-full flex items-center gap-2 px-3 py-2 bg-gray-100 hover:bg-gray-200 transition-colors text-left"
@@ -101,7 +101,9 @@ export const MessageContent = memo(function MessageContent({ content, type, isLo
           ) : (
             <Brain className="w-4 h-4 text-gray-400" />
           )}
-          <span className="text-sm text-gray-500 italic flex-1">thinking...</span>
+          <span className="text-sm text-gray-500 italic flex-1">
+            thinking...
+          </span>
           {isLoading ? null : isExpanded ? (
             <ChevronUp className="w-4 h-4 text-gray-400" />
           ) : (
@@ -109,7 +111,6 @@ export const MessageContent = memo(function MessageContent({ content, type, isLo
           )}
         </button>
 
-        {/* Expanded content */}
         {isExpanded && (
           <div className="prose font-serif text-gray-500 italic px-4 py-2">
             <ReactMarkdown

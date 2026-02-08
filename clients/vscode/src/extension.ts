@@ -5,13 +5,15 @@ import { getEditorContext } from './context';
 let claudiaPanel: ClaudiaPanelProvider | undefined;
 
 // Local settings file (gitignored via *.local.json pattern)
-const LOCAL_SETTINGS_FILE = '.vscode/claudia.local.json';
+const LOCAL_SETTINGS_FILE = '.vscode/settings.local.json';
 
 interface LocalSettings {
-  claudiaViewColumn?: number;
+  [key: string]: unknown;
+  'claudia.openOnStartup'?: boolean;
+  'claudia.viewColumn'?: number;
 }
 
-// Read local settings from .vscode/claudia.local.json
+// Read local settings from .vscode/settings.local.json
 async function getLocalSettings(): Promise<LocalSettings> {
   const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
   if (!workspaceFolder) return {};
@@ -25,8 +27,8 @@ async function getLocalSettings(): Promise<LocalSettings> {
   }
 }
 
-// Save local settings to .vscode/claudia.local.json
-async function saveLocalSettings(settings: LocalSettings): Promise<void> {
+// Save a key to .vscode/settings.local.json (merges with existing)
+async function saveLocalSetting(key: string, value: unknown): Promise<void> {
   const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
   if (!workspaceFolder) return;
 
@@ -39,8 +41,11 @@ async function saveLocalSettings(settings: LocalSettings): Promise<void> {
       await vscode.workspace.fs.createDirectory(vscodeDir);
     }
 
+    const current = await getLocalSettings();
+    current[key] = value;
+
     const uri = vscode.Uri.joinPath(workspaceFolder.uri, LOCAL_SETTINGS_FILE);
-    const data = Buffer.from(JSON.stringify(settings, null, 2));
+    const data = Buffer.from(JSON.stringify(current, null, 2));
     await vscode.workspace.fs.writeFile(uri, data);
   } catch (error) {
     console.error('Failed to save Claudia local settings:', error);
@@ -59,15 +64,14 @@ export function activate(context: vscode.ExtensionContext) {
         // Use saved viewColumn, provided viewColumn, or default to Beside
         const settings = await getLocalSettings();
         const viewColumn = targetViewColumn
-          ?? (settings.claudiaViewColumn as vscode.ViewColumn)
+          ?? (settings['claudia.viewColumn'] as vscode.ViewColumn)
           ?? vscode.ViewColumn.Beside;
 
         claudiaPanel = new ClaudiaPanelProvider(context.extensionUri, viewColumn);
 
         // Track when panel's viewColumn changes - save to local settings
         claudiaPanel.onDidChangeViewColumn(async (newColumn) => {
-          const current = await getLocalSettings();
-          await saveLocalSettings({ ...current, claudiaViewColumn: newColumn });
+          await saveLocalSetting('claudia.viewColumn', newColumn);
         });
 
         claudiaPanel.onDidDispose(() => {
@@ -167,16 +171,17 @@ export function activate(context: vscode.ExtensionContext) {
     })
   );
 
-  // Auto-open on startup if configured
-  const config = vscode.workspace.getConfiguration('claudia');
-  if (config.get<boolean>('openOnStartup', false)) {
-    // Wait for VS Code to fully initialize, then restore Claudia in saved position
-    setTimeout(async () => {
-      const settings = await getLocalSettings();
-      console.log('Claudia auto-open: settings =', settings);
-      vscode.commands.executeCommand('claudia.openChat', settings.claudiaViewColumn);
-    }, 1500);
-  }
+  // Auto-open on startup if configured via .vscode/settings.local.json
+  (async () => {
+    const settings = await getLocalSettings();
+    if (settings['claudia.openOnStartup'] === true) {
+      // Wait for VS Code to fully initialize, then restore Claudia in saved position
+      setTimeout(() => {
+        console.log('Claudia auto-open: viewColumn =', settings['claudia.viewColumn']);
+        vscode.commands.executeCommand('claudia.openChat', settings['claudia.viewColumn']);
+      }, 1500);
+    }
+  })();
 }
 
 export function deactivate() {

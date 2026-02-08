@@ -84,11 +84,6 @@
           "default": "ws://localhost:30086/ws",
           "description": "Claudia Gateway WebSocket URL"
         },
-        "claudia.webUiUrl": {
-          "type": "string",
-          "default": "http://localhost:3034",
-          "description": "Claudia Web UI URL (for iframe mode)"
-        },
         "claudia.includeFileContext": {
           "type": "boolean",
           "default": true,
@@ -97,7 +92,7 @@
         "claudia.openOnStartup": {
           "type": "boolean",
           "default": false,
-          "description": "Automatically open Claudia panel when VS Code starts"
+          "description": "Automatically open Claudia panel when VS Code starts (prefer .vscode/settings.local.json)"
         }
       }
     },
@@ -111,20 +106,28 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
-    "compile": "tsc -p ./",
+    "build:webview": "bun run build-webview.ts",
+    "compile": "tsc -p ./ && npm run build:webview",
     "watch": "tsc -watch -p ./",
     "package": "vsce package",
     "lint": "eslint src --ext ts"
   },
   "devDependencies": {
     "@types/node": "^20.x",
+    "@types/react": "^19.2.9",
+    "@types/react-dom": "^19.2.3",
     "@types/vscode": "^1.85.0",
     "@typescript-eslint/eslint-plugin": "^6.x",
     "@typescript-eslint/parser": "^6.x",
+    "bun-plugin-tailwind": "0.1.2",
     "eslint": "^8.x",
+    "tailwindcss": "4.1.18",
     "typescript": "^5.x"
   },
   "dependencies": {
+    "@claudia/ui": "workspace:*",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3",
     "ws": "^8.x"
   }
 }

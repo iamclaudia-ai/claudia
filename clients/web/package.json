@@ -17,17 +17,8 @@
   },
   "dependencies": {
     "@claudia/shared": "workspace:*",
-    "@headlessui/react": "^2.2.9",
-    "highlight.js": "^11.11.1",
-    "immer": "^11.1.3",
-    "lucide-react": "^0.563.0",
+    "@claudia/ui": "workspace:*",
     "react": "^19.2.3",
-    "react-dom": "^19.2.3",
-    "react-markdown": "^10.1.0",
-    "rehype-highlight": "^7.0.2",
-    "rehype-raw": "^7.0.0",
-    "remark-gfm": "^4.0.1",
-    "remend": "^1.1.0",
-    "use-immer": "^0.11.0"
+    "react-dom": "^19.2.3"
   }
 }
