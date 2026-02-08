@@ -266,6 +266,7 @@ export function useGateway(gatewayUrl: string): UseGatewayReturn {
       console.log("Connected to Claudia Gateway");
       setIsConnected(true);
       sendRequest("subscribe", { events: ["session.*"] });
+      sendRequest("session.config", { thinking: true, thinkingBudget: 10000 });
       sendRequest("session.info");
     };
 

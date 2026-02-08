@@ -1,5 +1,19 @@
-import { useState, memo } from "react";
-import { ChevronDown, ChevronUp, Loader2, Check, X } from "lucide-react";
+import { memo } from "react";
+import { CollapsibleTool } from "./tools/CollapsibleTool";
+import { ToolHeader } from "./tools/utils";
+import BashTool from "./tools/BashTool";
+import ReadTool from "./tools/ReadTool";
+import WriteTool from "./tools/WriteTool";
+import EditTool from "./tools/EditTool";
+import GlobTool from "./tools/GlobTool";
+import GrepTool from "./tools/GrepTool";
+import WebFetchTool from "./tools/WebFetchTool";
+import WebSearchTool from "./tools/WebSearchTool";
+import TaskTool from "./tools/TaskTool";
+import TodoWriteTool from "./tools/TodoWriteTool";
+import SkillTool from "./tools/SkillTool";
+import NotebookEditTool from "./tools/NotebookEditTool";
+import KillShellTool from "./tools/KillShellTool";
 
 interface ToolCallBlockProps {
   name: string;
@@ -11,18 +25,13 @@ interface ToolCallBlockProps {
   isLoading?: boolean;
 }
 
-function formatInput(input: string): string {
+/** Parse the JSON input string, returning null on failure */
+function parseInput(input: string): Record<string, unknown> | null {
   try {
-    const parsed = JSON.parse(input);
-    return JSON.stringify(parsed, null, 2);
+    return JSON.parse(input);
   } catch {
-    return input;
+    return null;
   }
-}
-
-function truncate(str: string, maxLength: number = 500): string {
-  if (str.length <= maxLength) return str;
-  return str.slice(0, maxLength) + "...";
 }
 
 export const ToolCallBlock = memo(function ToolCallBlock({
@@ -31,78 +40,60 @@ export const ToolCallBlock = memo(function ToolCallBlock({
   result,
   isLoading,
 }: ToolCallBlockProps) {
-  const [isExpanded, setIsExpanded] = useState(false);
-  const formattedInput = formatInput(input);
+  const parsedInput = parseInput(input);
+  const isError = result?.is_error;
 
-  const StatusIcon = () => {
-    if (isLoading) {
-      return <Loader2 className="w-4 h-4 text-blue-500 animate-spin" />;
+  const toolProps = { name, parsedInput, result, isLoading, isError };
+
+  switch (name) {
+    case "Bash":
+    case "BashOutput":
+      return <BashTool {...toolProps} />;
+    case "Read":
+      return <ReadTool {...toolProps} />;
+    case "Write":
+      return <WriteTool {...toolProps} />;
+    case "Edit":
+      return <EditTool {...toolProps} />;
+    case "Glob":
+      return <GlobTool {...toolProps} />;
+    case "Grep":
+      return <GrepTool {...toolProps} />;
+    case "WebFetch":
+      return <WebFetchTool {...toolProps} />;
+    case "WebSearch":
+      return <WebSearchTool {...toolProps} />;
+    case "Task":
+      return <TaskTool {...toolProps} />;
+    case "TodoWrite":
+      return <TodoWriteTool {...toolProps} />;
+    case "Skill":
+      return <SkillTool {...toolProps} />;
+    case "NotebookEdit":
+      return <NotebookEditTool {...toolProps} />;
+    case "KillShell":
+      return <KillShellTool {...toolProps} />;
+
+    default: {
+      // Fallback for unknown tools — show raw JSON
+      const collapsedContent = (
+        <ToolHeader toolName={name} label={name} />
+      );
+
+      const expandedContent = input ? (
+        <pre className="overflow-x-auto rounded bg-neutral-50 px-2 py-1.5 font-mono text-sm whitespace-pre-wrap text-neutral-700">
+          {JSON.stringify(parsedInput, null, 2) || input}
+        </pre>
+      ) : null;
+
+      return (
+        <CollapsibleTool
+          collapsedContent={collapsedContent}
+          expandedContent={expandedContent}
+          isLoading={isLoading}
+          toolName={name}
+        />
+      );
     }
-    if (result?.is_error) {
-      return <X className="w-4 h-4 text-red-500" />;
-    }
-    if (result) {
-      return <Check className="w-4 h-4 text-green-500" />;
-    }
-    return null;
-  };
-
-  return (
-    <div className="my-3 border border-gray-200 rounded-lg overflow-hidden bg-gray-50">
-      <button
-        onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full flex items-center gap-2 px-3 py-2 bg-gray-100 border-b border-gray-200 hover:bg-gray-200 transition-colors text-left"
-      >
-        <StatusIcon />
-        <span className="font-mono text-sm font-medium text-gray-700 flex-1">
-          {name}
-        </span>
-        {result ? (
-          isExpanded ? (
-            <ChevronUp className="w-4 h-4 text-gray-400" />
-          ) : (
-            <ChevronDown className="w-4 h-4 text-gray-400" />
-          )
-        ) : null}
-      </button>
-
-      {isExpanded && (
-        <>
-          {input && (
-            <div className="px-3 py-2 border-b border-gray-200">
-              <div className="text-xs text-gray-500 mb-1">Input:</div>
-              <pre className="text-xs font-mono text-gray-600 whitespace-pre-wrap break-all">
-                {truncate(formattedInput, 300)}
-              </pre>
-            </div>
-          )}
-
-          {result && (
-            <div
-              className={`px-3 py-2 ${result.is_error ? "bg-red-50" : "bg-green-50"}`}
-            >
-              <div
-                className={`text-xs mb-1 ${result.is_error ? "text-red-500" : "text-green-600"}`}
-              >
-                {result.is_error ? "Error:" : "Result:"}
-              </div>
-              <pre
-                className={`text-xs font-mono whitespace-pre-wrap break-all ${
-                  result.is_error ? "text-red-600" : "text-gray-600"
-                }`}
-              >
-                {truncate(result.content)}
-              </pre>
-            </div>
-          )}
-        </>
-      )}
-
-      {isLoading && !result && (
-        <div className="px-3 py-2 text-sm text-gray-500 italic">
-          Executing...
-        </div>
-      )}
-    </div>
-  );
+  }
 });
