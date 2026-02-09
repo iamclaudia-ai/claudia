@@ -50,10 +50,10 @@ function navigate(hash: string) {
   window.location.hash = hash;
 }
 
-// ── Gateway URL Discovery ───────────────────────────────────
+// ── Gateway URL ─────────────────────────────────────────────
 
-// Fallback for local dev — overridden by /api/config at runtime
-const DEFAULT_GATEWAY_URL = "ws://localhost:30086/ws";
+// Same-origin: SPA is served by the gateway, so WebSocket is on the same host
+const GATEWAY_URL = `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/ws`;
 
 function makeBridge(gatewayUrl: string): PlatformBridge {
   return {
@@ -69,24 +69,10 @@ function makeBridge(gatewayUrl: string): PlatformBridge {
 
 // ── App ─────────────────────────────────────────────────────
 
+const bridge = makeBridge(GATEWAY_URL);
+
 function App() {
   const route = useHashRoute();
-  const [gatewayUrl, setGatewayUrl] = useState<string | null>(null);
-
-  // Fetch gateway URL from server config on startup
-  useEffect(() => {
-    fetch("/api/config")
-      .then((res) => res.json())
-      .then((data) => {
-        const url = data.gatewayUrl || DEFAULT_GATEWAY_URL;
-        console.log(`[Config] Gateway URL: ${url}`);
-        setGatewayUrl(url);
-      })
-      .catch(() => {
-        console.warn("[Config] Failed to fetch /api/config, using default");
-        setGatewayUrl(DEFAULT_GATEWAY_URL);
-      });
-  }, []);
 
   const handleSelectWorkspace = useCallback((workspaceId: string) => {
     navigate(`#/workspace/${workspaceId}`);
@@ -104,22 +90,11 @@ function App() {
     navigate("#/");
   }, []);
 
-  // Show loading while discovering gateway
-  if (!gatewayUrl) {
-    return (
-      <div className="flex items-center justify-center h-screen text-gray-400 text-sm">
-        Connecting to Claudia Gateway…
-      </div>
-    );
-  }
-
-  const bridge = makeBridge(gatewayUrl);
-
   switch (route.page) {
     case "workspaces":
       return (
         <WorkspaceList
-          gatewayUrl={gatewayUrl}
+          gatewayUrl={GATEWAY_URL}
           onSelectWorkspace={handleSelectWorkspace}
           onSessionReady={handleSessionReady}
         />
@@ -128,7 +103,7 @@ function App() {
     case "workspace":
       return (
         <SessionList
-          gatewayUrl={gatewayUrl}
+          gatewayUrl={GATEWAY_URL}
           workspaceId={route.workspaceId}
           onSelectSession={handleSelectSession}
           onBack={handleBack}

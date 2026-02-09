@@ -3,6 +3,8 @@
  *
  * The heart of Claudia - manages Claude Code sessions, routes messages
  * between clients and extensions, broadcasts events.
+ *
+ * Single server: serves both the web UI (SPA) and WebSocket on port 30086.
  */
 
 import type { ServerWebSocket } from "bun";
@@ -21,6 +23,9 @@ import { ExtensionManager } from "./extensions";
 import { getDb, closeDb } from "./db/index";
 import { SessionManager } from "./session-manager";
 import { homedir } from "node:os";
+
+// Web UI — served as SPA fallback for all non-WS routes
+import index from "../../../clients/web/index.html";
 
 // Load configuration (claudia.json or env var fallback)
 const config = loadConfig();
@@ -452,14 +457,44 @@ function broadcastEvent(
   }
 }
 
-// Start the server
+// HMR cleanup — dispose managers when module reloads during development
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    console.log("[HMR] Disposing managers...");
+    sessionManager.close();
+    closeDb();
+  });
+}
+
+// Combined HTTP + WebSocket server (single port, like claudia-code)
 const server = Bun.serve<ClientState>({
   port: PORT,
-  fetch(req, server) {
+  // Custom fetch handler for WebSocket upgrades
+  async fetch(req, server) {
     const url = new URL(req.url);
 
+    // WebSocket upgrade — only on /ws
+    if (url.pathname === "/ws") {
+      const upgraded = server.upgrade(req, {
+        data: {
+          id: generateId(),
+          connectedAt: new Date(),
+          subscriptions: new Set<string>(),
+        },
+      });
+
+      if (upgraded) return undefined;
+      return new globalThis.Response("WebSocket upgrade failed", {
+        status: 400,
+      });
+    }
+
+    // Fall through to routes
+    return null;
+  },
+  routes: {
     // Health check endpoint
-    if (url.pathname === "/health") {
+    "/health": () => {
       const info = sessionManager.getInfo();
       return new globalThis.Response(
         JSON.stringify({
@@ -478,25 +513,9 @@ const server = Bun.serve<ClientState>({
         }),
         { headers: { "Content-Type": "application/json" } },
       );
-    }
-
-    // WebSocket upgrade
-    if (url.pathname === "/ws" || url.pathname === "/") {
-      const upgraded = server.upgrade(req, {
-        data: {
-          id: generateId(),
-          connectedAt: new Date(),
-          subscriptions: new Set<string>(),
-        },
-      });
-
-      if (upgraded) return undefined;
-      return new globalThis.Response("WebSocket upgrade failed", {
-        status: 400,
-      });
-    }
-
-    return new globalThis.Response("Not found", { status: 404 });
+    },
+    // SPA fallback — serves the web UI for all other paths
+    "/*": index,
   },
   websocket: {
     open(ws) {
@@ -511,13 +530,18 @@ const server = Bun.serve<ClientState>({
       console.log(`Client disconnected: ${ws.data.id} (${clients.size} total)`);
     },
   },
+  development: {
+    hmr: true,
+    console: true,
+  },
 });
 
 console.log(`
 ╔═══════════════════════════════════════════════════════════╗
 ║                                                           ║
-║   💙 Claudia Gateway running on port ${PORT}               ║
+║   💙 Claudia running on http://localhost:${PORT}           ║
 ║                                                           ║
+║   Web UI:    http://localhost:${PORT}                      ║
 ║   WebSocket: ws://localhost:${PORT}/ws                     ║
 ║   Health:    http://localhost:${PORT}/health               ║
 ║                                                           ║

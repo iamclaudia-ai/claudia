@@ -55,7 +55,9 @@ export function MessageList({
           <div
             className={`flex items-center gap-2 mb-1 ${msg.role === "user" ? "justify-end" : ""}`}
           >
-            <CopyButton text={getMessageRawContent(msg.blocks)} />
+            {(msg.role === "user" || msg.role === "assistant") && (
+              <CopyButton text={getMessageRawContent(msg.blocks)} />
+            )}
           </div>
           {msg.role === "user" ? (
             <div className="space-y-2">
