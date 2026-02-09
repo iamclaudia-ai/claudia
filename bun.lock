@@ -46,7 +46,6 @@
       "version": "0.1.0",
       "dependencies": {
         "@claudia/ext-chat": "workspace:*",
-        "@claudia/shared": "workspace:*",
         "@claudia/ui": "workspace:*",
         "react": "^19.2.3",
         "react-dom": "^19.2.3",

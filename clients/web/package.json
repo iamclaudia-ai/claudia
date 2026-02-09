@@ -3,10 +3,6 @@
   "version": "0.1.0",
   "type": "module",
   "private": true,
-  "scripts": {
-    "dev": "bun --watch src/server.ts",
-    "start": "bun src/server.ts"
-  },
   "devDependencies": {
     "@tailwindcss/typography": "^0.5.19",
     "@types/bun": "latest",
@@ -17,7 +13,6 @@
   },
   "dependencies": {
     "@claudia/ext-chat": "workspace:*",
-    "@claudia/shared": "workspace:*",
     "@claudia/ui": "workspace:*",
     "react": "^19.2.3",
     "react-dom": "^19.2.3"
