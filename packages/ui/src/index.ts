@@ -23,6 +23,10 @@ export type {
   EditorContext,
 } from "./types";
 
+// Router
+export { Router, Link, useRouter, navigate, matchPath } from "./router";
+export type { Route } from "./router";
+
 // Hooks
 export { useGateway } from "./hooks/useGateway";
 export type { UseGatewayOptions, UseGatewayReturn, WorkspaceInfo, SessionInfo, SessionConfigInfo } from "./hooks/useGateway";

@@ -16,6 +16,7 @@
     "tailwindcss": "^4.0.0"
   },
   "dependencies": {
+    "@claudia/ext-chat": "workspace:*",
     "@claudia/shared": "workspace:*",
     "@claudia/ui": "workspace:*",
     "react": "^19.2.3",

@@ -1,0 +1,13 @@
+{
+  "name": "@claudia/ext-chat",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "exports": {
+    "./routes": "./src/routes.ts"
+  },
+  "dependencies": {
+    "@claudia/ui": "workspace:*",
+    "react": "^19.2.3"
+  }
+}

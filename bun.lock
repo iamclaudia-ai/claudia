@@ -45,6 +45,7 @@
       "name": "@claudia/web",
       "version": "0.1.0",
       "dependencies": {
+        "@claudia/ext-chat": "workspace:*",
         "@claudia/shared": "workspace:*",
         "@claudia/ui": "workspace:*",
         "react": "^19.2.3",
@@ -57,6 +58,14 @@
         "@types/react-dom": "^19.2.3",
         "bun-plugin-tailwind": "0.1.2",
         "tailwindcss": "^4.0.0",
+      },
+    },
+    "extensions/chat": {
+      "name": "@claudia/ext-chat",
+      "version": "0.1.0",
+      "dependencies": {
+        "@claudia/ui": "workspace:*",
+        "react": "^19.2.3",
       },
     },
     "extensions/imessage": {
@@ -163,6 +172,8 @@
   },
   "packages": {
     "@claudia/cli": ["@claudia/cli@workspace:packages/cli"],
+
+    "@claudia/ext-chat": ["@claudia/ext-chat@workspace:extensions/chat"],
 
     "@claudia/ext-imessage": ["@claudia/ext-imessage@workspace:extensions/imessage"],
 
