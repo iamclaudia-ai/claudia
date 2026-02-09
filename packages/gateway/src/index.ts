@@ -301,8 +301,14 @@ async function handleSessionMethod(
         // Accept explicit session ID (ses_...) for web client,
         // or fall back to current session for VS Code auto-discover
         const historySessionId = req.params?.sessionId as string | undefined;
-        const result = sessionManager.getSessionHistory(historySessionId);
-        sendResponse(ws, req.id, result);
+        const limit = req.params?.limit as number | undefined;
+        const offset = req.params?.offset as number | undefined;
+        const result = sessionManager.getSessionHistory(
+          historySessionId,
+          limit ? { limit, offset: offset || 0 } : undefined,
+        );
+        // Include offset in response so client can distinguish initial vs load-more
+        sendResponse(ws, req.id, { ...result, offset: offset || 0 });
         break;
       }
 

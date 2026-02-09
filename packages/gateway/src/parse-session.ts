@@ -154,6 +154,12 @@ function extractToolResults(
 
 // ── Public API ──────────────────────────────────────────────
 
+export interface PaginatedHistory {
+  messages: HistoryMessage[];
+  total: number;
+  hasMore: boolean;
+}
+
 /**
  * Parse a Claude Code session JSONL file into Message[] for the UI.
  */
@@ -223,6 +229,36 @@ export function parseSessionFile(filepath: string): HistoryMessage[] {
   }
 
   return messages;
+}
+
+/**
+ * Parse a session JSONL file with pagination support.
+ *
+ * Must parse ALL lines first (tool results in user messages backfill earlier
+ * assistant tool_use blocks), then slice the result.
+ *
+ * - offset=0 → most recent `limit` messages
+ * - offset>0 → older messages, counting back from most recent
+ */
+export function parseSessionFilePaginated(
+  filepath: string,
+  options: { limit: number; offset: number },
+): PaginatedHistory {
+  const allMessages = parseSessionFile(filepath);
+  const total = allMessages.length;
+  const { limit, offset } = options;
+
+  if (total === 0) {
+    return { messages: [], total: 0, hasMore: false };
+  }
+
+  // offset=0 means "most recent", offset=N means "skip N most recent"
+  const end = total - offset;
+  const start = Math.max(0, end - limit);
+  const messages = allMessages.slice(start, end);
+  const hasMore = start > 0;
+
+  return { messages, total, hasMore };
 }
 
 /**

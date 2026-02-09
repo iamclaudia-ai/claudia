@@ -84,6 +84,8 @@ function ChatInner({ gatewayOptions }: { gatewayOptions?: UseGatewayOptions }) {
           messages={gateway.messages}
           visibleCount={gateway.visibleCount}
           isQuerying={gateway.isQuerying}
+          hasMore={gateway.hasMore}
+          totalMessages={gateway.totalMessages}
           onLoadEarlier={gateway.loadEarlierMessages}
           messagesContainerRef={gateway.messagesContainerRef}
           messagesEndRef={gateway.messagesEndRef}

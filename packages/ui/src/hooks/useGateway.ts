@@ -74,6 +74,10 @@ export interface UseGatewayReturn {
   usage: Usage | null;
   eventCount: number;
   visibleCount: number;
+  /** Total messages in the full session history */
+  totalMessages: number;
+  /** Whether there are older messages available to load */
+  hasMore: boolean;
   workspace: WorkspaceInfo | null;
   sessions: SessionInfo[];
   sessionConfig: SessionConfigInfo | null;
@@ -102,6 +106,8 @@ export function useGateway(
   const [usage, setUsage] = useState<Usage | null>(null);
   const [eventCount, setEventCount] = useState(0);
   const [visibleCount, setVisibleCount] = useState(50);
+  const [totalMessages, setTotalMessages] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
   const [workspace, setWorkspace] = useState<WorkspaceInfo | null>(null);
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [sessionConfig, setSessionConfig] = useState<SessionConfigInfo | null>(null);
@@ -329,12 +335,36 @@ export function useGateway(
           if (method === "session.history") {
             const historyMessages = payload.messages as Message[] | undefined;
             const historyUsage = payload.usage as Usage | undefined;
+            const total = (payload.total as number) || 0;
+            const more = (payload.hasMore as boolean) || false;
+            const offset = (payload.offset as number) || 0;
+
             if (historyMessages && historyMessages.length > 0) {
-              setMessages(() => historyMessages);
-              setVisibleCount(50);
-              console.log(`[History] Loaded ${historyMessages.length} messages`);
-              setTimeout(() => { historyLoadedRef.current = true; }, 100);
+              if (offset > 0) {
+                // Loading earlier messages — prepend to existing
+                setMessages((draft) => {
+                  draft.unshift(...historyMessages);
+                });
+                setVisibleCount((c) => c + historyMessages.length);
+                // Preserve scroll position after prepend
+                const container = messagesContainerRef.current;
+                if (container) {
+                  const prevScrollHeight = container.scrollHeight;
+                  requestAnimationFrame(() => {
+                    const newScrollHeight = container.scrollHeight;
+                    container.scrollTop = newScrollHeight - prevScrollHeight;
+                  });
+                }
+              } else {
+                // Initial load — replace all messages
+                setMessages(() => historyMessages);
+                setVisibleCount(historyMessages.length);
+                setTimeout(() => { historyLoadedRef.current = true; }, 100);
+              }
+              console.log(`[History] Loaded ${historyMessages.length}/${total} messages (offset: ${offset}, hasMore: ${more})`);
             }
+            setTotalMessages(total);
+            setHasMore(more);
             if (historyUsage) setUsage(historyUsage);
           }
 
@@ -349,7 +379,7 @@ export function useGateway(
               // If workspace has an active session, load its history
               if (ws.activeSessionId) {
                 setSessionRecordId(ws.activeSessionId);
-                sendRequest("session.history", { sessionId: ws.activeSessionId });
+                sendRequest("session.history", { sessionId: ws.activeSessionId, limit: 50 });
                 // Also get the CC session ID for this record
                 sendRequest("session.get", { sessionId: ws.activeSessionId });
               } else {
@@ -406,6 +436,8 @@ export function useGateway(
               setSessionRecordId(newSession.id);
               setMessages(() => []);
               setUsage(null);
+              setTotalMessages(0);
+              setHasMore(false);
               historyLoadedRef.current = false;
               console.log(`[Session] Created: ${newSession.id}`);
               sendRequest("session.list");
@@ -420,9 +452,11 @@ export function useGateway(
               setSessionRecordId(switched.id);
               setMessages(() => []);
               setUsage(null);
+              setTotalMessages(0);
+              setHasMore(false);
               historyLoadedRef.current = false;
               console.log(`[Session] Switched to: ${switched.id}`);
-              sendRequest("session.history", { sessionId: switched.id });
+              sendRequest("session.history", { sessionId: switched.id, limit: 50 });
               sendRequest("session.list");
             }
           }
@@ -479,7 +513,7 @@ export function useGateway(
         // ── Web client: explicit session ID ──
         // Load history for this specific session
         setSessionRecordId(opts.sessionId);
-        sendRequest("session.history", { sessionId: opts.sessionId });
+        sendRequest("session.history", { sessionId: opts.sessionId, limit: 50 });
         sendRequest("session.get", { sessionId: opts.sessionId });
       } else if (opts.autoDiscoverCwd) {
         // ── VS Code: auto-discover by CWD ──
@@ -536,15 +570,13 @@ export function useGateway(
   }, [sendRequest]);
 
   const loadEarlierMessages = useCallback(() => {
-    const container = messagesContainerRef.current;
-    if (!container) return;
-    const prevScrollHeight = container.scrollHeight;
-    setVisibleCount((c) => c + 50);
-    requestAnimationFrame(() => {
-      const newScrollHeight = container.scrollHeight;
-      container.scrollTop = newScrollHeight - prevScrollHeight;
-    });
-  }, []);
+    if (!hasMore) return;
+    // Request next page of older messages from the server
+    const offset = messages.length;
+    const params: Record<string, unknown> = { limit: 50, offset };
+    if (sessionRecordIdRef.current) params.sessionId = sessionRecordIdRef.current;
+    sendRequest("session.history", params);
+  }, [hasMore, messages.length, sendRequest]);
 
   const createNewSession = useCallback(
     (title?: string) => { sendRequest("session.create", title ? { title } : undefined); },
@@ -558,7 +590,8 @@ export function useGateway(
 
   return {
     messages, isConnected, isQuerying, sessionId, sessionRecordId,
-    usage, eventCount, visibleCount, workspace, sessions, sessionConfig,
+    usage, eventCount, visibleCount, totalMessages, hasMore,
+    workspace, sessions, sessionConfig,
     sendPrompt, sendInterrupt, loadEarlierMessages,
     createNewSession, switchSession, sendRequest,
     messagesContainerRef, messagesEndRef,

@@ -12,7 +12,15 @@
   "dependencies": {
     "@claudia/sdk": "workspace:*",
     "@claudia/shared": "workspace:*",
+    "@claudia/ui": "workspace:*",
     "@claudia/voice": "workspace:*",
-    "@claudia/ext-imessage": "workspace:*"
+    "@claudia/ext-imessage": "workspace:*",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3"
+  },
+  "devDependencies": {
+    "@tailwindcss/typography": "^0.5.19",
+    "bun-plugin-tailwind": "0.1.2",
+    "tailwindcss": "^4.0.0"
   }
 }

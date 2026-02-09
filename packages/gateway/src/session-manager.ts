@@ -18,7 +18,7 @@ import { homedir } from "node:os";
 
 import * as workspaceModel from "./db/models/workspace";
 import * as sessionModel from "./db/models/session";
-import { parseSessionFile, parseSessionUsage, resolveSessionPath } from "./parse-session";
+import { parseSessionFile, parseSessionFilePaginated, parseSessionUsage, resolveSessionPath } from "./parse-session";
 
 export interface SessionManagerOptions {
   db: Database;
@@ -280,11 +280,14 @@ export class SessionManager {
   }
 
   /**
-   * Get session history from JSONL file.
+   * Get session history from JSONL file with optional pagination.
    * Accepts explicit session ID (ses_...) for web client, or falls back
    * to current session for VS Code auto-discover flow.
+   *
+   * When limit is provided, returns paginated results (most recent first).
+   * When no limit, returns all messages (legacy behavior).
    */
-  getSessionHistory(sessionId?: string) {
+  getSessionHistory(sessionId?: string, options?: { limit?: number; offset?: number }) {
     let ccSessionId: string | undefined;
 
     if (sessionId) {
@@ -297,23 +300,35 @@ export class SessionManager {
     }
 
     if (!ccSessionId) {
-      return { messages: [], usage: null };
+      return { messages: [], usage: null, total: 0, hasMore: false };
     }
 
     const sessionPath = resolveSessionPath(ccSessionId);
     if (!sessionPath) {
       console.warn(`[SessionManager] Session JSONL not found for: ${ccSessionId}`);
-      return { messages: [], usage: null };
+      return { messages: [], usage: null, total: 0, hasMore: false };
     }
 
     try {
-      const messages = parseSessionFile(sessionPath);
       const usage = parseSessionUsage(sessionPath);
+
+      if (options?.limit) {
+        // Paginated: return a slice of messages
+        const { messages, total, hasMore } = parseSessionFilePaginated(sessionPath, {
+          limit: options.limit,
+          offset: options.offset || 0,
+        });
+        console.log(`[SessionManager] Loaded ${messages.length}/${total} messages (offset: ${options.offset || 0}, hasMore: ${hasMore})`);
+        return { messages, usage, total, hasMore };
+      }
+
+      // Unpaginated: return everything (legacy behavior)
+      const messages = parseSessionFile(sessionPath);
       console.log(`[SessionManager] Loaded ${messages.length} messages from history`);
-      return { messages, usage };
+      return { messages, usage, total: messages.length, hasMore: false };
     } catch (err) {
       console.error("[SessionManager] Failed to parse session history:", err);
-      return { messages: [], usage: null };
+      return { messages: [], usage: null, total: 0, hasMore: false };
     }
   }
 

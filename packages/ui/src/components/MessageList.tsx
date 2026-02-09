@@ -21,6 +21,8 @@ interface MessageListProps {
   messages: Message[];
   visibleCount: number;
   isQuerying: boolean;
+  hasMore?: boolean;
+  totalMessages?: number;
   onLoadEarlier(): void;
   messagesContainerRef: React.RefObject<HTMLDivElement | null>;
   messagesEndRef: React.RefObject<HTMLDivElement | null>;
@@ -30,26 +32,35 @@ export function MessageList({
   messages,
   visibleCount,
   isQuerying,
+  hasMore = false,
+  totalMessages = 0,
   onLoadEarlier,
   messagesContainerRef,
   messagesEndRef,
 }: MessageListProps) {
+  const remainingCount = totalMessages - messages.length;
+
   return (
     <main
       ref={messagesContainerRef}
       className="flex-1 overflow-y-auto overflow-x-hidden p-4 space-y-4"
     >
-      {messages.length > visibleCount && (
+      {hasMore && (
         <button
           onClick={onLoadEarlier}
           className="w-full py-2 text-sm text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
         >
-          Load {Math.min(50, messages.length - visibleCount)} earlier messages
+          Load {Math.min(50, remainingCount)} earlier messages
+          {totalMessages > 0 && (
+            <span className="ml-1 text-gray-400">
+              ({messages.length} of {totalMessages})
+            </span>
+          )}
         </button>
       )}
-      {messages.slice(-visibleCount).map((msg, msgIdx) => (
+      {messages.map((msg, msgIdx) => (
         <div
-          key={messages.length - visibleCount + msgIdx}
+          key={msgIdx}
           className={msg.role === "user" ? "ml-12" : "mr-12"}
         >
           <div
