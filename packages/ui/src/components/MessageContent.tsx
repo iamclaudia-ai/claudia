@@ -36,7 +36,7 @@ function CodeBlock({ children, className, ...props }: any) {
   const isBlock = className?.includes("language-") || className?.includes("hljs");
 
   if (!isBlock) {
-    return <code className={className} {...props}>{children}</code>;
+    return <code className={`${className || ""} break-all`} {...props}>{children}</code>;
   }
 
   return (
@@ -58,7 +58,7 @@ function CodeBlock({ children, className, ...props }: any) {
 }
 
 function PreBlock({ children, ...props }: any) {
-  return <pre {...props}>{children}</pre>;
+  return <pre className="overflow-x-auto" {...props}>{children}</pre>;
 }
 
 const markdownComponents = {
@@ -77,7 +77,7 @@ export const MessageContent = memo(function MessageContent({
 
   if (type === "user") {
     return (
-      <div className="prose font-sans bg-blue-50 border-l-4 border-blue-500 rounded-r-lg px-4 py-2">
+      <div className="prose prose-pre:overflow-x-auto max-w-none font-sans bg-blue-50 border-l-4 border-blue-500 rounded-r-lg px-4 py-2 overflow-hidden break-words">
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
           rehypePlugins={[rehypeHighlight, rehypeRaw]}
@@ -112,7 +112,7 @@ export const MessageContent = memo(function MessageContent({
         </button>
 
         {isExpanded && (
-          <div className="prose font-serif text-gray-500 italic px-4 py-2">
+          <div className="prose prose-pre:overflow-x-auto max-w-none font-serif text-gray-500 italic px-4 py-2 overflow-hidden break-words">
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
               rehypePlugins={[rehypeHighlight, rehypeRaw]}
@@ -128,7 +128,7 @@ export const MessageContent = memo(function MessageContent({
 
   // Assistant
   return (
-    <div className="prose font-serif">
+    <div className="prose prose-pre:overflow-x-auto max-w-none font-serif overflow-hidden break-words">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[rehypeHighlight, rehypeRaw]}

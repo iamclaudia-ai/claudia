@@ -5,6 +5,9 @@ export { ClaudiaChat } from "./components/ClaudiaChat";
 export { BridgeContext, useBridge } from "./bridge";
 export type { PlatformBridge } from "./bridge";
 
+// Contexts
+export { WorkspaceProvider, useWorkspace } from "./contexts/WorkspaceContext";
+
 // Types
 export type {
   Message,

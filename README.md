@@ -9,6 +9,9 @@ A personal AI assistant platform built around Claude, providing a unified gatewa
 
 Claudia is a gateway-centric architecture that lets you interact with Claude through multiple interfaces - web, CLI, macOS menubar, and more. Unlike approaches that wrap the CLI for "remote control," Claudia's gateway IS the control plane. Sessions can be created from any client.
 
+Default port is 30086: Claudia's port
+
+SHA256 of `Claudia` is `7586bf4da0b4a25e87...`. Take first four hex `x7586` => `30086`
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                     Claudia Gateway                          │

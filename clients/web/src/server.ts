@@ -13,7 +13,7 @@ import index from "../index.html";
 import { loadConfig } from "@claudia/shared";
 
 const config = loadConfig();
-const PORT = Number(process.env.PORT || 3000);
+const PORT = Number(process.env.PORT || 30087);
 
 // Build the gateway WebSocket URL from config
 // If endpoint is set, use it (wss:// for remote). Otherwise use host:port (ws:// for local).
@@ -35,12 +35,15 @@ Bun.serve({
     const url = new URL(req.url);
     // Serve gateway config for the web client to discover the gateway URL
     if (url.pathname === "/api/config") {
-      return new Response(JSON.stringify({
-        gatewayUrl: GATEWAY_URL,
-        session: config.session,
-      }), {
-        headers: { "Content-Type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({
+          gatewayUrl: GATEWAY_URL,
+          session: config.session,
+        }),
+        {
+          headers: { "Content-Type": "application/json" },
+        },
+      );
     }
     // Legacy endpoint
     if (url.pathname === "/api/gateway") {

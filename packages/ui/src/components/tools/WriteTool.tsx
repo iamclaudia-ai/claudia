@@ -16,7 +16,7 @@ export default function WriteTool({ name, parsedInput, result, isLoading }: Tool
   );
 
   const expandedContent = content ? (
-    <pre className="overflow-x-auto rounded bg-neutral-100/50 px-2 py-1 font-mono text-sm break-words whitespace-pre-wrap text-neutral-600">
+    <pre className="overflow-x-hidden rounded bg-neutral-100/50 px-2 py-1 font-mono text-sm break-words whitespace-pre-wrap text-neutral-600">
       {content}
     </pre>
   ) : null;

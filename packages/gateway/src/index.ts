@@ -5,24 +5,31 @@
  * between clients and extensions, broadcasts events.
  */
 
-import type { ServerWebSocket } from 'bun';
-import type { Request, Response, Event, Message, GatewayEvent } from '@claudia/shared';
-import { loadConfig } from '@claudia/shared';
+import type { ServerWebSocket } from "bun";
+import type {
+  Request,
+  Response,
+  Event,
+  Message,
+  GatewayEvent,
+} from "@claudia/shared";
+import { loadConfig } from "@claudia/shared";
 export type { GatewayEvent };
-import { existsSync } from 'node:fs';
-import { join } from 'node:path';
-import { ExtensionManager } from './extensions';
-import { getDb, closeDb } from './db/index';
-import { SessionManager } from './session-manager';
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { ExtensionManager } from "./extensions";
+import { getDb, closeDb } from "./db/index";
+import { SessionManager } from "./session-manager";
+import { homedir } from "node:os";
 
 // Load configuration (claudia.json or env var fallback)
 const config = loadConfig();
 const PORT = config.gateway.port;
-const DATA_DIR = process.env.CLAUDIA_DATA_DIR || join(import.meta.dir, '../../../.claudia');
+const DATA_DIR = process.env.CLAUDIA_DATA_DIR || join(homedir(), ".claudia");
 
 // Ensure data directory exists
 if (!existsSync(DATA_DIR)) {
-  await Bun.write(join(DATA_DIR, '.gitkeep'), '');
+  await Bun.write(join(DATA_DIR, ".gitkeep"), "");
 }
 
 interface ClientState {
@@ -58,7 +65,7 @@ extensions.setEmitCallback(async (type, payload, source) => {
   broadcastEvent(type, payload, source);
 
   // Handle prompt requests from extensions (e.g., iMessage)
-  if (type.endsWith('.prompt_request')) {
+  if (type.endsWith(".prompt_request")) {
     const req = payload as {
       content: string | unknown[];
       source?: string;
@@ -75,7 +82,7 @@ extensions.setEmitCallback(async (type, payload, source) => {
       // Set request context for routing
       sessionManager.currentRequestWantsVoice = false;
       sessionManager.currentRequestSource = req.source || null;
-      sessionManager.currentResponseText = '';
+      sessionManager.currentResponseText = "";
 
       // Send prompt through session manager
       await sessionManager.prompt(req.content as string | unknown[]);
@@ -93,12 +100,12 @@ function handleMessage(ws: ServerWebSocket<ClientState>, data: string): void {
   try {
     const message: Message = JSON.parse(data);
 
-    if (message.type === 'req') {
+    if (message.type === "req") {
       handleRequest(ws, message);
     }
   } catch (error) {
-    console.error('Failed to parse message:', error);
-    sendError(ws, 'unknown', 'Invalid message format');
+    console.error("Failed to parse message:", error);
+    sendError(ws, "unknown", "Invalid message format");
   }
 }
 
@@ -106,19 +113,19 @@ function handleMessage(ws: ServerWebSocket<ClientState>, data: string): void {
  * Route requests to handlers
  */
 function handleRequest(ws: ServerWebSocket<ClientState>, req: Request): void {
-  const [namespace, action] = req.method.split('.');
+  const [namespace, action] = req.method.split(".");
 
   switch (namespace) {
-    case 'session':
+    case "session":
       handleSessionMethod(ws, req, action);
       break;
-    case 'workspace':
+    case "workspace":
       handleWorkspaceMethod(ws, req, action);
       break;
-    case 'subscribe':
+    case "subscribe":
       handleSubscribe(ws, req);
       break;
-    case 'unsubscribe':
+    case "unsubscribe":
       handleUnsubscribe(ws, req);
       break;
     default:
@@ -137,20 +144,20 @@ function handleRequest(ws: ServerWebSocket<ClientState>, req: Request): void {
 async function handleWorkspaceMethod(
   ws: ServerWebSocket<ClientState>,
   req: Request,
-  action: string
+  action: string,
 ): Promise<void> {
   try {
     switch (action) {
-      case 'list': {
+      case "list": {
         const workspaces = sessionManager.listWorkspaces();
         sendResponse(ws, req.id, { workspaces });
         break;
       }
 
-      case 'get': {
+      case "get": {
         const workspaceId = req.params?.workspaceId as string;
         if (!workspaceId) {
-          sendError(ws, req.id, 'Missing workspaceId parameter');
+          sendError(ws, req.id, "Missing workspaceId parameter");
           return;
         }
         const workspace = sessionManager.getWorkspace(workspaceId);
@@ -162,10 +169,14 @@ async function handleWorkspaceMethod(
         break;
       }
 
-      case 'getOrCreate': {
+      case "getOrCreate": {
         const cwd = req.params?.cwd as string;
         if (!cwd) {
-          sendError(ws, req.id, 'Missing cwd parameter — workspace.getOrCreate requires an explicit CWD');
+          sendError(
+            ws,
+            req.id,
+            "Missing cwd parameter — workspace.getOrCreate requires an explicit CWD",
+          );
           return;
         }
         const name = req.params?.name as string | undefined;
@@ -178,7 +189,8 @@ async function handleWorkspaceMethod(
         sendError(ws, req.id, `Unknown workspace action: ${action}`);
     }
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorMessage =
+      error instanceof Error ? error.message : "Unknown error";
     sendError(ws, req.id, errorMessage);
   }
 }
@@ -189,50 +201,59 @@ async function handleWorkspaceMethod(
 async function handleSessionMethod(
   ws: ServerWebSocket<ClientState>,
   req: Request,
-  action: string
+  action: string,
 ): Promise<void> {
   try {
     switch (action) {
-      case 'info': {
+      case "info": {
         sendResponse(ws, req.id, sessionManager.getInfo());
         break;
       }
 
-      case 'config': {
+      case "config": {
         // Set session config before first prompt
         const { session } = sessionManager.getCurrentSession();
         if (!session) {
           if (req.params?.thinking !== undefined) {
-            sessionManager.pendingSessionConfig.thinking = req.params.thinking as boolean;
+            sessionManager.pendingSessionConfig.thinking = req.params
+              .thinking as boolean;
           }
           if (req.params?.thinkingBudget !== undefined) {
-            sessionManager.pendingSessionConfig.thinkingBudget = req.params.thinkingBudget as number;
+            sessionManager.pendingSessionConfig.thinkingBudget = req.params
+              .thinkingBudget as number;
           }
-          sendResponse(ws, req.id, { status: 'ok', pending: sessionManager.pendingSessionConfig });
+          sendResponse(ws, req.id, {
+            status: "ok",
+            pending: sessionManager.pendingSessionConfig,
+          });
         } else {
           sendResponse(ws, req.id, {
-            status: 'ignored',
-            reason: 'Session already exists - config only applies to new sessions',
+            status: "ignored",
+            reason:
+              "Session already exists - config only applies to new sessions",
           });
         }
         break;
       }
 
-      case 'prompt': {
+      case "prompt": {
         const content = req.params?.content as string;
         if (!content) {
-          sendError(ws, req.id, 'Missing content parameter');
+          sendError(ws, req.id, "Missing content parameter");
           return;
         }
 
         // Track request metadata for routing
-        sessionManager.currentRequestWantsVoice = req.params?.speakResponse === true;
-        sessionManager.currentRequestSource = (req.params?.source as string) || null;
+        sessionManager.currentRequestWantsVoice =
+          req.params?.speakResponse === true;
+        sessionManager.currentRequestSource =
+          (req.params?.source as string) || null;
 
         // If thinking is specified and no session exists yet, set pending config
         const { session } = sessionManager.getCurrentSession();
         if (!session && req.params?.thinking !== undefined) {
-          sessionManager.pendingSessionConfig.thinking = req.params.thinking as boolean;
+          sessionManager.pendingSessionConfig.thinking = req.params
+            .thinking as boolean;
         }
 
         // Send prompt through session manager
@@ -240,26 +261,26 @@ async function handleSessionMethod(
         const targetSessionId = req.params?.sessionId as string | undefined;
         const s = await sessionManager.prompt(content, targetSessionId);
         sendResponse(ws, req.id, {
-          status: 'ok',
+          status: "ok",
           sessionId: s.id,
           source: sessionManager.currentRequestSource,
         });
         break;
       }
 
-      case 'interrupt': {
+      case "interrupt": {
         if (sessionManager.interrupt()) {
-          sendResponse(ws, req.id, { status: 'interrupted' });
+          sendResponse(ws, req.id, { status: "interrupted" });
         } else {
-          sendError(ws, req.id, 'No active session');
+          sendError(ws, req.id, "No active session");
         }
         break;
       }
 
-      case 'get': {
+      case "get": {
         const getSessionId = req.params?.sessionId as string;
         if (!getSessionId) {
-          sendError(ws, req.id, 'Missing sessionId parameter');
+          sendError(ws, req.id, "Missing sessionId parameter");
           return;
         }
         const sessionRecord = sessionManager.getSession(getSessionId);
@@ -271,7 +292,7 @@ async function handleSessionMethod(
         break;
       }
 
-      case 'history': {
+      case "history": {
         // Accept explicit session ID (ses_...) for web client,
         // or fall back to current session for VS Code auto-discover
         const historySessionId = req.params?.sessionId as string | undefined;
@@ -280,25 +301,28 @@ async function handleSessionMethod(
         break;
       }
 
-      case 'list': {
+      case "list": {
         const workspaceId = req.params?.workspaceId as string | undefined;
         const sessions = sessionManager.listSessions(workspaceId);
         sendResponse(ws, req.id, { sessions });
         break;
       }
 
-      case 'create': {
+      case "create": {
         const workspaceId = req.params?.workspaceId as string | undefined;
         const title = req.params?.title as string | undefined;
-        const result = await sessionManager.createNewSession(workspaceId, title);
+        const result = await sessionManager.createNewSession(
+          workspaceId,
+          title,
+        );
         sendResponse(ws, req.id, result);
         break;
       }
 
-      case 'switch': {
+      case "switch": {
         const sessionId = req.params?.sessionId as string;
         if (!sessionId) {
-          sendError(ws, req.id, 'Missing sessionId parameter');
+          sendError(ws, req.id, "Missing sessionId parameter");
           return;
         }
         const sessionRecord = await sessionManager.switchSession(sessionId);
@@ -306,13 +330,13 @@ async function handleSessionMethod(
         break;
       }
 
-      case 'reset': {
+      case "reset": {
         // Archive current session and create a new one
         const workspace = sessionManager.getCurrentWorkspace();
         if (workspace) {
           await sessionManager.createNewSession(workspace.id);
         }
-        sendResponse(ws, req.id, { status: 'reset' });
+        sendResponse(ws, req.id, { status: "reset" });
         break;
       }
 
@@ -320,7 +344,8 @@ async function handleSessionMethod(
         sendError(ws, req.id, `Unknown session action: ${action}`);
     }
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorMessage =
+      error instanceof Error ? error.message : "Unknown error";
     sendError(ws, req.id, errorMessage);
   }
 }
@@ -328,12 +353,19 @@ async function handleSessionMethod(
 /**
  * Handle extension method calls
  */
-async function handleExtensionMethod(ws: ServerWebSocket<ClientState>, req: Request): Promise<void> {
+async function handleExtensionMethod(
+  ws: ServerWebSocket<ClientState>,
+  req: Request,
+): Promise<void> {
   try {
-    const result = await extensions.handleMethod(req.method, (req.params as Record<string, unknown>) || {});
+    const result = await extensions.handleMethod(
+      req.method,
+      (req.params as Record<string, unknown>) || {},
+    );
     sendResponse(ws, req.id, result);
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorMessage =
+      error instanceof Error ? error.message : "Unknown error";
     sendError(ws, req.id, errorMessage);
   }
 }
@@ -354,7 +386,10 @@ function handleSubscribe(ws: ServerWebSocket<ClientState>, req: Request): void {
 /**
  * Handle unsubscription requests
  */
-function handleUnsubscribe(ws: ServerWebSocket<ClientState>, req: Request): void {
+function handleUnsubscribe(
+  ws: ServerWebSocket<ClientState>,
+  req: Request,
+): void {
   const state = clients.get(ws);
   if (!state) return;
 
@@ -367,34 +402,46 @@ function handleUnsubscribe(ws: ServerWebSocket<ClientState>, req: Request): void
 /**
  * Send a response to a client
  */
-function sendResponse(ws: ServerWebSocket<ClientState>, id: string, payload: unknown): void {
-  const response: Response = { type: 'res', id, ok: true, payload };
+function sendResponse(
+  ws: ServerWebSocket<ClientState>,
+  id: string,
+  payload: unknown,
+): void {
+  const response: Response = { type: "res", id, ok: true, payload };
   ws.send(JSON.stringify(response));
 }
 
 /**
  * Send an error response to a client
  */
-function sendError(ws: ServerWebSocket<ClientState>, id: string, error: string): void {
-  const response: Response = { type: 'res', id, ok: false, error };
+function sendError(
+  ws: ServerWebSocket<ClientState>,
+  id: string,
+  error: string,
+): void {
+  const response: Response = { type: "res", id, ok: false, error };
   ws.send(JSON.stringify(response));
 }
 
 /**
  * Broadcast an event to subscribed clients
  */
-function broadcastEvent(eventName: string, payload: unknown, source?: string): void {
-  const event: Event = { type: 'event', event: eventName, payload };
+function broadcastEvent(
+  eventName: string,
+  payload: unknown,
+  source?: string,
+): void {
+  const event: Event = { type: "event", event: eventName, payload };
   const data = JSON.stringify(event);
 
   for (const [ws, state] of clients) {
     // Check if client is subscribed to this event
     const isSubscribed = Array.from(state.subscriptions).some((pattern) => {
-      if (pattern === '*') return true;
+      if (pattern === "*") return true;
       if (pattern === eventName) return true;
-      if (pattern.endsWith('.*')) {
+      if (pattern.endsWith(".*")) {
         const prefix = pattern.slice(0, -2);
-        return eventName.startsWith(prefix + '.');
+        return eventName.startsWith(prefix + ".");
       }
       return false;
     });
@@ -412,25 +459,29 @@ const server = Bun.serve<ClientState>({
     const url = new URL(req.url);
 
     // Health check endpoint
-    if (url.pathname === '/health') {
+    if (url.pathname === "/health") {
       const info = sessionManager.getInfo();
       return new globalThis.Response(
         JSON.stringify({
-          status: 'ok',
+          status: "ok",
           clients: clients.size,
           workspace: sessionManager.getCurrentWorkspace(),
           session: info.sessionId
-            ? { id: info.sessionId, active: info.isActive, running: info.isProcessRunning }
+            ? {
+                id: info.sessionId,
+                active: info.isActive,
+                running: info.isProcessRunning,
+              }
             : null,
           extensions: extensions.getHealth(),
           sourceRoutes: extensions.getSourceRoutes(),
         }),
-        { headers: { 'Content-Type': 'application/json' } }
+        { headers: { "Content-Type": "application/json" } },
       );
     }
 
     // WebSocket upgrade
-    if (url.pathname === '/ws' || url.pathname === '/') {
+    if (url.pathname === "/ws" || url.pathname === "/") {
       const upgraded = server.upgrade(req, {
         data: {
           id: generateId(),
@@ -440,10 +491,12 @@ const server = Bun.serve<ClientState>({
       });
 
       if (upgraded) return undefined;
-      return new globalThis.Response('WebSocket upgrade failed', { status: 400 });
+      return new globalThis.Response("WebSocket upgrade failed", {
+        status: 400,
+      });
     }
 
-    return new globalThis.Response('Not found', { status: 404 });
+    return new globalThis.Response("Not found", { status: 404 });
   },
   websocket: {
     open(ws) {
@@ -475,8 +528,8 @@ console.log(`
 `);
 
 // Graceful shutdown
-process.on('SIGINT', async () => {
-  console.log('\nShutting down...');
+process.on("SIGINT", async () => {
+  console.log("\nShutting down...");
   await sessionManager.close();
   closeDb();
   server.stop();

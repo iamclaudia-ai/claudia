@@ -24,10 +24,10 @@ export default function EditTool({ name, parsedInput, result, isLoading }: ToolP
 
   const expandedContent = (
     <div className="space-y-1.5">
-      <pre className="overflow-x-auto rounded bg-red-100/50 px-2 py-1 font-mono text-sm break-words whitespace-pre-wrap text-red-700">
+      <pre className="overflow-x-hidden rounded bg-red-100/50 px-2 py-1 font-mono text-sm break-words whitespace-pre-wrap text-red-700">
         {oldString || ""}
       </pre>
-      <pre className="overflow-x-auto rounded bg-green-100/50 px-2 py-1 font-mono text-sm break-words whitespace-pre-wrap text-green-700">
+      <pre className="overflow-x-hidden rounded bg-green-100/50 px-2 py-1 font-mono text-sm break-words whitespace-pre-wrap text-green-700">
         {newString || ""}
       </pre>
     </div>

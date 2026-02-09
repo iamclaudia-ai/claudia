@@ -5,6 +5,7 @@ import type { PlatformBridge } from "../bridge";
 import type { Attachment } from "../types";
 import { useGateway } from "../hooks/useGateway";
 import type { UseGatewayOptions } from "../hooks/useGateway";
+import { WorkspaceProvider } from "../contexts/WorkspaceContext";
 import { Header } from "./Header";
 import { ContextBar } from "./ContextBar";
 import { MessageList } from "./MessageList";
@@ -64,55 +65,57 @@ function ChatInner({ gatewayOptions }: { gatewayOptions?: UseGatewayOptions }) {
   }, []);
 
   return (
-    <div className="flex flex-col h-screen max-w-4xl mx-auto">
-      <Header
-        isConnected={gateway.isConnected}
-        sessionId={gateway.sessionId}
-        sessionRecordId={gateway.sessionRecordId}
-        workspace={gateway.workspace}
-        sessions={gateway.sessions}
-        sessionConfig={gateway.sessionConfig}
-        onCreateSession={gateway.createNewSession}
-        onSwitchSession={gateway.switchSession}
-      />
+    <WorkspaceProvider cwd={gateway.workspace?.cwd}>
+      <div className="flex flex-col h-screen w-full">
+        <Header
+          isConnected={gateway.isConnected}
+          sessionId={gateway.sessionId}
+          sessionRecordId={gateway.sessionRecordId}
+          workspace={gateway.workspace}
+          sessions={gateway.sessions}
+          sessionConfig={gateway.sessionConfig}
+          onCreateSession={gateway.createNewSession}
+          onSwitchSession={gateway.switchSession}
+        />
 
-      {bridge.showContextBar && <ContextBar context={editorContext} />}
+        {bridge.showContextBar && <ContextBar context={editorContext} />}
 
-      <MessageList
-        messages={gateway.messages}
-        visibleCount={gateway.visibleCount}
-        isQuerying={gateway.isQuerying}
-        onLoadEarlier={gateway.loadEarlierMessages}
-        messagesContainerRef={gateway.messagesContainerRef}
-        messagesEndRef={gateway.messagesEndRef}
-      />
+        <MessageList
+          messages={gateway.messages}
+          visibleCount={gateway.visibleCount}
+          isQuerying={gateway.isQuerying}
+          onLoadEarlier={gateway.loadEarlierMessages}
+          messagesContainerRef={gateway.messagesContainerRef}
+          messagesEndRef={gateway.messagesEndRef}
+        />
 
-      {/* Thinking indicator */}
-      <Transition
-        show={gateway.isQuerying}
-        enter="transition-all duration-300 ease-out"
-        enterFrom="opacity-0 translate-y-4 scale-95"
-        enterTo="opacity-100 translate-y-0 scale-100"
-        leave="transition-all duration-200 ease-in"
-        leaveFrom="opacity-100 translate-y-0 scale-100"
-        leaveTo="opacity-0 translate-y-2 scale-95"
-      >
-        <div className="fixed bottom-40 right-8 z-50 bg-white/50 backdrop-blur-sm rounded-2xl shadow-2xl drop-shadow-xl p-4 border border-purple-100/50">
-          <ClaudiaThinking count={gateway.eventCount} size="lg" />
-        </div>
-      </Transition>
+        {/* Thinking indicator */}
+        <Transition
+          show={gateway.isQuerying}
+          enter="transition-all duration-300 ease-out"
+          enterFrom="opacity-0 translate-y-4 scale-95"
+          enterTo="opacity-100 translate-y-0 scale-100"
+          leave="transition-all duration-200 ease-in"
+          leaveFrom="opacity-100 translate-y-0 scale-100"
+          leaveTo="opacity-0 translate-y-2 scale-95"
+        >
+          <div className="fixed bottom-40 right-8 z-50 bg-white/50 backdrop-blur-sm rounded-2xl shadow-2xl drop-shadow-xl p-4 border border-purple-100/50">
+            <ClaudiaThinking count={gateway.eventCount} size="lg" />
+          </div>
+        </Transition>
 
-      <InputArea
-        input={input}
-        onInputChange={handleInputChange}
-        attachments={attachments}
-        onAttachmentsChange={setAttachments}
-        isConnected={gateway.isConnected}
-        isQuerying={gateway.isQuerying}
-        usage={gateway.usage}
-        onSend={handleSend}
-        onInterrupt={gateway.sendInterrupt}
-      />
-    </div>
+        <InputArea
+          input={input}
+          onInputChange={handleInputChange}
+          attachments={attachments}
+          onAttachmentsChange={setAttachments}
+          isConnected={gateway.isConnected}
+          isQuerying={gateway.isQuerying}
+          usage={gateway.usage}
+          onSend={handleSend}
+          onInterrupt={gateway.sendInterrupt}
+        />
+      </div>
+    </WorkspaceProvider>
   );
 }

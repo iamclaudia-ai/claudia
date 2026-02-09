@@ -1,6 +1,23 @@
 import { cloneElement, isValidElement } from "react";
 import type { ReactNode } from "react";
 import { getToolBadgeConfig } from "./toolConfig";
+import { useWorkspace } from "../../contexts/WorkspaceContext";
+
+/** Strip CWD prefix from a file path to make it shorter.
+ *  Falls back to stripping common home-dir prefixes when CWD doesn't match. */
+function stripCwdPrefix(path: string, cwd?: string): string {
+  // Try exact CWD match first
+  if (cwd && path.startsWith(cwd)) {
+    const stripped = path.slice(cwd.length).replace(/^\/+/, "");
+    if (stripped) return stripped;
+  }
+
+  // Fallback: strip ~/Projects/*/ or ~/*/  to keep paths short
+  const homeMatch = path.match(/^\/Users\/[^/]+\/(?:Projects\/)?[^/]+\/(.+)$/);
+  if (homeMatch) return homeMatch[1];
+
+  return path;
+}
 
 interface ToolHeaderProps {
   toolName: string;
@@ -56,10 +73,14 @@ export function MonoText({
 }
 
 /** File path pill with neutral border */
-export function FilePath({ path }: { path: string }) {
+export function FilePath({ path, cwd: explicitCwd }: { path: string; cwd?: string }) {
+  const workspace = useWorkspace();
+  const cwd = explicitCwd || workspace.cwd;
+  const displayPath = stripCwdPrefix(path, cwd);
+
   return (
-    <MonoText className="rounded border border-neutral-200/50 bg-neutral-50/50 px-1.5 py-0.5">
-      {path}
+    <MonoText className="max-w-xs truncate rounded border border-neutral-200/50 bg-neutral-50/50 px-1.5 py-0.5" title={path}>
+      {displayPath}
     </MonoText>
   );
 }
@@ -88,7 +109,7 @@ export function ResultBlock({
 
   return (
     <pre
-      className={`${maxHeight} overflow-x-auto rounded ${bg} px-2 py-1 font-mono text-sm break-words whitespace-pre-wrap ${text}`}
+      className={`${maxHeight} overflow-x-hidden rounded ${bg} px-2 py-1 font-mono text-sm break-words whitespace-pre-wrap ${text}`}
     >
       {content}
     </pre>
