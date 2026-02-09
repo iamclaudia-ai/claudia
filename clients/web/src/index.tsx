@@ -4,6 +4,14 @@ import { ClaudiaChat, WorkspaceList, SessionList } from "@claudia/ui";
 import type { PlatformBridge } from "@claudia/ui";
 import "@claudia/ui/styles";
 
+// Load react-grab in dev mode — click any element to see its React component tree
+if (import.meta.env.DEV) {
+  const script = document.createElement("script");
+  script.src = "https://unpkg.com/react-grab/dist/index.global.js";
+  script.crossOrigin = "anonymous";
+  document.head.appendChild(script);
+}
+
 // ── Hash Router ─────────────────────────────────────────────
 
 type Route =
