@@ -1,27 +1,29 @@
 import type { ToolProps } from "./types";
 import { CollapsibleTool } from "./CollapsibleTool";
-import { InlineCode, ResultBlock, ToolHeader } from "./utils";
+import { ResultBlock, ToolHeader } from "./utils";
 import { getToolLabel } from "./toolConfig";
 
 export default function WebSearchTool({ name, parsedInput, result, isLoading }: ToolProps) {
   const label = getToolLabel(name, parsedInput);
   const query = parsedInput?.query as string | undefined;
 
-  const collapsedContent = (
-    <div className="flex flex-wrap items-center gap-1.5">
-      <ToolHeader toolName={name} label={label} />
-      {query && <InlineCode>{query}</InlineCode>}
+  const collapsedContent = <ToolHeader toolName={name} label={label} />;
+
+  const expandedContent = (
+    <div className="space-y-1.5">
+      {query && (
+        <span className="font-mono text-sm text-neutral-600">{query}</span>
+      )}
+      {result?.content && <ResultBlock content={result.content} isError={result.is_error} />}
     </div>
   );
 
-  const expandedContent = result?.content
-    ? <ResultBlock content={result.content} isError={result.is_error} />
-    : null;
+  const hasExpanded = query || result?.content;
 
   return (
     <CollapsibleTool
       collapsedContent={collapsedContent}
-      expandedContent={expandedContent}
+      expandedContent={hasExpanded ? expandedContent : null}
       isLoading={isLoading}
       toolName={name}
     />

@@ -254,7 +254,7 @@ export function useGateway(
           setMessages((draft) => {
             const lastMsg = draft[draft.length - 1];
             if (!lastMsg || lastMsg.role !== "assistant" || lastMsg.blocks.length > 0) {
-              draft.push({ role: "assistant", blocks: [] });
+              draft.push({ role: "assistant", blocks: [], timestamp: Date.now() });
             }
           });
           break;
@@ -335,7 +335,7 @@ export function useGateway(
             if (lastMsg?.role === "assistant") {
               lastMsg.blocks.push(errorBlock);
             } else {
-              draft.push({ role: "assistant", blocks: [errorBlock] });
+              draft.push({ role: "assistant", blocks: [errorBlock], timestamp: Date.now() });
             }
           });
           setIsQuerying(false);
@@ -359,7 +359,7 @@ export function useGateway(
             if (lastMsg?.role === "assistant") {
               lastMsg.blocks.push(warningBlock);
             } else {
-              draft.push({ role: "assistant", blocks: [warningBlock] });
+              draft.push({ role: "assistant", blocks: [warningBlock], timestamp: Date.now() });
             }
           });
           break;
@@ -623,7 +623,7 @@ export function useGateway(
         ...(text.trim() ? [{ type: "text" as const, content: text }] : []),
       ];
 
-      setMessages((draft) => { draft.push({ role: "user", blocks }); });
+      setMessages((draft) => { draft.push({ role: "user", blocks, timestamp: Date.now() }); });
       // Pass session record ID so the gateway targets the right session
       const params: Record<string, unknown> = { content: text };
       if (sessionRecordIdRef.current) params.sessionId = sessionRecordIdRef.current;

@@ -9,24 +9,22 @@ export default function TaskTool({ name, parsedInput, result, isLoading }: ToolP
   const model = parsedInput?.model as string | undefined;
   const prompt = parsedInput?.prompt as string | undefined;
 
-  const collapsedContent = (
-    <div className="flex flex-wrap items-center gap-1.5">
-      <ToolHeader toolName={name} label={label} />
-      {subagentType && (
-        <span className="rounded border border-purple-200/50 bg-purple-50/50 px-1.5 py-0.5 text-[10px] font-medium text-purple-600">
-          {subagentType}
-        </span>
-      )}
-      {model && (
-        <span className="rounded border border-blue-200/50 bg-blue-50/50 px-1.5 py-0.5 text-[10px] font-medium text-blue-600">
-          {model}
-        </span>
-      )}
-    </div>
-  );
+  const collapsedContent = <ToolHeader toolName={name} label={label} />;
 
   const expandedContent = (
     <div className="space-y-1.5">
+      <div className="flex gap-1.5">
+        {subagentType && (
+          <span className="rounded border border-purple-200/50 bg-purple-50/50 px-1.5 py-0.5 text-[10px] font-medium text-purple-600">
+            {subagentType}
+          </span>
+        )}
+        {model && (
+          <span className="rounded border border-blue-200/50 bg-blue-50/50 px-1.5 py-0.5 text-[10px] font-medium text-blue-600">
+            {model}
+          </span>
+        )}
+      </div>
       {prompt && (
         <pre className="overflow-x-hidden rounded bg-neutral-100/50 px-2 py-1 font-mono text-sm break-words whitespace-pre-wrap text-neutral-600">
           {prompt}
@@ -38,10 +36,12 @@ export default function TaskTool({ name, parsedInput, result, isLoading }: ToolP
     </div>
   );
 
+  const hasExpanded = subagentType || model || prompt || result?.content;
+
   return (
     <CollapsibleTool
       collapsedContent={collapsedContent}
-      expandedContent={prompt || result?.content ? expandedContent : null}
+      expandedContent={hasExpanded ? expandedContent : null}
       isLoading={isLoading}
       toolName={name}
     />

@@ -45,6 +45,7 @@ export interface Message {
   role: "user" | "assistant";
   blocks: ContentBlock[];
   aborted?: boolean;
+  timestamp?: number;
 }
 
 export interface Usage {

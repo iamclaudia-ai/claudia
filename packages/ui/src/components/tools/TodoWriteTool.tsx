@@ -14,16 +14,7 @@ export default function TodoWriteTool({ name, parsedInput, result, isLoading }: 
   const todos = (parsedInput?.todos as TodoItem[] | undefined) || [];
   const completedCount = todos.filter((t) => t.status === "completed").length;
 
-  const collapsedContent = (
-    <div className="flex items-center gap-1.5">
-      <ToolHeader toolName={name} label={label} />
-      {todos.length > 0 && (
-        <span className="text-[10px] text-neutral-500">
-          {completedCount}/{todos.length} completed
-        </span>
-      )}
-    </div>
-  );
+  const collapsedContent = <ToolHeader toolName={name} label={label} />;
 
   const expandedContent =
     todos.length > 0 ? (

@@ -10,20 +10,16 @@ export default function EditTool({ name, parsedInput, result, isLoading }: ToolP
   const newString = parsedInput?.new_string as string | undefined;
   const replaceAll = parsedInput?.replace_all as boolean | undefined;
 
-  const collapsedContent = (
-    <div className="flex flex-wrap items-center gap-1.5">
-      <ToolHeader toolName={name} label={label} />
+  const collapsedContent = <ToolHeader toolName={name} label={label} />;
+
+  const expandedContent = (
+    <div className="space-y-1.5">
       {filePath && <FilePath path={filePath} />}
       {replaceAll && (
         <span className="rounded border border-orange-200/50 bg-orange-50/50 px-1.5 py-0.5 text-[10px] font-medium text-orange-600">
           replace all
         </span>
       )}
-    </div>
-  );
-
-  const expandedContent = (
-    <div className="space-y-1.5">
       <pre className="overflow-x-hidden rounded bg-red-100/50 px-2 py-1 font-mono text-sm break-words whitespace-pre-wrap text-red-700">
         {oldString || ""}
       </pre>

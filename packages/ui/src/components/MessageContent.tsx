@@ -4,8 +4,9 @@ import rehypeHighlight from "rehype-highlight";
 import rehypeRaw from "rehype-raw";
 import remarkGfm from "remark-gfm";
 import remend from "remend";
-import { ChevronDown, ChevronUp, Brain, Copy, Check, Loader2 } from "lucide-react";
+import { ChevronDown, ChevronUp, Copy, Check, Loader2 } from "lucide-react";
 import { useBridge } from "../bridge";
+import { getThinkingBadgeConfig, getThinkingLabel } from "./tools/toolConfig";
 
 interface MessageContentProps {
   content: string;
@@ -99,45 +100,61 @@ export const MessageContent = memo(function MessageContent({
   }
 
   if (type === "thinking") {
+    const thinkingConfig = getThinkingBadgeConfig();
+    const hasContent = content?.trim().length > 0;
+    const label = getThinkingLabel(!isLoading);
+
     return (
-      <div className="mb-2 border border-gray-200 rounded-lg overflow-hidden bg-gray-50 w-fit min-w-48">
+      <div className="relative">
         <button
-          onClick={() => setIsExpanded(!isExpanded)}
-          className="w-full flex items-center gap-2 px-3 py-2 bg-gray-100 hover:bg-gray-200 transition-colors text-left"
+          type="button"
+          onClick={() => hasContent && setIsExpanded(!isExpanded)}
+          disabled={!hasContent}
+          className={`flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-left transition-colors ${thinkingConfig.colors.border} ${thinkingConfig.colors.bg} ${
+            hasContent ? `cursor-pointer ${thinkingConfig.colors.hoverBg}` : "cursor-default"
+          }`}
         >
-          {isLoading ? (
-            <Loader2 className="w-4 h-4 text-gray-400 animate-spin" />
-          ) : (
-            <Brain className="w-4 h-4 text-gray-400" />
-          )}
-          <span className="text-sm text-gray-500 italic flex-1">
-            thinking...
+          <div className={`flex items-center gap-1.5 text-sm font-medium ${thinkingConfig.colors.text}`}>
+            {isLoading ? (
+              <Loader2 className={`size-3 animate-spin ${thinkingConfig.colors.iconColor}`} />
+            ) : (
+              thinkingConfig.icon && <span className={`shrink-0 ${thinkingConfig.colors.iconColor}`}>{thinkingConfig.icon}</span>
+            )}
+            <span>{label}</span>
+          </div>
+          <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center">
+            {isLoading ? (
+              null
+            ) : hasContent ? (
+              isExpanded ? (
+                <ChevronUp className={`size-3 ${thinkingConfig.colors.chevron}`} />
+              ) : (
+                <ChevronDown className={`size-3 ${thinkingConfig.colors.chevron}`} />
+              )
+            ) : null}
           </span>
-          {isLoading ? null : isExpanded ? (
-            <ChevronUp className="w-4 h-4 text-gray-400" />
-          ) : (
-            <ChevronDown className="w-4 h-4 text-gray-400" />
-          )}
         </button>
 
-        {isExpanded && (
-          <div className="prose max-w-none font-serif text-gray-500 italic px-4 py-2 overflow-hidden break-words
-            prose-headings:font-bold prose-headings:text-gray-500
-            prose-p:text-gray-500 prose-p:leading-relaxed
-            prose-a:text-blue-600 prose-a:no-underline hover:prose-a:underline
-            prose-strong:text-gray-500 prose-strong:font-semibold
-            prose-pre:overflow-x-auto prose-pre:bg-gray-900 prose-pre:text-gray-100
-            prose-ul:list-disc prose-ul:pl-6
-            prose-ol:list-decimal prose-ol:pl-6
-            prose-li:text-gray-500
-          ">
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              rehypePlugins={[rehypeHighlight, rehypeRaw]}
-              components={markdownComponents}
-            >
-              {markdown}
-            </ReactMarkdown>
+        {isExpanded && hasContent && (
+          <div className="absolute left-0 top-full z-20 mt-1 w-[min(600px,80vw)] rounded-lg border border-neutral-200 bg-white p-3 shadow-lg">
+            <div className="prose prose-sm max-w-none font-serif text-neutral-500 italic overflow-hidden break-words
+              prose-headings:font-bold prose-headings:text-neutral-500
+              prose-p:text-neutral-500 prose-p:leading-relaxed
+              prose-a:text-blue-600 prose-a:no-underline hover:prose-a:underline
+              prose-strong:text-neutral-500 prose-strong:font-semibold
+              prose-pre:overflow-x-auto prose-pre:bg-gray-900 prose-pre:text-gray-100
+              prose-ul:list-disc prose-ul:pl-6
+              prose-ol:list-decimal prose-ol:pl-6
+              prose-li:text-neutral-500
+            ">
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                rehypePlugins={[rehypeHighlight, rehypeRaw]}
+                components={markdownComponents}
+              >
+                {markdown}
+              </ReactMarkdown>
+            </div>
           </div>
         )}
       </div>

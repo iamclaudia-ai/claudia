@@ -8,25 +8,20 @@ export default function WebFetchTool({ name, parsedInput, result, isLoading }: T
   const url = parsedInput?.url as string | undefined;
   const prompt = parsedInput?.prompt as string | undefined;
 
-  const collapsedContent = (
-    <div className="flex flex-wrap items-center gap-1.5">
-      <ToolHeader toolName={name} label={label} />
+  const collapsedContent = <ToolHeader toolName={name} label={label} />;
+
+  const expandedContent = (
+    <div className="space-y-1.5">
       {url && (
         <a
           href={url}
           target="_blank"
           rel="noopener noreferrer"
-          onClick={(e) => e.stopPropagation()}
           className="rounded border border-neutral-200/50 bg-neutral-50/50 px-1.5 py-0.5 font-mono text-[10px] text-blue-600 hover:text-blue-700 hover:underline"
         >
           {url}
         </a>
       )}
-    </div>
-  );
-
-  const expandedContent = (
-    <div className="space-y-1.5">
       {prompt && (
         <div className="text-[10px] text-neutral-600">{prompt}</div>
       )}
@@ -36,10 +31,12 @@ export default function WebFetchTool({ name, parsedInput, result, isLoading }: T
     </div>
   );
 
+  const hasExpanded = url || prompt || result?.content;
+
   return (
     <CollapsibleTool
       collapsedContent={collapsedContent}
-      expandedContent={result?.content || prompt ? expandedContent : null}
+      expandedContent={hasExpanded ? expandedContent : null}
       isLoading={isLoading}
       toolName={name}
     />

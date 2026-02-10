@@ -1,5 +1,6 @@
 import {
   BookOpen,
+  Brain,
   FileEdit,
   FilePen,
   FileText,
@@ -282,3 +283,36 @@ const blueColors = {
   chevron: "text-blue-400",
   iconColor: "text-blue-500",
 };
+
+const purpleColors = {
+  border: "border-purple-200/60",
+  bg: "bg-purple-50/80",
+  text: "text-purple-600",
+  hoverBg: "hover:bg-purple-100/80",
+  chevron: "text-purple-400",
+  iconColor: "text-purple-500",
+};
+
+// ── Thinking badge config ──────────────────────────────────
+
+/** Thinking badge configuration — single source of truth */
+export function getThinkingBadgeConfig(): ToolBadgeConfig {
+  return {
+    icon: <Brain className="size-3" />,
+    colors: purpleColors,
+  };
+}
+
+/** Thinking label for collapsed badge */
+export function getThinkingLabel(isComplete: boolean, durationMs?: number): string {
+  const durationSeconds =
+    typeof durationMs === "number" ? Math.max(1, Math.round(durationMs / 1000)) : null;
+
+  if (isComplete && durationSeconds) {
+    return `${durationSeconds}s`;
+  }
+  if (isComplete) {
+    return "Thought";
+  }
+  return "thinking...";
+}

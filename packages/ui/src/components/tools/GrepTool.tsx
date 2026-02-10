@@ -8,24 +8,22 @@ export default function GrepTool({ name, parsedInput, result, isLoading }: ToolP
   const pattern = parsedInput?.pattern as string | undefined;
   const path = parsedInput?.path as string | undefined;
 
-  const collapsedContent = (
-    <div className="flex flex-wrap items-center gap-1.5">
-      <ToolHeader toolName={name} label={label} />
+  const collapsedContent = <ToolHeader toolName={name} label={label} />;
+
+  const expandedContent = (
+    <div className="space-y-1.5">
       {pattern && <InlineCode>{pattern}</InlineCode>}
-      {path && (
-        <span className="text-[10px] text-neutral-500">in {path}</span>
-      )}
+      {path && <span className="text-[10px] text-neutral-500">in {path}</span>}
+      {result?.content && <ResultBlock content={result.content} isError={result.is_error} />}
     </div>
   );
 
-  const expandedContent = result?.content
-    ? <ResultBlock content={result.content} isError={result.is_error} />
-    : null;
+  const hasExpanded = pattern || path || result?.content;
 
   return (
     <CollapsibleTool
       collapsedContent={collapsedContent}
-      expandedContent={expandedContent}
+      expandedContent={hasExpanded ? expandedContent : null}
       isLoading={isLoading}
       toolName={name}
     />

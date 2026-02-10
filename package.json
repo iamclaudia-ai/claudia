@@ -7,7 +7,8 @@
     "extensions/*"
   ],
   "scripts": {
-    "dev": "bun run --filter @claudia/gateway dev",
+    "dev": "bun run scripts/dev.ts",
+    "dev:gateway": "bun run --filter @claudia/gateway dev",
     "dev:runtime": "bun run --watch packages/runtime/src/index.ts",
     "watchdog": "bun run scripts/watchdog.ts",
     "cli": "bun run packages/cli/src/index.ts",
