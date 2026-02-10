@@ -100,7 +100,7 @@ export const MessageContent = memo(function MessageContent({
 
   if (type === "thinking") {
     return (
-      <div className="mb-2 border border-gray-200 rounded-lg overflow-hidden bg-gray-50">
+      <div className="mb-2 border border-gray-200 rounded-lg overflow-hidden bg-gray-50 w-fit min-w-48">
         <button
           onClick={() => setIsExpanded(!isExpanded)}
           className="w-full flex items-center gap-2 px-3 py-2 bg-gray-100 hover:bg-gray-200 transition-colors text-left"

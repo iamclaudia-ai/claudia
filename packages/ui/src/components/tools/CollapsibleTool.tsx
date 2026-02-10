@@ -29,17 +29,17 @@ export function CollapsibleTool({
   const containerHover = config?.colors.hoverBg || "hover:bg-neutral-100/80";
 
   return (
-    <div className="my-1">
+    <div className="my-1 w-fit">
       <button
         type="button"
         onClick={() => hasExpandedContent && setIsExpanded(!isExpanded)}
         disabled={!hasExpandedContent && !isLoading}
         aria-expanded={isExpanded}
-        className={`flex w-full items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-left transition-colors ${containerBorder} ${containerBg} ${
+        className={`flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-left transition-colors ${containerBorder} ${containerBg} ${
           hasExpandedContent ? `cursor-pointer ${containerHover}` : "cursor-default"
         }`}
       >
-        <div className="flex-1">{collapsedContent}</div>
+        <div>{collapsedContent}</div>
         <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center">
           {isLoading ? (
             <Loader2 className={`size-3 animate-spin ${chevronColor}`} />
