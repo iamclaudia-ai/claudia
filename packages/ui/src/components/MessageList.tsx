@@ -63,13 +63,15 @@ export function MessageList({
           key={msgIdx}
           className={msg.role === "user" ? "ml-12" : "mr-12"}
         >
-          <div
-            className={`flex items-center gap-2 mb-1 ${msg.role === "user" ? "justify-end" : ""}`}
-          >
-            {(msg.role === "user" || msg.role === "assistant") && (
+          {/* Only show copy button for user messages or assistant messages with text content */}
+          {((msg.role === "user") ||
+            (msg.role === "assistant" && msg.blocks.some(b => b.type === "text" || b.type === "thinking"))) && (
+            <div
+              className={`flex items-center gap-2 mb-1 ${msg.role === "user" ? "justify-end" : ""}`}
+            >
               <CopyButton text={getMessageRawContent(msg.blocks)} />
-            )}
-          </div>
+            </div>
+          )}
           {msg.role === "user" ? (
             <div className="space-y-2">
               {msg.blocks.filter((b) => b.type === "image").length > 0 && (
