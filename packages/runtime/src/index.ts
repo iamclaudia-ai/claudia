@@ -122,11 +122,12 @@ async function handleSessionMethod(
       case "prompt": {
         const sessionId = req.params?.sessionId as string;
         const content = req.params?.content;
+        const cwd = req.params?.cwd as string | undefined;
         if (!sessionId || !content) {
           sendError(ws, req.id, "Missing sessionId or content parameter");
           return;
         }
-        manager.prompt(sessionId, content as string | unknown[]);
+        await manager.prompt(sessionId, content as string | unknown[], cwd);
         sendResponse(ws, req.id, { status: "ok", sessionId });
         break;
       }

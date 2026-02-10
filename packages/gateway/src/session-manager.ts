@@ -579,6 +579,7 @@ export class SessionManager {
     await this.runtimeRequest("session.prompt", {
       sessionId: ccSessionId,
       content,
+      cwd: this.currentWorkspace?.cwd,
     });
 
     return ccSessionId;

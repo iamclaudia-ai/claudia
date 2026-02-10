@@ -169,6 +169,14 @@ export class RuntimeSession extends EventEmitter {
       this.messageOpen = false;
     }
 
+    // Emit synthetic turn_stop and reset proxy turn state
+    this.emit("sse", {
+      type: "turn_stop",
+      timestamp: new Date().toISOString(),
+      stop_reason: "abort",
+    });
+    this.proxy.resetTurn();
+
     this.proc.kill("SIGTERM");
     this.proc = null;
     this.stdin = null;

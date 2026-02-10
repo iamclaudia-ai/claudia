@@ -4,6 +4,10 @@
  * Manages all active RuntimeSession instances.
  * Provides create/resume/prompt/interrupt/close/list operations.
  * Forwards all SSE events from sessions to a callback for WS relay.
+ *
+ * Sessions are lazily resumed: if a prompt arrives for a session that
+ * isn't running, the manager auto-resumes it (starts proxy + CLI process).
+ * This means the runtime is self-healing after restarts — no persistence needed.
  */
 
 import { EventEmitter } from "node:events";
@@ -105,9 +109,21 @@ export class RuntimeSessionManager extends EventEmitter {
 
   /**
    * Send a prompt to a session.
+   * If the session isn't running, auto-resumes it first (lazy start).
    */
-  prompt(sessionId: string, content: string | unknown[]): void {
-    const session = this.getActiveSession(sessionId);
+  async prompt(sessionId: string, content: string | unknown[], cwd?: string): Promise<void> {
+    let session = this.sessions.get(sessionId);
+
+    if (!session || !session.isActive) {
+      // Lazy resume — session died or runtime restarted
+      if (!cwd) {
+        throw new Error(`Session not found and no cwd provided for auto-resume: ${sessionId}`);
+      }
+      console.log(`[Manager] Auto-resuming session: ${sessionId.slice(0, 8)} (cwd: ${cwd})`);
+      await this.resume({ sessionId, cwd });
+      session = this.sessions.get(sessionId)!;
+    }
+
     session.prompt(content);
   }
 
