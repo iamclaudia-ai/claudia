@@ -65,6 +65,9 @@ const sessionManager = new SessionManager({
 // Migrate legacy .session-id file if present
 await sessionManager.migrateLegacySession();
 
+// Connect to the session runtime service
+sessionManager.connectToRuntime();
+
 // Wire up extension event emitting to broadcast
 extensions.setEmitCallback(async (type, payload, source) => {
   broadcastEvent(type, payload, source);
@@ -217,8 +220,8 @@ async function handleSessionMethod(
 
       case "config": {
         // Set session config before first prompt
-        const { session } = sessionManager.getCurrentSession();
-        if (!session) {
+        const { sessionId: activeSessionId } = sessionManager.getCurrentSession();
+        if (!activeSessionId) {
           if (req.params?.thinking !== undefined) {
             sessionManager.pendingSessionConfig.thinking = req.params
               .thinking as boolean;
@@ -255,8 +258,8 @@ async function handleSessionMethod(
           (req.params?.source as string) || null;
 
         // If thinking is specified and no session exists yet, set pending config
-        const { session } = sessionManager.getCurrentSession();
-        if (!session && req.params?.thinking !== undefined) {
+        const { sessionId: activeId } = sessionManager.getCurrentSession();
+        if (!activeId && req.params?.thinking !== undefined) {
           sessionManager.pendingSessionConfig.thinking = req.params
             .thinking as boolean;
         }
@@ -264,17 +267,18 @@ async function handleSessionMethod(
         // Send prompt through session manager
         // Web clients pass sessionId (ses_...) to target a specific session
         const targetSessionId = req.params?.sessionId as string | undefined;
-        const s = await sessionManager.prompt(content, targetSessionId);
+        const ccSessionId = await sessionManager.prompt(content, targetSessionId);
         sendResponse(ws, req.id, {
           status: "ok",
-          sessionId: s.id,
+          sessionId: ccSessionId,
           source: sessionManager.currentRequestSource,
         });
         break;
       }
 
       case "interrupt": {
-        if (sessionManager.interrupt()) {
+        const interrupted = await sessionManager.interrupt();
+        if (interrupted) {
           sendResponse(ws, req.id, { status: "interrupted" });
         } else {
           sendError(ws, req.id, "No active session");
@@ -506,6 +510,9 @@ const server = Bun.serve<ClientState>({
         JSON.stringify({
           status: "ok",
           clients: clients.size,
+          runtime: {
+            connected: info.isRuntimeConnected,
+          },
           workspace: sessionManager.getCurrentWorkspace(),
           session: info.sessionId
             ? {

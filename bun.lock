@@ -100,7 +100,6 @@
       "version": "0.1.0",
       "dependencies": {
         "@claudia/ext-imessage": "workspace:*",
-        "@claudia/sdk": "workspace:*",
         "@claudia/shared": "workspace:*",
         "@claudia/ui": "workspace:*",
         "@claudia/voice": "workspace:*",
@@ -125,6 +124,13 @@
       },
       "devDependencies": {
         "typescript": "^5.3.3",
+      },
+    },
+    "packages/runtime": {
+      "name": "@claudia/runtime",
+      "version": "0.1.0",
+      "dependencies": {
+        "@claudia/shared": "workspace:*",
       },
     },
     "packages/sdk": {
@@ -183,6 +189,8 @@
     "@claudia/memory-mcp": ["@claudia/memory-mcp@workspace:packages/memory-mcp"],
 
     "@claudia/menubar": ["@claudia/menubar@workspace:clients/menubar"],
+
+    "@claudia/runtime": ["@claudia/runtime@workspace:packages/runtime"],
 
     "@claudia/sdk": ["@claudia/sdk@workspace:packages/sdk"],
 

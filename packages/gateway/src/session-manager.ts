@@ -1,8 +1,9 @@
 /**
  * Session Manager
  *
- * Manages workspace-aware session lifecycle. Replaces the old singleton
- * session pattern with SQLite-backed workspace/session management.
+ * Manages workspace-aware session lifecycle. Uses the session runtime
+ * service for Claude process management, communicating via WebSocket
+ * with the same req/res/event protocol used throughout Claudia.
  *
  * Supports two modes:
  * - VS Code: auto-discover workspace by CWD, auto-create if needed
@@ -11,7 +12,7 @@
 
 import type { Database } from "bun:sqlite";
 import type { Workspace, SessionRecord, GatewayEvent, ClaudiaConfig } from "@claudia/shared";
-import { ClaudiaSession, createSession, resumeSession } from "@claudia/sdk";
+import type { Request, Response, Event, Message } from "@claudia/shared";
 import { existsSync, readFileSync, readdirSync, unlinkSync, statSync } from "node:fs";
 import { join, basename } from "node:path";
 import { homedir } from "node:os";
@@ -37,8 +38,20 @@ export class SessionManager {
   private broadcastExtension: SessionManagerOptions["broadcastExtension"];
   private routeToSource: SessionManagerOptions["routeToSource"];
 
-  // Current active state
-  private session: ClaudiaSession | null = null;
+  // Runtime WebSocket connection
+  private runtimeWs: WebSocket | null = null;
+  private runtimeConnected = false;
+  private runtimeReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private pendingRequests = new Map<string, {
+    resolve: (payload: unknown) => void;
+    reject: (error: Error) => void;
+    timer: ReturnType<typeof setTimeout>;
+  }>();
+
+  // Active session tracking (which ccSessionId is active in the runtime)
+  private activeRuntimeSessionId: string | null = null;
+
+  // Current workspace/session state
   private currentWorkspace: Workspace | null = null;
   private currentSessionRecord: SessionRecord | null = null;
 
@@ -59,6 +72,232 @@ export class SessionManager {
     this.routeToSource = options.routeToSource;
   }
 
+  // ── Runtime Connection ──────────────────────────────────────
+
+  /**
+   * Connect to the session runtime service via WebSocket.
+   * Auto-reconnects on disconnect.
+   */
+  connectToRuntime(): void {
+    const host = this.config.runtime?.host || "localhost";
+    const port = this.config.runtime?.port || 30087;
+    const url = `ws://${host}:${port}/ws`;
+
+    console.log(`[SessionManager] Connecting to runtime: ${url}`);
+
+    const ws = new WebSocket(url);
+
+    ws.onopen = () => {
+      console.log("[SessionManager] Connected to runtime ✓");
+      this.runtimeConnected = true;
+      this.runtimeWs = ws;
+
+      // Subscribe to all session events
+      this.runtimeSend({
+        type: "req",
+        id: crypto.randomUUID(),
+        method: "subscribe",
+        params: { events: ["session.*"] },
+      });
+
+      // Check for existing runtime sessions and reconcile
+      this.reconcileRuntimeSessions();
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const message: Message = JSON.parse(event.data as string);
+        this.handleRuntimeMessage(message);
+      } catch (error) {
+        console.error("[SessionManager] Failed to parse runtime message:", error);
+      }
+    };
+
+    ws.onclose = () => {
+      console.log("[SessionManager] Runtime disconnected");
+      this.runtimeConnected = false;
+      this.runtimeWs = null;
+
+      // Reject pending requests
+      for (const [id, pending] of this.pendingRequests) {
+        clearTimeout(pending.timer);
+        pending.reject(new Error("Runtime disconnected"));
+      }
+      this.pendingRequests.clear();
+
+      // Schedule reconnect
+      this.scheduleReconnect();
+    };
+
+    ws.onerror = (error) => {
+      console.error("[SessionManager] Runtime WebSocket error:", error);
+    };
+  }
+
+  private scheduleReconnect(): void {
+    if (this.runtimeReconnectTimer) return;
+    this.runtimeReconnectTimer = setTimeout(() => {
+      this.runtimeReconnectTimer = null;
+      this.connectToRuntime();
+    }, 2000);
+  }
+
+  private runtimeSend(message: Message): void {
+    if (!this.runtimeWs || this.runtimeWs.readyState !== WebSocket.OPEN) {
+      throw new Error("Runtime not connected");
+    }
+    this.runtimeWs.send(JSON.stringify(message));
+  }
+
+  /**
+   * Send a request to the runtime and wait for the response.
+   */
+  private runtimeRequest(method: string, params?: Record<string, unknown>): Promise<unknown> {
+    return new Promise((resolve, reject) => {
+      if (!this.runtimeConnected) {
+        reject(new Error("Runtime not connected"));
+        return;
+      }
+
+      const id = crypto.randomUUID();
+      const timer = setTimeout(() => {
+        this.pendingRequests.delete(id);
+        reject(new Error(`Runtime request timeout: ${method}`));
+      }, 30000);
+
+      this.pendingRequests.set(id, { resolve, reject, timer });
+
+      this.runtimeSend({
+        type: "req",
+        id,
+        method,
+        params,
+      } as Request);
+    });
+  }
+
+  /**
+   * Handle messages from the runtime WebSocket.
+   */
+  private handleRuntimeMessage(message: Message): void {
+    if (message.type === "res") {
+      // Response to a pending request
+      const pending = this.pendingRequests.get(message.id);
+      if (pending) {
+        clearTimeout(pending.timer);
+        this.pendingRequests.delete(message.id);
+        if (message.ok) {
+          pending.resolve(message.payload);
+        } else {
+          pending.reject(new Error(message.error || "Runtime error"));
+        }
+      }
+    } else if (message.type === "event") {
+      // SSE event from a runtime session
+      this.handleRuntimeEvent(message);
+    }
+  }
+
+  /**
+   * Handle SSE events forwarded from the runtime.
+   * Mirrors the old wireSession() logic.
+   */
+  private handleRuntimeEvent(event: Event): void {
+    const eventPayload = event.payload as Record<string, unknown>;
+    const sessionId = eventPayload.sessionId as string;
+    const eventType = eventPayload.type as string;
+
+    // Build the event name as "session.{type}"
+    const eventName = event.event; // Already "session.{type}" from runtime
+
+    // ── Streaming event logging ──
+    if (eventType === "message_start") {
+      console.log(`[Stream] ▶ message_start (session: ${sessionId?.slice(0, 8)}…)`);
+    } else if (eventType === "message_stop") {
+      console.log(`[Stream] ■ message_stop`);
+    } else if (eventType === "content_block_start") {
+      const block = eventPayload.content_block as { type: string; name?: string } | undefined;
+      const label = block?.type === "tool_use" ? `tool_use(${block.name})` : block?.type || "unknown";
+      console.log(`[Stream]   ┌ content_block_start: ${label}`);
+    } else if (eventType === "content_block_stop") {
+      console.log(`[Stream]   └ content_block_stop`);
+    } else if (eventType === "api_error") {
+      console.error(`[Stream] ✖ API ERROR ${eventPayload.status}: ${eventPayload.message}`);
+    } else if (eventType === "api_warning") {
+      console.warn(`[Stream] ⚠ API RETRY attempt ${eventPayload.attempt}/${eventPayload.maxRetries}: ${eventPayload.message}`);
+    } else if (eventType === "process_started") {
+      this.broadcastEvent("session.process_started", { sessionId }, "session");
+      return;
+    } else if (eventType === "process_ended") {
+      this.broadcastEvent("session.process_ended", { sessionId }, "session");
+      return;
+    }
+
+    const payload = {
+      sessionId,
+      source: this.currentRequestSource,
+      ...eventPayload,
+    };
+
+    // Accumulate text for source routing
+    if (eventType === "content_block_start") {
+      const block = eventPayload.content_block as { type: string } | undefined;
+      if (block?.type === "text") {
+        this.currentResponseText = "";
+      }
+    } else if (eventType === "content_block_delta") {
+      const delta = eventPayload.delta as { type: string; text?: string } | undefined;
+      if (delta?.type === "text_delta" && delta.text) {
+        this.currentResponseText += delta.text;
+      }
+    }
+
+    // Broadcast to WebSocket clients
+    this.broadcastEvent(eventName, payload, "session");
+
+    // Build gateway event for extensions
+    const gatewayEvent: GatewayEvent = {
+      type: eventName,
+      payload: {
+        ...payload,
+        speakResponse: this.currentRequestWantsVoice,
+        responseText: eventType === "message_stop" ? this.currentResponseText : undefined,
+      },
+      timestamp: Date.now(),
+      origin: "session",
+      source: this.currentRequestSource || undefined,
+      sessionId,
+    };
+
+    // Broadcast to extensions
+    this.broadcastExtension(gatewayEvent);
+
+    // On message complete, route to source if applicable
+    if (eventType === "message_stop" && this.currentRequestSource) {
+      this.routeToSource(this.currentRequestSource, gatewayEvent);
+      this.currentResponseText = "";
+    }
+  }
+
+  /**
+   * On runtime connect, check for existing sessions and reconcile.
+   */
+  private async reconcileRuntimeSessions(): Promise<void> {
+    try {
+      const result = await this.runtimeRequest("session.list") as { sessions: Array<{ id: string }> };
+      if (result.sessions?.length > 0) {
+        console.log(`[SessionManager] Runtime has ${result.sessions.length} active session(s)`);
+        // TODO: reconcile with SQLite records
+      }
+    } catch (error) {
+      console.warn("[SessionManager] Failed to reconcile runtime sessions:", error);
+    }
+  }
+
+  get isRuntimeConnected(): boolean {
+    return this.runtimeConnected;
+  }
+
   // ── Workspace Operations ───────────────────────────────────
 
   listWorkspaces(): Workspace[] {
@@ -72,14 +311,11 @@ export class SessionManager {
   getOrCreateWorkspace(cwd: string, name?: string): { workspace: Workspace; created: boolean } {
     const result = workspaceModel.getOrCreateWorkspace(this.db, cwd, name);
 
-    // If we just created the workspace, discover any existing Claude Code sessions
     if (result.created) {
       this.discoverSessionsForWorkspace(result.workspace);
     }
 
-    // If this is the workspace we're working in, track it
     if (!this.currentWorkspace || this.currentWorkspace.cwd === cwd) {
-      // Refresh in case discover updated it
       this.currentWorkspace = workspaceModel.getWorkspace(this.db, result.workspace.id);
     }
 
@@ -105,70 +341,73 @@ export class SessionManager {
     return sessionModel.getSession(this.db, sessionId);
   }
 
-  getCurrentSession(): { session: ClaudiaSession | null; record: SessionRecord | null } {
-    return { session: this.session, record: this.currentSessionRecord };
+  getCurrentSession(): { sessionId: string | null; record: SessionRecord | null } {
+    return { sessionId: this.activeRuntimeSessionId, record: this.currentSessionRecord };
   }
 
   /**
-   * Initialize or resume a session.
-   *
-   * If a session record ID is provided, load that specific session (web client flow).
-   * Otherwise, use the current workspace's active session (VS Code flow).
-   * Never auto-creates a workspace from gateway CWD.
+   * Initialize or resume a session via the runtime.
    */
-  async initSession(sessionRecordId?: string): Promise<ClaudiaSession> {
-    // If targeting a specific session record, switch to it
+  async initSession(sessionRecordId?: string): Promise<string> {
     if (sessionRecordId) {
       const record = sessionModel.getSession(this.db, sessionRecordId);
-      if (!record) {
-        throw new Error(`Session not found: ${sessionRecordId}`);
+      if (!record) throw new Error(`Session not found: ${sessionRecordId}`);
+
+      // Already active?
+      if (this.activeRuntimeSessionId === record.ccSessionId && this.currentSessionRecord?.id === record.id) {
+        return record.ccSessionId;
       }
 
-      // If this is already our active session, just return it
-      if (this.session?.isActive && this.currentSessionRecord?.id === record.id) {
-        return this.session;
+      // Close existing runtime session if different
+      if (this.activeRuntimeSessionId && this.activeRuntimeSessionId !== record.ccSessionId) {
+        try {
+          await this.runtimeRequest("session.close", { sessionId: this.activeRuntimeSessionId });
+        } catch {
+          // Ignore close errors
+        }
       }
 
-      // Close existing session if different
-      if (this.session) {
-        await this.session.close();
-        this.session = null;
-      }
-
-      // Set workspace context from the session's workspace
+      // Set workspace context
       this.currentWorkspace = workspaceModel.getWorkspace(this.db, record.workspaceId);
       const cwd = this.currentWorkspace?.cwd;
       if (!cwd) throw new Error(`Workspace not found for session: ${record.workspaceId}`);
 
-      console.log(`[SessionManager] Resuming session: ${record.ccSessionId} (from record ${record.id}, cwd: ${cwd})`);
-      this.session = await resumeSession(record.ccSessionId, { cwd });
+      // Resume in runtime
+      console.log(`[SessionManager] Resuming session via runtime: ${record.ccSessionId} (cwd: ${cwd})`);
+      await this.runtimeRequest("session.resume", {
+        sessionId: record.ccSessionId,
+        cwd,
+      });
+
+      this.activeRuntimeSessionId = record.ccSessionId;
       this.currentSessionRecord = record;
-      this.wireSession();
-      return this.session;
+      return record.ccSessionId;
     }
 
     // No specific session — use current workspace's active session
-    if (this.session?.isActive) {
-      return this.session;
+    if (this.activeRuntimeSessionId) {
+      return this.activeRuntimeSessionId;
     }
 
     if (!this.currentWorkspace) {
       throw new Error("No workspace set. Use workspace.getOrCreate (VS Code) or specify a sessionId (web).");
     }
 
-    // Check if workspace has an active session to resume
     if (this.currentWorkspace.activeSessionId) {
       const record = sessionModel.getSession(this.db, this.currentWorkspace.activeSessionId);
       if (record) {
-        console.log(`[SessionManager] Resuming session: ${record.ccSessionId} (cwd: ${this.currentWorkspace.cwd})`);
-        this.session = await resumeSession(record.ccSessionId, { cwd: this.currentWorkspace.cwd });
+        console.log(`[SessionManager] Resuming session via runtime: ${record.ccSessionId} (cwd: ${this.currentWorkspace.cwd})`);
+        await this.runtimeRequest("session.resume", {
+          sessionId: record.ccSessionId,
+          cwd: this.currentWorkspace.cwd,
+        });
+
+        this.activeRuntimeSessionId = record.ccSessionId;
         this.currentSessionRecord = record;
-        this.wireSession();
-        return this.session;
+        return record.ccSessionId;
       }
     }
 
-    // No session available — user must create one explicitly
     throw new Error("No active session. Create a new session first.");
   }
 
@@ -180,51 +419,54 @@ export class SessionManager {
     previousSessionId?: string;
   }> {
     const wsId = workspaceId || this.currentWorkspace?.id;
-    if (!wsId) {
-      throw new Error("No workspace available");
-    }
+    if (!wsId) throw new Error("No workspace available");
 
-    // Close current session if active
-    let previousSessionId: string | undefined;
-    if (this.session) {
-      await this.session.close();
-      this.session = null;
+    // Close current runtime session
+    if (this.activeRuntimeSessionId) {
+      try {
+        await this.runtimeRequest("session.close", { sessionId: this.activeRuntimeSessionId });
+      } catch {
+        // Ignore close errors
+      }
+      this.activeRuntimeSessionId = null;
     }
 
     // Archive current active session
+    let previousSessionId: string | undefined;
     const workspace = workspaceModel.getWorkspace(this.db, wsId);
-    if (!workspace) {
-      throw new Error(`Workspace not found: ${wsId}`);
-    }
+    if (!workspace) throw new Error(`Workspace not found: ${wsId}`);
+
     if (workspace.activeSessionId) {
       sessionModel.archiveSession(this.db, workspace.activeSessionId);
       previousSessionId = workspace.activeSessionId;
     }
 
-    // Create the new Claude Code session using config defaults + any pending overrides
+    // Create session in runtime
     const sessionConfig = this.config.session;
     const thinking = this.pendingSessionConfig.thinking ?? sessionConfig.thinking;
     const thinkingBudget = this.pendingSessionConfig.thinkingBudget ?? sessionConfig.thinkingBudget;
     const model = sessionConfig.model || undefined;
 
-    console.log(`[SessionManager] Creating new session (model: ${model || "default"}, thinking: ${thinking}, cwd: ${workspace.cwd})...`);
-    this.session = await createSession({
-      systemPrompt: sessionConfig.systemPrompt || undefined,
+    console.log(`[SessionManager] Creating new session via runtime (model: ${model || "default"}, thinking: ${thinking}, cwd: ${workspace.cwd})...`);
+
+    const result = await this.runtimeRequest("session.create", {
       cwd: workspace.cwd,
+      model,
+      systemPrompt: sessionConfig.systemPrompt || undefined,
       thinking,
       thinkingBudget,
-      model,
-    });
+    }) as { sessionId: string; proxyPort: number };
+
+    this.activeRuntimeSessionId = result.sessionId;
 
     // Record in DB
     const record = sessionModel.createSessionRecord(this.db, {
       workspaceId: wsId,
-      ccSessionId: this.session.id,
+      ccSessionId: result.sessionId,
       title,
       previousSessionId,
     });
 
-    // Set as active
     workspaceModel.setActiveSession(this.db, wsId, record.id);
     this.currentSessionRecord = record;
     this.currentWorkspace = workspaceModel.getWorkspace(this.db, wsId);
@@ -232,71 +474,64 @@ export class SessionManager {
     // Clear pending config
     this.pendingSessionConfig = {};
 
-    // Wire up events
-    this.wireSession();
-
-    console.log(`[SessionManager] Created session: ${this.session.id} (${record.id})`);
+    console.log(`[SessionManager] Created session: ${result.sessionId} (${record.id})`);
     return { session: record, previousSessionId };
   }
 
   /**
-   * Switch to a different session (resume it).
+   * Switch to a different session.
    */
   async switchSession(sessionId: string): Promise<SessionRecord> {
     const record = sessionModel.getSession(this.db, sessionId);
-    if (!record) {
-      throw new Error(`Session not found: ${sessionId}`);
-    }
+    if (!record) throw new Error(`Session not found: ${sessionId}`);
 
-    // Close current session
-    if (this.session) {
-      await this.session.close();
-      this.session = null;
+    // Close current runtime session
+    if (this.activeRuntimeSessionId) {
+      try {
+        await this.runtimeRequest("session.close", { sessionId: this.activeRuntimeSessionId });
+      } catch {
+        // Ignore
+      }
     }
 
     // Get workspace for CWD
     const workspace = workspaceModel.getWorkspace(this.db, record.workspaceId);
     if (!workspace) throw new Error(`Workspace not found: ${record.workspaceId}`);
 
-    // Resume the target session
-    console.log(`[SessionManager] Switching to session: ${record.ccSessionId} (cwd: ${workspace.cwd})`);
-    this.session = await resumeSession(record.ccSessionId, { cwd: workspace.cwd });
+    // Resume in runtime
+    console.log(`[SessionManager] Switching to session via runtime: ${record.ccSessionId} (cwd: ${workspace.cwd})`);
+    await this.runtimeRequest("session.resume", {
+      sessionId: record.ccSessionId,
+      cwd: workspace.cwd,
+    });
+
+    this.activeRuntimeSessionId = record.ccSessionId;
     this.currentSessionRecord = record;
 
     // Update workspace active session
     workspaceModel.setActiveSession(this.db, record.workspaceId, record.id);
     this.currentWorkspace = workspace;
 
-    // Mark as active if it was archived
+    // Mark as active if archived
     if (record.status === "archived") {
       this.db.query("UPDATE sessions SET status = 'active' WHERE id = ?").run(record.id);
       this.currentSessionRecord = sessionModel.getSession(this.db, record.id);
     }
-
-    // Wire up events
-    this.wireSession();
 
     return this.currentSessionRecord!;
   }
 
   /**
    * Get session history from JSONL file with optional pagination.
-   * Accepts explicit session ID (ses_...) for web client, or falls back
-   * to current session for VS Code auto-discover flow.
-   *
-   * When limit is provided, returns paginated results (most recent first).
-   * When no limit, returns all messages (legacy behavior).
    */
   getSessionHistory(sessionId?: string, options?: { limit?: number; offset?: number }) {
     let ccSessionId: string | undefined;
 
     if (sessionId) {
-      // Explicit session ID provided (web client flow)
       const record = sessionModel.getSession(this.db, sessionId);
       ccSessionId = record?.ccSessionId;
     } else {
-      // Fall back to current session (VS Code flow)
-      ccSessionId = this.currentSessionRecord?.ccSessionId || this.session?.id;
+      ccSessionId = this.currentSessionRecord?.ccSessionId || this.activeRuntimeSessionId || undefined;
     }
 
     if (!ccSessionId) {
@@ -313,7 +548,6 @@ export class SessionManager {
       const usage = parseSessionUsage(sessionPath);
 
       if (options?.limit) {
-        // Paginated: return a slice of messages
         const { messages, total, hasMore } = parseSessionFilePaginated(sessionPath, {
           limit: options.limit,
           offset: options.offset || 0,
@@ -322,7 +556,6 @@ export class SessionManager {
         return { messages, usage, total, hasMore };
       }
 
-      // Unpaginated: return everything (legacy behavior)
       const messages = parseSessionFile(sessionPath);
       console.log(`[SessionManager] Loaded ${messages.length} messages from history`);
       return { messages, usage, total: messages.length, hasMore: false };
@@ -333,38 +566,44 @@ export class SessionManager {
   }
 
   /**
-   * Send a prompt to a session.
-   * If sessionRecordId is provided, targets that specific session (web client).
-   * Otherwise uses the current workspace's active session (VS Code / extensions).
+   * Send a prompt to a session via the runtime.
    */
-  async prompt(content: string | unknown[], sessionRecordId?: string): Promise<ClaudiaSession> {
-    const s = await this.initSession(sessionRecordId);
+  async prompt(content: string | unknown[], sessionRecordId?: string): Promise<string> {
+    const ccSessionId = await this.initSession(sessionRecordId);
 
     // Update activity timestamp
     if (this.currentSessionRecord) {
       sessionModel.updateSessionActivity(this.db, this.currentSessionRecord.id);
     }
 
-    s.prompt(content as string | unknown[]);
-    return s;
+    await this.runtimeRequest("session.prompt", {
+      sessionId: ccSessionId,
+      content,
+    });
+
+    return ccSessionId;
   }
 
   /**
-   * Interrupt the current session
+   * Interrupt the current session via the runtime.
    */
-  interrupt(): boolean {
-    if (this.session) {
-      this.session.interrupt();
+  async interrupt(): Promise<boolean> {
+    if (!this.activeRuntimeSessionId) return false;
+
+    try {
+      await this.runtimeRequest("session.interrupt", {
+        sessionId: this.activeRuntimeSessionId,
+      });
       return true;
+    } catch {
+      return false;
     }
-    return false;
   }
 
   /**
-   * Get session info
+   * Get session info.
    */
   getInfo() {
-    // Get session config (current config for active session, or what would be used for new sessions)
     const sessionConfig = this.config.session;
     const effectiveConfig = {
       thinking: this.pendingSessionConfig.thinking ?? sessionConfig.thinking,
@@ -374,19 +613,20 @@ export class SessionManager {
     };
 
     return {
-      sessionId: this.session?.id || this.currentSessionRecord?.ccSessionId || null,
-      isActive: this.session?.isActive || false,
-      isProcessRunning: this.session?.isProcessRunning || false,
+      sessionId: this.activeRuntimeSessionId || this.currentSessionRecord?.ccSessionId || null,
+      isActive: !!this.activeRuntimeSessionId,
+      isProcessRunning: !!this.activeRuntimeSessionId,
+      isRuntimeConnected: this.runtimeConnected,
       workspaceId: this.currentWorkspace?.id || null,
       workspaceName: this.currentWorkspace?.name || null,
       session: this.currentSessionRecord,
       sessionConfig: effectiveConfig,
-      pendingConfig: !this.session ? this.pendingSessionConfig : undefined,
+      pendingConfig: !this.activeRuntimeSessionId ? this.pendingSessionConfig : undefined,
     };
   }
 
   /**
-   * Legacy migration: convert old .session-id file to DB records
+   * Legacy migration: convert old .session-id file to DB records.
    */
   async migrateLegacySession(): Promise<void> {
     const sessionFile = join(this.dataDir, ".session-id");
@@ -398,7 +638,6 @@ export class SessionManager {
       return;
     }
 
-    // Check if we already have this session in DB
     const existing = sessionModel.getSessionByCcId(this.db, ccSessionId);
     if (existing) {
       console.log(`[SessionManager] Legacy session already migrated: ${ccSessionId}`);
@@ -406,7 +645,6 @@ export class SessionManager {
       return;
     }
 
-    // Create workspace for current CWD and a session record
     const cwd = process.cwd();
     const { workspace } = workspaceModel.getOrCreateWorkspace(this.db, cwd);
 
@@ -424,13 +662,20 @@ export class SessionManager {
   }
 
   /**
-   * Close everything for shutdown
+   * Close everything for shutdown.
    */
   async close(): Promise<void> {
-    if (this.session) {
-      await this.session.close();
-      this.session = null;
+    if (this.runtimeReconnectTimer) {
+      clearTimeout(this.runtimeReconnectTimer);
+      this.runtimeReconnectTimer = null;
     }
+
+    if (this.runtimeWs) {
+      this.runtimeWs.close();
+      this.runtimeWs = null;
+    }
+
+    this.runtimeConnected = false;
   }
 
   // ── Private Methods ────────────────────────────────────────
@@ -438,20 +683,13 @@ export class SessionManager {
   /**
    * Discover existing Claude Code sessions for a workspace by scanning
    * ~/.claude/projects/ for JSONL files matching the workspace's CWD.
-   *
-   * Claude Code stores sessions at:
-   *   ~/.claude/projects/{cwd-with-dashes}/{uuid}.jsonl
-   *
-   * The directory name is the CWD with "/" replaced by "-" and leading "-".
    */
   private discoverSessionsForWorkspace(workspace: Workspace): void {
     const projectsDir = join(homedir(), ".claude", "projects");
     if (!existsSync(projectsDir)) return;
 
-    // Claude Code encodes CWD as: /Users/michael/foo → -Users-michael-foo
     const cwdEncoded = workspace.cwd.replace(/\//g, "-");
 
-    // Find the matching directory
     let targetDir: string | null = null;
     try {
       const dirs = readdirSync(projectsDir, { withFileTypes: true });
@@ -467,7 +705,6 @@ export class SessionManager {
 
     if (!targetDir) return;
 
-    // Scan for JSONL session files
     try {
       const files = readdirSync(targetDir)
         .filter((f) => f.endsWith(".jsonl"))
@@ -476,7 +713,6 @@ export class SessionManager {
           ccSessionId: f.replace(".jsonl", ""),
           path: join(targetDir!, f),
         }))
-        // Sort by modification time (most recent last)
         .sort((a, b) => {
           try {
             return statSync(a.path).mtimeMs - statSync(b.path).mtimeMs;
@@ -492,14 +728,12 @@ export class SessionManager {
       let latestRecord: SessionRecord | null = null;
 
       for (const file of files) {
-        // Skip if already in DB
         const existing = sessionModel.getSessionByCcId(this.db, file.ccSessionId);
         if (existing) {
           latestRecord = existing;
           continue;
         }
 
-        // Create a DB record for this discovered session
         const record = sessionModel.createSessionRecord(this.db, {
           workspaceId: workspace.id,
           ccSessionId: file.ccSessionId,
@@ -509,7 +743,6 @@ export class SessionManager {
         latestRecord = record;
       }
 
-      // Set the most recent session as active (if workspace has no active session)
       if (latestRecord && !workspace.activeSessionId) {
         workspaceModel.setActiveSession(this.db, workspace.id, latestRecord.id);
         console.log(`[SessionManager] Set active session: ${latestRecord.id}`);
@@ -517,91 +750,5 @@ export class SessionManager {
     } catch (err) {
       console.error(`[SessionManager] Error discovering sessions:`, err);
     }
-  }
-
-  /**
-   * Wire up SSE event forwarding from the ClaudiaSession to clients/extensions
-   */
-  private wireSession(): void {
-    if (!this.session) return;
-
-    const sessionRef = this.session;
-
-    sessionRef.on("sse", (event) => {
-      const eventName = `session.${event.type}`;
-
-      // ── Streaming event logging ──
-      if (event.type === "message_start") {
-        console.log(`[Stream] ▶ message_start (session: ${sessionRef.id.slice(0, 8)}…)`);
-      } else if (event.type === "message_stop") {
-        console.log(`[Stream] ■ message_stop`);
-      } else if (event.type === "content_block_start") {
-        const block = (event as Record<string, unknown>).content_block as { type: string; name?: string } | undefined;
-        const label = block?.type === "tool_use" ? `tool_use(${block.name})` : block?.type || "unknown";
-        console.log(`[Stream]   ┌ content_block_start: ${label}`);
-      } else if (event.type === "content_block_stop") {
-        console.log(`[Stream]   └ content_block_stop`);
-      } else if (event.type === "api_error") {
-        const e = event as Record<string, unknown>;
-        console.error(`[Stream] ✖ API ERROR ${e.status}: ${e.message}`);
-      } else if (event.type === "api_warning") {
-        const w = event as Record<string, unknown>;
-        console.warn(`[Stream] ⚠ API RETRY attempt ${w.attempt}/${w.maxRetries}: ${w.message}`);
-      }
-      // Don't log content_block_delta (too noisy) or message_delta (just usage)
-
-      const payload = {
-        sessionId: sessionRef.id,
-        source: this.currentRequestSource,
-        ...event,
-      };
-
-      // Accumulate text from content deltas for source routing
-      if (event.type === "content_block_start") {
-        const block = (event as Record<string, unknown>).content_block as { type: string } | undefined;
-        if (block?.type === "text") {
-          this.currentResponseText = "";
-        }
-      } else if (event.type === "content_block_delta") {
-        const delta = (event as Record<string, unknown>).delta as { type: string; text?: string } | undefined;
-        if (delta?.type === "text_delta" && delta.text) {
-          this.currentResponseText += delta.text;
-        }
-      }
-
-      // Broadcast to WebSocket clients
-      this.broadcastEvent(eventName, payload, "session");
-
-      // Build gateway event for extensions
-      const gatewayEvent: GatewayEvent = {
-        type: eventName,
-        payload: {
-          ...payload,
-          speakResponse: this.currentRequestWantsVoice,
-          responseText: event.type === "message_stop" ? this.currentResponseText : undefined,
-        },
-        timestamp: Date.now(),
-        origin: "session",
-        source: this.currentRequestSource || undefined,
-        sessionId: sessionRef.id,
-      };
-
-      // Broadcast to extensions
-      this.broadcastExtension(gatewayEvent);
-
-      // On message complete, route to source if applicable
-      if (event.type === "message_stop" && this.currentRequestSource) {
-        this.routeToSource(this.currentRequestSource, gatewayEvent);
-        this.currentResponseText = "";
-      }
-    });
-
-    sessionRef.on("process_started", () => {
-      this.broadcastEvent("session.process_started", { sessionId: sessionRef.id }, "session");
-    });
-
-    sessionRef.on("process_ended", () => {
-      this.broadcastEvent("session.process_ended", { sessionId: sessionRef.id }, "session");
-    });
   }
 }
