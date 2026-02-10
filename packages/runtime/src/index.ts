@@ -17,7 +17,7 @@
  */
 
 import type { ServerWebSocket } from "bun";
-import type { Request, Response, Event, Message } from "@claudia/shared";
+import type { Request, Response, Event, Message, ThinkingEffort } from "@claudia/shared";
 import { loadConfig } from "@claudia/shared";
 import { RuntimeSessionManager } from "./manager";
 
@@ -36,6 +36,7 @@ interface ClientState {
 
 const clients = new Map<ServerWebSocket<ClientState>, ClientState>();
 const manager = new RuntimeSessionManager();
+manager.setConfig(config);
 
 // Forward all session events to subscribed WS clients
 // Events arrive with session-scoped names: session.{sessionId}.{eventType}
@@ -95,7 +96,7 @@ async function handleSessionMethod(
           model: req.params?.model as string | undefined,
           systemPrompt: req.params?.systemPrompt as string | undefined,
           thinking: req.params?.thinking as boolean | undefined,
-          thinkingBudget: req.params?.thinkingBudget as number | undefined,
+          effort: req.params?.effort as ThinkingEffort | undefined,
         });
         sendResponse(ws, req.id, result);
         break;
@@ -113,7 +114,7 @@ async function handleSessionMethod(
           cwd,
           model: req.params?.model as string | undefined,
           thinking: req.params?.thinking as boolean | undefined,
-          thinkingBudget: req.params?.thinkingBudget as number | undefined,
+          effort: req.params?.effort as ThinkingEffort | undefined,
         });
         sendResponse(ws, req.id, result);
         break;

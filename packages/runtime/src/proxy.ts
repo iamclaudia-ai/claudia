@@ -23,11 +23,13 @@ import fs from "node:fs";
 
 // ── Types ────────────────────────────────────────────────────
 
+export type ThinkingEffort = 'low' | 'medium' | 'high' | 'max';
+
 export interface ProxyOptions {
-  /** Enable extended thinking mode */
+  /** Enable adaptive thinking mode */
   thinking?: boolean;
-  /** Budget tokens for thinking (defaults to 10000) */
-  thinkingBudget?: number;
+  /** Thinking effort level (default: medium) */
+  effort?: ThinkingEffort;
   /** Log events to file for debugging */
   logFile?: string;
 }
@@ -51,7 +53,6 @@ export class AnthropicProxy extends EventEmitter {
   private _port = 0;
   private _inTurn = false;
   private _lastStopReason: string | null = null;
-  private _eventSequence = 0;
 
   constructor(options: ProxyOptions = {}) {
     super();
@@ -116,10 +117,10 @@ export class AnthropicProxy extends EventEmitter {
   /**
    * Update thinking configuration (can be changed between prompts).
    */
-  setThinking(thinking: boolean, budget?: number): void {
+  setThinking(thinking: boolean, effort?: ThinkingEffort): void {
     this.options.thinking = thinking;
-    if (budget !== undefined) {
-      this.options.thinkingBudget = budget;
+    if (effort !== undefined) {
+      this.options.effort = effort;
     }
   }
 
@@ -153,40 +154,28 @@ export class AnthropicProxy extends EventEmitter {
           isHaikuRequest = isHaiku;
 
           if (!isHaiku) {
-            // Emit request_start only for primary model requests
-            this.emit("sse", {
-              type: "request_start",
-              seq: ++this._eventSequence,
-              timestamp: new Date().toISOString(),
-              model: requestModel,
-            });
             // Emit turn_start only on the first primary model request of a turn
             if (!this._inTurn) {
               this._inTurn = true;
               this._lastStopReason = null;
               this.emit("sse", {
                 type: "turn_start",
-                seq: ++this._eventSequence,
                 timestamp: new Date().toISOString(),
               });
             }
           }
 
-          // Inject thinking configuration (only for non-Haiku)
+          // Inject adaptive thinking configuration (only for non-Haiku)
           if (!isHaiku && this.options.thinking) {
-            const thinkingBudget = this.options.thinkingBudget || 10000;
-            requestBody.max_tokens = thinkingBudget + 8000;
-            requestBody.thinking = {
-              type: "enabled",
-              budget_tokens: thinkingBudget,
-            };
+            const effort = this.options.effort || "medium";
+            requestBody.thinking = { type: "adaptive" };
+            requestBody.output_config = { effort };
             modifiedBody = Buffer.from(JSON.stringify(requestBody));
 
             this.log({
               type: "thinking_injected",
               timestamp: new Date().toISOString(),
-              budget_tokens: thinkingBudget,
-              max_tokens: requestBody.max_tokens,
+              effort,
             });
           }
         }
@@ -213,7 +202,6 @@ export class AnthropicProxy extends EventEmitter {
             ),
           };
           this.log(logEntry);
-          this.emit("sse", logEntry);
         }
       } catch {
         // Not JSON — pass through
@@ -309,36 +297,17 @@ export class AnthropicProxy extends EventEmitter {
               if (buffer.trim()) this.processSSE(buffer, isHaikuRequest);
               // Only track turn events for primary model (not Haiku side-channel)
               if (isMessagesEndpoint && !isHaikuRequest) {
-                this.emit("sse", {
-                  type: "stream_end",
-                  seq: ++this._eventSequence,
-                  timestamp: new Date().toISOString(),
-                  stop_reason: this._lastStopReason,
-                });
-
                 // Only end turn if stop_reason is not "tool_use"
                 if (this._lastStopReason !== "tool_use") {
                   this._inTurn = false;
                   this.emit("sse", {
                     type: "turn_stop",
-                    seq: ++this._eventSequence,
                     timestamp: new Date().toISOString(),
                     stop_reason: this._lastStopReason,
                   });
                 }
               }
               res.end();
-
-              // Emit response_end for primary model only
-              if (!isHaikuRequest) {
-                this.emit("sse", {
-                  type: "response_end",
-                  seq: ++this._eventSequence,
-                  timestamp: new Date().toISOString(),
-                  stop_reason: this._lastStopReason,
-                  url: req.url,
-                });
-              }
               return;
             }
 

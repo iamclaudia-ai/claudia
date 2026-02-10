@@ -40,7 +40,7 @@ export interface SessionInfo {
 export interface SessionConfigInfo {
   model: string;
   thinking: boolean;
-  thinkingBudget: number;
+  effort: string;
   systemPrompt: string | null;
 }
 
@@ -172,16 +172,6 @@ export function useGateway(
 
   const addBlock = useCallback(
     (block: ContentBlock) => {
-      // Debug: Check for blocks with display directives
-      if (block.type === "text" && typeof block.content === "string" && block.content.startsWith("<")) {
-        console.log(`[DEBUG] Assistant text block starting with '<':`, {
-          blockType: block.type,
-          content: block.content,
-          fullBlock: block,
-          blockJSON: JSON.stringify(block, null, 2)
-        });
-      }
-
       setMessages((draft) => {
         const lastMsg = draft[draft.length - 1];
         if (lastMsg && lastMsg.role === "assistant") {
@@ -194,16 +184,6 @@ export function useGateway(
 
   const appendToCurrentBlock = useCallback(
     (text: string, field: string = "content") => {
-      // Debug: Check for display directives being appended
-      if (text.includes("<is_displaying_contents>") || text.includes("displaying_contents") || text.includes("<") && text.includes(">")) {
-        console.log(`[DEBUG] Appending text with angle brackets:`, {
-          text,
-          field,
-          textLength: text.length,
-          containsDisplayDirective: text.includes("<is_displaying_contents>")
-        });
-      }
-
       setMessages((draft) => {
         const lastMsg = draft[draft.length - 1];
         if (lastMsg?.role === "assistant") {
@@ -247,69 +227,25 @@ export function useGateway(
       // Auto-enable thinking for any streaming event (mid-turn recovery after HMR/refresh)
       // Skip for non-content events
       if (!isQueryingRef.current &&
-          !["ping", "turn_start", "turn_stop", "stream_end", "request_start", "response_end", "process_started", "process_ended"].includes(eventType)) {
-        console.log(`[WS] Mid-turn recovery: enabling thinking for ${eventType}`);
+          !["ping", "turn_start", "turn_stop", "api_warning", "api_error", "process_started", "process_ended"].includes(eventType)) {
         setIsQuerying(true);
         setEventCount(0);
       }
 
       switch (eventType) {
-        case "request_start": {
-          const reqSeq = payload.seq || "?";
-          addBlock({
-            type: "text",
-            content: `🟢 #${reqSeq} request_start - ${new Date().toLocaleTimeString()}`
-          });
-          break;
-        }
-
-        case "response_end": {
-          const resSeq = payload.seq || "?";
-          const responseStopReason = payload.stop_reason || "unknown";
-          addBlock({
-            type: "text",
-            content: `🔴 #${resSeq} response_end (${responseStopReason}) - ${new Date().toLocaleTimeString()}`
-          });
-          break;
-        }
-
-        case "turn_start": {
-          const turnStartSeq = payload.seq || "?";
+        case "turn_start":
           setIsQuerying(true);
           setEventCount(0);
-          addBlock({
-            type: "text",
-            content: `🚀 #${turnStartSeq} turn_start - ${new Date().toLocaleTimeString()}`
-          });
           break;
-        }
 
-        case "stream_end": {
-          const streamSeq = payload.seq || "?";
-          const streamStopReason = payload.stop_reason || "unknown";
-          addBlock({
-            type: "text",
-            content: `📡 #${streamSeq} stream_end (${streamStopReason}) - ${new Date().toLocaleTimeString()}`
-          });
-          break;
-        }
-
-        case "turn_stop": {
-          const turnStopSeq = payload.seq || "?";
+        case "turn_stop":
           setIsQuerying(false);
-          const turnStopReason = payload.stop_reason || "unknown";
-          addBlock({
-            type: "text",
-            content: `🛑 #${turnStopSeq} turn_stop (${turnStopReason}) - ${new Date().toLocaleTimeString()}`
-          });
           break;
-        }
 
         case "message_start": {
           // Filter out Haiku model responses (they contain <is_displaying_contents> artifacts)
           const message = payload.message as { model?: string } | undefined;
           if (message?.model?.includes("haiku")) {
-            console.log(`[WS] Filtering out Haiku model response: ${message.model}`);
             ignoringHaikuMessageRef.current = true;
             return;
           }
@@ -429,24 +365,8 @@ export function useGateway(
           break;
         }
 
-        default: {
-          console.warn(`[WS] Unknown stream event: ${eventType}`, payload);
-
-          // Special debugging for messages containing display directives
-          if (payload && typeof payload === "object") {
-            const payloadStr = JSON.stringify(payload);
-            if (payloadStr.includes("<is_displaying_contents>") ||
-                payloadStr.includes("displaying_contents") ||
-                payloadStr.includes("display")) {
-              console.log(`[DEBUG] Display-related event detected:`, {
-                eventType,
-                payload: payload,
-                rawPayload: payloadStr
-              });
-            }
-          }
+        default:
           break;
-        }
       }
     },
     [addBlock, appendToCurrentBlock, updateToolResult, setMessages],
@@ -619,7 +539,7 @@ export function useGateway(
             const cfg = payload.sessionConfig as SessionConfigInfo | undefined;
             if (cfg) {
               setSessionConfig(cfg);
-              console.log(`[Config] model: ${cfg.model}, thinking: ${cfg.thinking}, budget: ${cfg.thinkingBudget}`);
+              console.log(`[Config] model: ${cfg.model}, thinking: ${cfg.thinking}, effort: ${cfg.effort}`);
             }
           }
         }

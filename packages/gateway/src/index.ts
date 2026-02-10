@@ -226,9 +226,9 @@ async function handleSessionMethod(
             sessionManager.pendingSessionConfig.thinking = req.params
               .thinking as boolean;
           }
-          if (req.params?.thinkingBudget !== undefined) {
-            sessionManager.pendingSessionConfig.thinkingBudget = req.params
-              .thinkingBudget as number;
+          if (req.params?.effort !== undefined) {
+            sessionManager.pendingSessionConfig.effort = req.params
+              .effort as string;
           }
           sendResponse(ws, req.id, {
             status: "ok",

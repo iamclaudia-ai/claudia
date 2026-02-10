@@ -21,6 +21,8 @@ import { AnthropicProxy, type StreamEvent } from "./proxy";
 
 // ── Types ────────────────────────────────────────────────────
 
+export type ThinkingEffort = 'low' | 'medium' | 'high' | 'max';
+
 export interface CreateSessionOptions {
   /** Working directory for Claude CLI */
   cwd: string;
@@ -28,10 +30,10 @@ export interface CreateSessionOptions {
   model?: string;
   /** System prompt (first prompt only) */
   systemPrompt?: string;
-  /** Enable extended thinking */
+  /** Enable adaptive thinking */
   thinking?: boolean;
-  /** Thinking budget tokens */
-  thinkingBudget?: number;
+  /** Thinking effort level */
+  effort?: ThinkingEffort;
   /** Base port for proxy (will find available port) */
   basePort?: number;
 }
@@ -41,17 +43,17 @@ export interface ResumeSessionOptions {
   cwd: string;
   /** Model to use */
   model?: string;
-  /** Enable extended thinking */
+  /** Enable adaptive thinking */
   thinking?: boolean;
-  /** Thinking budget tokens */
-  thinkingBudget?: number;
+  /** Thinking effort level */
+  effort?: ThinkingEffort;
   /** Base port for proxy */
   basePort?: number;
 }
 
 // ── Constants ────────────────────────────────────────────────
 
-const DEFAULT_MODEL = "claude-sonnet-4-20250514";
+const DEFAULT_MODEL = "claude-sonnet-4-20250514"; // Fallback only — prefer config via manager
 const DEFAULT_BASE_PORT = 9000;
 
 // ── RuntimeSession ───────────────────────────────────────────
@@ -93,7 +95,7 @@ export class RuntimeSession extends EventEmitter {
 
     this.proxy = new AnthropicProxy({
       thinking: options.thinking,
-      thinkingBudget: options.thinkingBudget,
+      effort: options.effort,
       logFile: join(logDir, "events.jsonl"),
     });
 

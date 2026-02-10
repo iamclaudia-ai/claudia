@@ -24,10 +24,12 @@ export interface GatewayConfig {
   endpoint?: string;
 }
 
+export type ThinkingEffort = 'low' | 'medium' | 'high' | 'max';
+
 export interface SessionConfig {
   model: string;
   thinking: boolean;
-  thinkingBudget: number;
+  effort: ThinkingEffort;
   systemPrompt: string | null;
 }
 
@@ -81,7 +83,7 @@ const DEFAULT_CONFIG: ClaudiaConfig = {
   session: {
     model: 'sonnet',
     thinking: false,
-    thinkingBudget: 10000,
+    effort: 'medium',
     systemPrompt: null,
   },
   extensions: {},
@@ -205,8 +207,9 @@ function buildConfigFromEnv(): Partial<ClaudiaConfig> {
       host: process.env.CLAUDIA_HOST || 'localhost',
     },
     session: {
+      model: process.env.CLAUDIA_MODEL || 'sonnet',
       thinking: process.env.CLAUDIA_THINKING === 'true',
-      thinkingBudget: parseInt(process.env.CLAUDIA_THINKING_BUDGET || '10000'),
+      effort: (process.env.CLAUDIA_THINKING_EFFORT || 'medium') as ThinkingEffort,
       systemPrompt: process.env.CLAUDIA_SYSTEM_PROMPT || null,
     },
     extensions: {},

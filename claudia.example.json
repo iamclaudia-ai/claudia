@@ -10,7 +10,8 @@
   "session": {
     // Default session settings (can be overridden per-request)
     "thinking": false,
-    "thinkingBudget": 10000,
+    // Adaptive thinking effort: "low" | "medium" | "high" | "max"
+    "effort": "medium",
     "systemPrompt": null  // Or path to file: "./prompts/system.md"
   },
 

@@ -194,7 +194,7 @@ export function Header({
                 : "bg-gray-100 text-gray-400"
             }`}
           >
-            {sessionConfig.thinking ? `🧠 thinking (${(sessionConfig.thinkingBudget / 1000).toFixed(0)}k)` : "thinking off"}
+            {sessionConfig.thinking ? `🧠 adaptive (${sessionConfig.effort})` : "thinking off"}
           </span>
         </div>
       )}

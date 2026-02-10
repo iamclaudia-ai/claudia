@@ -19,8 +19,11 @@ import {
   type ResumeSessionOptions,
 } from "./session";
 import type { StreamEvent } from "./proxy";
+import type { ClaudiaConfig } from "@claudia/shared";
 
 // ── Types ────────────────────────────────────────────────────
+
+export type ThinkingEffort = 'low' | 'medium' | 'high' | 'max';
 
 export interface SessionCreateParams {
   /** Claude Code session UUID (if pre-assigned by gateway) */
@@ -31,10 +34,10 @@ export interface SessionCreateParams {
   model?: string;
   /** System prompt */
   systemPrompt?: string;
-  /** Enable extended thinking */
+  /** Enable adaptive thinking */
   thinking?: boolean;
-  /** Thinking budget tokens */
-  thinkingBudget?: number;
+  /** Thinking effort level */
+  effort?: ThinkingEffort;
 }
 
 export interface SessionResumeParams {
@@ -44,16 +47,25 @@ export interface SessionResumeParams {
   cwd: string;
   /** Model to use */
   model?: string;
-  /** Enable extended thinking */
+  /** Enable adaptive thinking */
   thinking?: boolean;
-  /** Thinking budget tokens */
-  thinkingBudget?: number;
+  /** Thinking effort level */
+  effort?: ThinkingEffort;
 }
 
 // ── Manager ──────────────────────────────────────────────────
 
 export class RuntimeSessionManager extends EventEmitter {
   private sessions = new Map<string, RuntimeSession>();
+  private config?: ClaudiaConfig;
+
+  /**
+   * Set config for session defaults (model, thinking, etc.)
+   * Used as fallback when lazy-resuming sessions.
+   */
+  setConfig(config: ClaudiaConfig): void {
+    this.config = config;
+  }
 
   /**
    * Create a new Claude session.
@@ -65,7 +77,7 @@ export class RuntimeSessionManager extends EventEmitter {
       model: params.model,
       systemPrompt: params.systemPrompt,
       thinking: params.thinking,
-      thinkingBudget: params.thinkingBudget,
+      effort: params.effort,
     };
 
     const session = createRuntimeSession(options);
@@ -94,7 +106,7 @@ export class RuntimeSessionManager extends EventEmitter {
       cwd: params.cwd,
       model: params.model,
       thinking: params.thinking,
-      thinkingBudget: params.thinkingBudget,
+      effort: params.effort,
     };
 
     const session = resumeRuntimeSession(params.sessionId, options);
@@ -119,8 +131,15 @@ export class RuntimeSessionManager extends EventEmitter {
       if (!cwd) {
         throw new Error(`Session not found and no cwd provided for auto-resume: ${sessionId}`);
       }
-      console.log(`[Manager] Auto-resuming session: ${sessionId.slice(0, 8)} (cwd: ${cwd})`);
-      await this.resume({ sessionId, cwd });
+      const sessionConfig = this.config?.session;
+      console.log(`[Manager] Auto-resuming session: ${sessionId.slice(0, 8)} (cwd: ${cwd}, model: ${sessionConfig?.model || "default"})`);
+      await this.resume({
+        sessionId,
+        cwd,
+        model: sessionConfig?.model,
+        thinking: sessionConfig?.thinking,
+        effort: sessionConfig?.effort,
+      });
       session = this.sessions.get(sessionId)!;
     }
 

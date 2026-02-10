@@ -61,7 +61,7 @@ export class SessionManager {
   currentResponseText = "";
 
   // Session config (can be set before first prompt)
-  pendingSessionConfig: { thinking?: boolean; thinkingBudget?: number } = {};
+  pendingSessionConfig: { thinking?: boolean; effort?: string } = {};
 
   constructor(options: SessionManagerOptions) {
     this.db = options.db;
@@ -444,17 +444,17 @@ export class SessionManager {
     // Create session in runtime
     const sessionConfig = this.config.session;
     const thinking = this.pendingSessionConfig.thinking ?? sessionConfig.thinking;
-    const thinkingBudget = this.pendingSessionConfig.thinkingBudget ?? sessionConfig.thinkingBudget;
+    const effort = this.pendingSessionConfig.effort ?? sessionConfig.effort;
     const model = sessionConfig.model || undefined;
 
-    console.log(`[SessionManager] Creating new session via runtime (model: ${model || "default"}, thinking: ${thinking}, cwd: ${workspace.cwd})...`);
+    console.log(`[SessionManager] Creating new session via runtime (model: ${model || "default"}, thinking: ${thinking}, effort: ${effort}, cwd: ${workspace.cwd})...`);
 
     const result = await this.runtimeRequest("session.create", {
       cwd: workspace.cwd,
       model,
       systemPrompt: sessionConfig.systemPrompt || undefined,
       thinking,
-      thinkingBudget,
+      effort,
     }) as { sessionId: string; proxyPort: number };
 
     this.activeRuntimeSessionId = result.sessionId;
@@ -608,7 +608,7 @@ export class SessionManager {
     const sessionConfig = this.config.session;
     const effectiveConfig = {
       thinking: this.pendingSessionConfig.thinking ?? sessionConfig.thinking,
-      thinkingBudget: this.pendingSessionConfig.thinkingBudget ?? sessionConfig.thinkingBudget,
+      effort: this.pendingSessionConfig.effort ?? sessionConfig.effort,
       model: sessionConfig.model,
       systemPrompt: sessionConfig.systemPrompt,
     };
