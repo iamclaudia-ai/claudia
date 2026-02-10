@@ -64,6 +64,10 @@ export const ToolCallBlock = memo(function ToolCallBlock({
     case "WebSearch":
       return <WebSearchTool {...toolProps} />;
     case "Task":
+    case "TaskCreate":
+    case "TaskUpdate":
+    case "TaskGet":
+    case "TaskList":
       return <TaskTool {...toolProps} />;
     case "TodoWrite":
       return <TodoWriteTool {...toolProps} />;
@@ -75,6 +79,10 @@ export const ToolCallBlock = memo(function ToolCallBlock({
       return <KillShellTool {...toolProps} />;
 
     default: {
+      // Route MCP tools (mcp__*) to SkillTool
+      if (name.startsWith("mcp__")) {
+        return <SkillTool {...toolProps} />;
+      }
       // Fallback for unknown tools — show raw JSON
       const collapsedContent = (
         <ToolHeader toolName={name} label={name} />

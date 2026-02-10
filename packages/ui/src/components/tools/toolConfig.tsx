@@ -82,6 +82,10 @@ export function getToolBadgeConfig(toolName: string): ToolBadgeConfig {
 
     // Task management — Indigo
     case "Task":
+    case "TaskCreate":
+    case "TaskUpdate":
+    case "TaskGet":
+    case "TaskList":
       return {
         icon: <Zap className="size-2.5" />,
         colors: indigoColors,
@@ -106,8 +110,14 @@ export function getToolBadgeConfig(toolName: string): ToolBadgeConfig {
         colors: tealColors,
       };
 
-    // Default fallback — Blue
+    // Default fallback — Blue (MCP tools get Rose/Sparkles like Skill)
     default:
+      if (toolName.startsWith("mcp__")) {
+        return {
+          icon: <Sparkles className="size-2.5" />,
+          colors: roseColors,
+        };
+      }
       return {
         icon: null,
         colors: blueColors,
@@ -168,6 +178,14 @@ export function getToolLabel(
       }
       return "Task";
     }
+    case "TaskCreate":
+      return "Create Task";
+    case "TaskUpdate":
+      return "Update Task";
+    case "TaskGet":
+      return "Get Task";
+    case "TaskList":
+      return "List Tasks";
     case "WebFetch": {
       const url = parsedInput.url as string | undefined;
       if (url) {
@@ -206,6 +224,13 @@ export function getToolLabel(
       return `${editMode.charAt(0).toUpperCase() + editMode.slice(1)} notebook cell`;
     }
     default:
+      // MCP tools: mcp__server__method → readable label
+      if (name.startsWith("mcp__")) {
+        const parts = name.replace("mcp__", "").split("__");
+        const method = parts[parts.length - 1];
+        // Convert snake_case to Title Case
+        return method.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+      }
       return name;
   }
 }
