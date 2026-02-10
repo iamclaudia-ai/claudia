@@ -127,12 +127,13 @@ export function MessageList({
                   );
                 }
                 if (block.type === "thinking") {
+                  const isLastBlock = blockIdx === msg.blocks.length - 1;
                   return (
                     <MessageContent
                       key={blockIdx}
                       content={block.content}
                       type="thinking"
-                      isLoading={isQuerying}
+                      isLoading={isLastBlock && isQuerying}
                     />
                   );
                 }
