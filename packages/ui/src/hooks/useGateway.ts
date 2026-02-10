@@ -121,6 +121,7 @@ export function useGateway(
   const pendingRequestsRef = useRef<Map<string, string>>(new Map());
   const optionsRef = useRef(options);
   optionsRef.current = options;
+  const subscribedSessionRef = useRef<string | null>(null);
 
   useEffect(() => {
     isQueryingRef.current = isQuerying;
@@ -146,6 +147,24 @@ export function useGateway(
       wsRef.current.send(JSON.stringify(msg));
     },
     [],
+  );
+
+  // Subscribe to session-scoped streaming events when we learn the ccSessionId
+  const subscribeToSession = useCallback(
+    (ccSessionId: string) => {
+      if (subscribedSessionRef.current === ccSessionId) return;
+
+      // Unsubscribe from old session's stream if any
+      if (subscribedSessionRef.current) {
+        sendRequest("unsubscribe", { events: [`stream.${subscribedSessionRef.current}.*`] });
+      }
+
+      // Subscribe to this session's stream events
+      sendRequest("subscribe", { events: [`stream.${ccSessionId}.*`] });
+      subscribedSessionRef.current = ccSessionId;
+      console.log(`[WS] Subscribed to stream: stream.${ccSessionId.slice(0, 8)}…*`);
+    },
+    [sendRequest],
   );
 
   // ── Message mutation helpers ────────────────────────────────
@@ -399,6 +418,7 @@ export function useGateway(
             if (sessionRecord) {
               setSessionId(sessionRecord.ccSessionId);
               setSessionRecordId(sessionRecord.id);
+              subscribeToSession(sessionRecord.ccSessionId);
               console.log(`[Session] Got record: ${sessionRecord.id} (cc: ${sessionRecord.ccSessionId})`);
 
               // If we don't have workspace/sessions yet, fetch them
@@ -434,6 +454,7 @@ export function useGateway(
             if (newSession) {
               setSessionId(newSession.ccSessionId);
               setSessionRecordId(newSession.id);
+              subscribeToSession(newSession.ccSessionId);
               setMessages(() => []);
               setUsage(null);
               setTotalMessages(0);
@@ -450,6 +471,7 @@ export function useGateway(
             if (switched) {
               setSessionId(switched.ccSessionId);
               setSessionRecordId(switched.id);
+              subscribeToSession(switched.ccSessionId);
               setMessages(() => []);
               setUsage(null);
               setTotalMessages(0);
@@ -463,7 +485,10 @@ export function useGateway(
 
           // ── session.info ──
           if (method === "session.info") {
-            if (payload.sessionId) setSessionId(payload.sessionId as string);
+            if (payload.sessionId) {
+              setSessionId(payload.sessionId as string);
+              subscribeToSession(payload.sessionId as string);
+            }
             const sessionRecord = payload.session as SessionInfo | undefined;
             if (sessionRecord) setSessionRecordId(sessionRecord.id);
             if (payload.workspaceId && payload.workspaceName) {
@@ -485,12 +510,17 @@ export function useGateway(
       }
 
       if (msg.type === "event" && msg.event) {
-        const eventType = msg.event.replace("session.", "");
-        const payload = msg.payload as Record<string, unknown>;
-        handleStreamEvent(eventType, payload);
+        // Streaming events: "stream.{sessionId}.{eventType}"
+        // Extract the eventType (everything after "stream.{sessionId}.")
+        const parts = msg.event.split(".");
+        if (parts[0] === "stream" && parts.length >= 3) {
+          const eventType = parts.slice(2).join(".");
+          const payload = msg.payload as Record<string, unknown>;
+          handleStreamEvent(eventType, payload);
+        }
       }
     },
-    [handleStreamEvent, setMessages, sendRequest],
+    [handleStreamEvent, setMessages, sendRequest, subscribeToSession],
   );
 
   // ── WebSocket connection ───────────────────────────────────
@@ -503,8 +533,9 @@ export function useGateway(
       console.log("Connected to Claudia Gateway");
       setIsConnected(true);
 
-      // Always subscribe to session events and fetch session config
-      sendRequest("subscribe", { events: ["session.*"] });
+      // Fetch session info on connect
+      // Streaming events are subscribed per-session via subscribeToSession()
+      // when we learn the ccSessionId from session.get/create/switch/info
       sendRequest("session.info");
 
       const opts = optionsRef.current;

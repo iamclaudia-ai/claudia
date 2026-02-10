@@ -92,12 +92,12 @@ export class SessionManager {
       this.runtimeConnected = true;
       this.runtimeWs = ws;
 
-      // Subscribe to all session events
+      // Subscribe to all streaming events from runtime
       this.runtimeSend({
         type: "req",
         id: crypto.randomUUID(),
         method: "subscribe",
-        params: { events: ["session.*"] },
+        params: { events: ["stream.*"] },
       });
 
       // Check for existing runtime sessions and reconcile
@@ -200,15 +200,20 @@ export class SessionManager {
 
   /**
    * Handle SSE events forwarded from the runtime.
-   * Mirrors the old wireSession() logic.
+   *
+   * Events arrive as: stream.{sessionId}.{eventType}
+   * We broadcast with the same name pattern to gateway clients.
+   * Extensions receive events via the generic "session.{eventType}" pattern.
    */
   private handleRuntimeEvent(event: Event): void {
     const eventPayload = event.payload as Record<string, unknown>;
     const sessionId = eventPayload.sessionId as string;
     const eventType = eventPayload.type as string;
 
-    // Build the event name as "session.{type}"
-    const eventName = event.event; // Already "session.{type}" from runtime
+    // stream.{sessionId}.{eventType} — session-scoped for client subscriptions
+    const streamEventName = event.event;
+    // session.{eventType} — generic for extensions
+    const genericEventName = `session.${eventType}`;
 
     // ── Streaming event logging ──
     if (eventType === "message_start") {
@@ -225,12 +230,6 @@ export class SessionManager {
       console.error(`[Stream] ✖ API ERROR ${eventPayload.status}: ${eventPayload.message}`);
     } else if (eventType === "api_warning") {
       console.warn(`[Stream] ⚠ API RETRY attempt ${eventPayload.attempt}/${eventPayload.maxRetries}: ${eventPayload.message}`);
-    } else if (eventType === "process_started") {
-      this.broadcastEvent("session.process_started", { sessionId }, "session");
-      return;
-    } else if (eventType === "process_ended") {
-      this.broadcastEvent("session.process_ended", { sessionId }, "session");
-      return;
     }
 
     const payload = {
@@ -253,11 +252,12 @@ export class SessionManager {
     }
 
     // Broadcast to WebSocket clients
-    this.broadcastEvent(eventName, payload, "session");
+    // stream.{sessionId}.{eventType} — scoped, only matching session subscribers
+    this.broadcastEvent(streamEventName, payload, "session");
 
-    // Build gateway event for extensions
+    // Build gateway event for extensions (always uses generic name)
     const gatewayEvent: GatewayEvent = {
-      type: eventName,
+      type: genericEventName,
       payload: {
         ...payload,
         speakResponse: this.currentRequestWantsVoice,

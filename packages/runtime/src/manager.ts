@@ -170,29 +170,35 @@ export class RuntimeSessionManager extends EventEmitter {
 
   /**
    * Wire a session's events to this manager's EventEmitter.
-   * The WS server listens on the manager for all session events.
+   *
+   * Uses a single "session.event" internal event for manager → WS server forwarding.
+   * The eventName uses "stream.{sessionId}.{type}" prefix so streaming events
+   * are cleanly separated from session request/response methods.
    */
   private wireSession(session: RuntimeSession): void {
     const sessionId = session.id;
 
     session.on("sse", (event: StreamEvent) => {
       this.emit("session.event", {
+        eventName: `stream.${sessionId}.${event.type}`,
         sessionId,
-        event,
+        ...event,
       });
     });
 
     session.on("process_started", () => {
       this.emit("session.event", {
+        eventName: `stream.${sessionId}.process_started`,
         sessionId,
-        event: { type: "process_started" },
+        type: "process_started",
       });
     });
 
     session.on("process_ended", () => {
       this.emit("session.event", {
+        eventName: `stream.${sessionId}.process_ended`,
         sessionId,
-        event: { type: "process_ended" },
+        type: "process_ended",
       });
     });
 

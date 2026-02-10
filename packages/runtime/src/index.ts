@@ -38,9 +38,8 @@ const clients = new Map<ServerWebSocket<ClientState>, ClientState>();
 const manager = new RuntimeSessionManager();
 
 // Forward all session events to subscribed WS clients
-manager.on("session.event", ({ sessionId, event }) => {
-  const eventName = `session.${event.type}`;
-  const payload = { sessionId, ...event };
+// Events arrive with session-scoped names: session.{sessionId}.{eventType}
+manager.on("session.event", ({ eventName, ...payload }) => {
   broadcastEvent(eventName, payload);
 });
 
