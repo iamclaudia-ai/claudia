@@ -77,7 +77,16 @@ export const MessageContent = memo(function MessageContent({
 
   if (type === "user") {
     return (
-      <div className="prose prose-pre:overflow-x-auto max-w-none font-sans bg-blue-50 border-l-4 border-blue-500 rounded-r-lg px-4 py-2 overflow-hidden break-words">
+      <div className="prose max-w-none font-sans bg-blue-50 border-l-4 border-blue-500 rounded-r-lg px-4 py-2 overflow-hidden break-words
+        prose-headings:font-bold prose-headings:text-foreground
+        prose-p:text-foreground prose-p:leading-relaxed
+        prose-a:text-blue-600 prose-a:no-underline hover:prose-a:underline
+        prose-strong:text-foreground prose-strong:font-semibold
+        prose-pre:overflow-x-auto prose-pre:bg-gray-900 prose-pre:text-gray-100
+        prose-ul:list-disc prose-ul:pl-6
+        prose-ol:list-decimal prose-ol:pl-6
+        prose-li:text-foreground
+      ">
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
           rehypePlugins={[rehypeHighlight, rehypeRaw]}
@@ -112,7 +121,16 @@ export const MessageContent = memo(function MessageContent({
         </button>
 
         {isExpanded && (
-          <div className="prose prose-pre:overflow-x-auto max-w-none font-serif text-gray-500 italic px-4 py-2 overflow-hidden break-words">
+          <div className="prose max-w-none font-serif text-gray-500 italic px-4 py-2 overflow-hidden break-words
+            prose-headings:font-bold prose-headings:text-gray-500
+            prose-p:text-gray-500 prose-p:leading-relaxed
+            prose-a:text-blue-600 prose-a:no-underline hover:prose-a:underline
+            prose-strong:text-gray-500 prose-strong:font-semibold
+            prose-pre:overflow-x-auto prose-pre:bg-gray-900 prose-pre:text-gray-100
+            prose-ul:list-disc prose-ul:pl-6
+            prose-ol:list-decimal prose-ol:pl-6
+            prose-li:text-gray-500
+          ">
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
               rehypePlugins={[rehypeHighlight, rehypeRaw]}
@@ -128,7 +146,23 @@ export const MessageContent = memo(function MessageContent({
 
   // Assistant
   return (
-    <div className="prose prose-pre:overflow-x-auto max-w-none font-serif overflow-hidden break-words">
+    <div className="prose max-w-none font-serif overflow-hidden break-words
+      prose-headings:font-bold prose-headings:text-foreground
+      prose-p:text-foreground prose-p:leading-relaxed
+      prose-a:text-blue-600 prose-a:no-underline hover:prose-a:underline
+      prose-strong:text-foreground prose-strong:font-semibold
+      prose-inline-code:text-pink-600 prose-inline-code:bg-pink-50 prose-inline-code:px-1 prose-inline-code:py-0.5 prose-inline-code:rounded prose-inline-code:before:content-none prose-inline-code:after:content-none
+      prose-pre:overflow-x-auto prose-pre:bg-gray-900 prose-pre:text-gray-100 prose-pre:p-4 prose-pre:rounded-lg
+      prose-ul:list-disc prose-ul:pl-6
+      prose-ol:list-decimal prose-ol:pl-6
+      prose-li:text-foreground
+      prose-hr:border-gray-300 prose-hr:my-4
+      prose-blockquote:border-l-4 prose-blockquote:border-blue-500 prose-blockquote:pl-4 prose-blockquote:italic prose-blockquote:text-gray-600
+      prose-table:border-collapse prose-table:w-full
+      prose-th:border prose-th:border-gray-300 prose-th:bg-gray-50 prose-th:px-4 prose-th:py-2
+      prose-td:border prose-td:border-gray-300 prose-td:px-4 prose-td:py-2
+      prose-img:rounded-lg prose-img:shadow-md
+    ">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[rehypeHighlight, rehypeRaw]}

@@ -49,6 +49,27 @@
     text-decoration: underline;
   }
 
+  /* Lists */
+  ul, ol {
+    padding-left: 1.5rem;
+  }
+
+  ul {
+    list-style-type: disc;
+  }
+
+  ol {
+    list-style-type: decimal;
+  }
+
+  li {
+    margin: 0.25rem 0;
+  }
+
+  ul ul, ol ol, ul ol, ol ul {
+    margin: 0;
+  }
+
   /* Blockquote */
   blockquote {
     border-left: 4px solid #3b82f6;
@@ -60,9 +81,19 @@
   .hljs-comment { font-style: italic !important; }
 }
 
-/* Prose spacing */
+/* Prose styling */
 .prose p { margin: 0.5rem 0; line-height: 1.6; }
-.prose ul, .prose ol { margin: 0.5rem 0; }
+.prose ul, .prose ol { margin: 0.5rem 0; padding-left: 1.5rem; }
+.prose ul { list-style-type: disc; }
+.prose ol { list-style-type: decimal; }
 .prose li { margin: 0.25rem 0; }
+.prose ul ul, .prose ol ol, .prose ul ol, .prose ol ul { margin: 0; }
 .prose pre { margin: 0.75rem 0; }
 .prose h1, .prose h2, .prose h3 { margin: 1rem 0 0.5rem; font-weight: 600; }
+.prose strong { font-weight: 600; }
+.prose em { font-style: italic; }
+.prose hr {
+  margin: 1rem 0;
+  border: 0;
+  border-top: 1px solid rgba(0,0,0,0.2);
+}
