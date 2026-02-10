@@ -330,6 +330,25 @@ export function useGateway(
           });
           break;
         }
+
+        default: {
+          console.warn(`[WS] Unknown stream event: ${eventType}`, payload);
+
+          // Special debugging for messages containing display directives
+          if (payload && typeof payload === "object") {
+            const payloadStr = JSON.stringify(payload);
+            if (payloadStr.includes("<is_displaying_contents>") ||
+                payloadStr.includes("displaying_contents") ||
+                payloadStr.includes("display")) {
+              console.log(`[DEBUG] Display-related event detected:`, {
+                eventType,
+                payload: payload,
+                rawPayload: payloadStr
+              });
+            }
+          }
+          break;
+        }
       }
     },
     [addBlock, appendToCurrentBlock, updateToolResult, setMessages],
