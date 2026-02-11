@@ -99,6 +99,10 @@ export class RuntimeSession extends EventEmitter {
   private messageOpen = false;
   private openBlockIndices = new Set<number>();
 
+  // Process health monitoring
+  private healthCheckInterval?: Timer;
+  private lastActivityTime = Date.now();
+
   // Session options
   private cwd: string;
   private model: string;
@@ -223,6 +227,7 @@ export class RuntimeSession extends EventEmitter {
     if (!this._isStarted) return;
 
     this._isClosed = true;
+    this.stopHealthCheck();
     this.cleanup();
     this._isStarted = false;
     this.emit("closed");
@@ -249,7 +254,21 @@ export class RuntimeSession extends EventEmitter {
       model: this.model,
       isActive: this.isActive,
       isProcessRunning: this.isProcessRunning,
+      lastActivity: new Date(this.lastActivityTime).toISOString(),
+      healthy: this.isHealthy(),
     };
+  }
+
+  /**
+   * Check if the session is healthy (process alive and responsive).
+   */
+  private isHealthy(): boolean {
+    if (!this.proc) return false;
+    if (this.proc.exitCode !== null) return false;
+
+    // Consider session unhealthy if no activity for 5+ minutes
+    const staleThreshold = 5 * 60 * 1000; // 5 minutes
+    return Date.now() - this.lastActivityTime < staleThreshold;
   }
 
   // ── Process Management ────────────────────────────────────
@@ -336,11 +355,13 @@ export class RuntimeSession extends EventEmitter {
 
     proc.exited.then((exitCode) => {
       console.log(`[Session ${this.id.slice(0, 8)}] Process exited (code: ${exitCode})`);
+      this.stopHealthCheck();
       this.proc = null;
       this.emit("process_ended");
     });
 
     this.emit("process_started");
+    this.startHealthCheck();
   }
 
   /**
@@ -353,6 +374,51 @@ export class RuntimeSession extends EventEmitter {
     }
 
     this.stdoutBuffer = "";
+  }
+
+  /**
+   * Start health monitoring for the current process.
+   */
+  private startHealthCheck(): void {
+    this.stopHealthCheck(); // Clear any existing timer
+
+    this.healthCheckInterval = setInterval(() => {
+      if (!this.proc) return;
+
+      // Check if process has died
+      if (this.proc.exitCode !== null) {
+        console.error(`[Session ${this.id.slice(0, 8)}] Process died unexpectedly (exit code: ${this.proc.exitCode})`);
+        this.emit("sse", {
+          type: "process_died",
+          timestamp: new Date().toISOString(),
+          exitCode: this.proc.exitCode,
+          reason: "Process exited unexpectedly",
+        });
+        this.cleanup();
+        return;
+      }
+
+      // Check for stale sessions (no activity)
+      if (!this.isHealthy()) {
+        const minutesSinceActivity = Math.round((Date.now() - this.lastActivityTime) / 60000);
+        console.warn(`[Session ${this.id.slice(0, 8)}] Session appears stale (${minutesSinceActivity}m since last activity)`);
+        this.emit("sse", {
+          type: "session_stale",
+          timestamp: new Date().toISOString(),
+          minutesSinceActivity,
+        });
+      }
+    }, 10000); // Check every 10 seconds
+  }
+
+  /**
+   * Stop health monitoring.
+   */
+  private stopHealthCheck(): void {
+    if (this.healthCheckInterval) {
+      clearInterval(this.healthCheckInterval);
+      this.healthCheckInterval = undefined;
+    }
   }
 
   // ── Stdout Reading ────────────────────────────────────────
@@ -438,6 +504,8 @@ export class RuntimeSession extends EventEmitter {
    * control_response and keep_alive are transport-internal, handled separately.
    */
   private routeMessage(msg: CliStdoutMessage): void {
+    // Update activity tracking for health monitoring
+    this.lastActivityTime = Date.now();
     switch (msg.type) {
       case "stream_event":
         this.handleStreamEvent(msg);

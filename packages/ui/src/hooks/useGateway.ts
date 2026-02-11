@@ -351,6 +351,34 @@ export function useGateway(
           break;
         }
 
+        case "process_died": {
+          setIsCompacting(false); // Clear stuck compaction state
+          setIsQuerying(false);   // Clear stuck querying state
+          const exitCode = payload.exitCode as number || 0;
+          const reason = payload.reason as string || "Process died";
+          console.error(`[Runtime] Process died unexpectedly (exit code: ${exitCode}): ${reason}`);
+
+          // Add error message to chat
+          setMessages((draft) => {
+            draft.push({
+              role: "assistant",
+              blocks: [{
+                type: "error",
+                message: `Claude process died unexpectedly (exit code: ${exitCode}). Please restart the session.`,
+                status: exitCode,
+              }],
+              timestamp: Date.now(),
+            });
+          });
+          break;
+        }
+
+        case "session_stale": {
+          const minutes = payload.minutesSinceActivity as number || 0;
+          console.warn(`[Runtime] Session appears stale (${minutes}m since last activity)`);
+          break;
+        }
+
         case "api_error": {
           console.error(`[API Error] ${payload.status}: ${payload.message}`);
           const errorBlock: ErrorBlock = {
