@@ -462,8 +462,7 @@ export class RuntimeSession extends EventEmitter {
         break;
 
       case "system":
-        console.log(`[Session ${this.id.slice(0, 8)}] system: ${JSON.stringify(msg).substring(0, 200)}`);
-        this.log({ ...(msg as Record<string, unknown>), logged_as: "system" });
+        this.handleSystemMessage(msg as Record<string, unknown>);
         break;
 
       case "keep_alive":
@@ -532,6 +531,47 @@ export class RuntimeSession extends EventEmitter {
     });
 
     this.log({ ...(msg as unknown as Record<string, unknown>), logged_as: "result" });
+  }
+
+  /**
+   * system — handle compaction events and other system messages.
+   *
+   * Compaction sequence from Claude Code CLI:
+   *   1. { type: "system", subtype: "status", status: "compacting" }  → start
+   *   2. { type: "system", subtype: "status", status: null }          → end
+   *   3. { type: "system", subtype: "compact_boundary", compact_metadata: { trigger, pre_tokens } }
+   *   4. { type: "user", isSynthetic: true, message: { content: "summary..." } }
+   *
+   * We forward compaction-related events as SSE so the UI can show indicators.
+   */
+  private handleSystemMessage(msg: Record<string, unknown>): void {
+    const subtype = msg.subtype as string | undefined;
+
+    console.log(`[Session ${this.id.slice(0, 8)}] system: ${JSON.stringify(msg).substring(0, 200)}`);
+    this.log({ ...msg, logged_as: "system" });
+
+    if (subtype === "status") {
+      const status = msg.status as string | null;
+      if (status === "compacting") {
+        console.log(`[Session ${this.id.slice(0, 8)}] ⚡ Compaction started`);
+        this.emit("sse", {
+          type: "compaction_start",
+          timestamp: new Date().toISOString(),
+        });
+      } else if (status === null) {
+        // status: null means compaction finished (or other status cleared)
+        console.log(`[Session ${this.id.slice(0, 8)}] ✓ Compaction status cleared`);
+      }
+    } else if (subtype === "compact_boundary") {
+      const metadata = msg.compact_metadata as { trigger?: string; pre_tokens?: number } | undefined;
+      console.log(`[Session ${this.id.slice(0, 8)}] 🔖 Compaction boundary (trigger: ${metadata?.trigger}, pre_tokens: ${metadata?.pre_tokens})`);
+      this.emit("sse", {
+        type: "compaction_end",
+        timestamp: new Date().toISOString(),
+        trigger: metadata?.trigger || "auto",
+        pre_tokens: metadata?.pre_tokens || 0,
+      });
+    }
   }
 
   // ── Stdin Writing ─────────────────────────────────────────

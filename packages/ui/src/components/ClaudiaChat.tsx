@@ -11,6 +11,7 @@ import { ContextBar } from "./ContextBar";
 import { MessageList } from "./MessageList";
 import { InputArea } from "./InputArea";
 import { ClaudiaThinking } from "./ClaudiaThinking";
+import CompactionIndicator from "./CompactionIndicator";
 
 interface ClaudiaChatProps {
   bridge: PlatformBridge;
@@ -97,20 +98,26 @@ function ChatInner({ gatewayOptions }: { gatewayOptions?: UseGatewayOptions }) {
           onSendMessage={handleToolMessage}
         />
 
-        {/* Thinking indicator */}
-        <Transition
-          show={gateway.isQuerying}
-          enter="transition-all duration-300 ease-out"
-          enterFrom="opacity-0 translate-y-4 scale-95"
-          enterTo="opacity-100 translate-y-0 scale-100"
-          leave="transition-all duration-200 ease-in"
-          leaveFrom="opacity-100 translate-y-0 scale-100"
-          leaveTo="opacity-0 translate-y-2 scale-95"
-        >
-          <div className="fixed bottom-40 right-8 z-50 bg-white/50 backdrop-blur-sm rounded-2xl shadow-2xl drop-shadow-xl p-4 border border-purple-100/50">
-            <ClaudiaThinking count={gateway.eventCount} size="lg" />
+        {/* Compaction indicator — shown instead of thinking indicator during compaction */}
+        {gateway.isCompacting ? (
+          <div className="fixed bottom-40 right-8 z-50 bg-white/50 backdrop-blur-sm rounded-2xl shadow-2xl drop-shadow-xl border border-purple-200/50">
+            <CompactionIndicator />
           </div>
-        </Transition>
+        ) : (
+          <Transition
+            show={gateway.isQuerying}
+            enter="transition-all duration-300 ease-out"
+            enterFrom="opacity-0 translate-y-4 scale-95"
+            enterTo="opacity-100 translate-y-0 scale-100"
+            leave="transition-all duration-200 ease-in"
+            leaveFrom="opacity-100 translate-y-0 scale-100"
+            leaveTo="opacity-0 translate-y-2 scale-95"
+          >
+            <div className="fixed bottom-40 right-8 z-50 bg-white/50 backdrop-blur-sm rounded-2xl shadow-2xl drop-shadow-xl p-4 border border-purple-100/50">
+              <ClaudiaThinking count={gateway.eventCount} size="lg" />
+            </div>
+          </Transition>
+        )}
 
         <InputArea
           input={input}

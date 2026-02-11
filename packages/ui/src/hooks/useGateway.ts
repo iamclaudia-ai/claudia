@@ -68,6 +68,8 @@ export interface UseGatewayReturn {
   messages: Message[];
   isConnected: boolean;
   isQuerying: boolean;
+  /** Whether context compaction is currently in progress */
+  isCompacting: boolean;
   sessionId: string | null;
   /** The TypeID (ses_...) of the current session record */
   sessionRecordId: string | null;
@@ -101,6 +103,7 @@ export function useGateway(
   const [messages, setMessages] = useImmer<Message[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const [isQuerying, setIsQuerying] = useState(false);
+  const [isCompacting, setIsCompacting] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [sessionRecordId, setSessionRecordId] = useState<string | null>(null);
   const [usage, setUsage] = useState<Usage | null>(null);
@@ -319,6 +322,32 @@ export function useGateway(
               output_tokens: usageData.output_tokens || 0,
             });
           }
+          break;
+        }
+
+        case "compaction_start":
+          setIsCompacting(true);
+          console.log("[Compaction] ⚡ Started");
+          break;
+
+        case "compaction_end": {
+          setIsCompacting(false);
+          const trigger = payload.trigger as string || "auto";
+          const preTokens = payload.pre_tokens as number || 0;
+          console.log(`[Compaction] ✓ Complete (trigger: ${trigger}, pre_tokens: ${preTokens})`);
+
+          // Insert a compaction boundary marker into messages
+          setMessages((draft) => {
+            draft.push({
+              role: "compaction_boundary",
+              blocks: [],
+              timestamp: Date.now(),
+              compaction: {
+                trigger: trigger as "manual" | "auto",
+                pre_tokens: preTokens,
+              },
+            });
+          });
           break;
         }
 
@@ -676,7 +705,7 @@ export function useGateway(
   );
 
   return {
-    messages, isConnected, isQuerying, sessionId, sessionRecordId,
+    messages, isConnected, isQuerying, isCompacting, sessionId, sessionRecordId,
     usage, eventCount, visibleCount, totalMessages, hasMore,
     workspace, sessions, sessionConfig,
     sendPrompt, sendInterrupt, loadEarlierMessages,

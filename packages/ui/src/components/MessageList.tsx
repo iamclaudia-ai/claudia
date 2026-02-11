@@ -2,6 +2,7 @@ import type { Message, TextBlock, ImageBlock, FileBlock, ToolUseBlock, ErrorBloc
 import { MessageContent } from "./MessageContent";
 import { ToolCallBlock } from "./ToolCallBlock";
 import { CopyButton } from "./CopyButton";
+import CompactionBoundary from "./CompactionBoundary";
 import { FileText, FileImage, File, OctagonX } from "lucide-react";
 
 function getFileIcon(mediaType: string) {
@@ -30,10 +31,11 @@ function isToolOnlyMessage(msg: Message): boolean {
   );
 }
 
-/** A "display row" is either a single message or a group of consecutive tool-only messages */
+/** A "display row" is either a single message, a group of consecutive tool-only messages, or a compaction boundary */
 type DisplayRow =
   | { kind: "message"; msg: Message; msgIdx: number }
-  | { kind: "tool-row"; messages: Array<{ msg: Message; msgIdx: number }> };
+  | { kind: "tool-row"; messages: Array<{ msg: Message; msgIdx: number }> }
+  | { kind: "boundary"; msg: Message; msgIdx: number };
 
 /** Group consecutive tool-only assistant messages into combined rows */
 function buildDisplayRows(messages: Message[]): DisplayRow[] {
@@ -42,7 +44,9 @@ function buildDisplayRows(messages: Message[]): DisplayRow[] {
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i];
 
-    if (isToolOnlyMessage(msg)) {
+    if (msg.role === "compaction_boundary") {
+      rows.push({ kind: "boundary", msg, msgIdx: i });
+    } else if (isToolOnlyMessage(msg)) {
       const lastRow = rows[rows.length - 1];
       if (lastRow?.kind === "tool-row") {
         lastRow.messages.push({ msg, msgIdx: i });
@@ -102,6 +106,18 @@ export function MessageList({
         </button>
       )}
       {displayRows.map((row, rowIdx) => {
+        // ── Compaction boundary ──
+        if (row.kind === "boundary") {
+          return (
+            <CompactionBoundary
+              key={`boundary-${rowIdx}`}
+              trigger={row.msg.compaction?.trigger || "auto"}
+              preTokens={row.msg.compaction?.pre_tokens || 0}
+              timestamp={row.msg.timestamp}
+            />
+          );
+        }
+
         // ── Tool row: grouped badges in a single flex-wrap container ──
         if (row.kind === "tool-row") {
           // Only allow interaction on the very latest message

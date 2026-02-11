@@ -42,10 +42,15 @@ export interface ErrorBlock {
 export type ContentBlock = TextBlock | ImageBlock | FileBlock | ToolUseBlock | ErrorBlock;
 
 export interface Message {
-  role: "user" | "assistant";
+  role: "user" | "assistant" | "compaction_boundary";
   blocks: ContentBlock[];
   aborted?: boolean;
   timestamp?: number;
+  /** Compaction metadata — only present when role === "compaction_boundary" */
+  compaction?: {
+    trigger: "manual" | "auto";
+    pre_tokens: number;
+  };
 }
 
 export interface Usage {

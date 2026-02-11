@@ -43,9 +43,14 @@ interface ToolUseBlock {
 type ContentBlock = TextBlock | ImageBlock | FileBlock | ToolUseBlock;
 
 export interface HistoryMessage {
-  role: "user" | "assistant";
+  role: "user" | "assistant" | "compaction_boundary";
   blocks: ContentBlock[];
   timestamp?: string;
+  /** Compaction metadata — only present when role === "compaction_boundary" */
+  compaction?: {
+    trigger: "manual" | "auto";
+    pre_tokens: number;
+  };
 }
 
 export interface HistoryUsage {
@@ -59,6 +64,7 @@ export interface HistoryUsage {
 
 interface JsonlEntry {
   type: string;
+  subtype?: string;
   timestamp?: string;
   message?: {
     role: string;
@@ -66,7 +72,12 @@ interface JsonlEntry {
     usage?: Record<string, number>;
   };
   isCompactSummary?: boolean;
+  isSynthetic?: boolean;
   isMeta?: boolean;
+  compact_metadata?: {
+    trigger?: "manual" | "auto";
+    pre_tokens?: number;
+  };
 }
 
 // ── Parsers ─────────────────────────────────────────────────
@@ -181,11 +192,28 @@ export function parseSessionFile(filepath: string): HistoryMessage[] {
       continue;
     }
 
+    // Detect compaction boundary markers
+    if (entry.type === "system" && entry.subtype === "compact_boundary") {
+      messages.push({
+        role: "compaction_boundary",
+        blocks: [],
+        timestamp: entry.timestamp,
+        compaction: {
+          trigger: entry.compact_metadata?.trigger || "auto",
+          pre_tokens: entry.compact_metadata?.pre_tokens || 0,
+        },
+      });
+      continue;
+    }
+
     if (entry.type !== "user" && entry.type !== "assistant") continue;
     if (entry.isMeta) continue;
 
     const message = entry.message;
     if (!message || !message.content) continue;
+
+    // Skip synthetic compaction summary messages — the boundary marker is enough
+    if (entry.isSynthetic) continue;
 
     if (entry.type === "user") {
       const toolResults = extractToolResults(message.content as unknown[]);

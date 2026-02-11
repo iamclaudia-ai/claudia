@@ -230,6 +230,10 @@ export class SessionManager {
       console.error(`[Stream] ✖ API ERROR ${eventPayload.status}: ${eventPayload.message}`);
     } else if (eventType === "api_warning") {
       console.warn(`[Stream] ⚠ API RETRY attempt ${eventPayload.attempt}/${eventPayload.maxRetries}: ${eventPayload.message}`);
+    } else if (eventType === "compaction_start") {
+      console.log(`[Stream] ⚡ compaction_start (session: ${sessionId?.slice(0, 8)}…)`);
+    } else if (eventType === "compaction_end") {
+      console.log(`[Stream] ✓ compaction_end (trigger: ${eventPayload.trigger}, pre_tokens: ${eventPayload.pre_tokens})`);
     }
 
     const payload = {
