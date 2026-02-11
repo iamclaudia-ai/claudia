@@ -1,11 +1,13 @@
 import {
   BookOpen,
   Brain,
+  ClipboardList,
   FileEdit,
   FilePen,
   FileText,
   Globe,
   ListTodo,
+  MessageCircleQuestion,
   Search,
   SearchCode,
   Sparkles,
@@ -108,6 +110,19 @@ export function getToolBadgeConfig(toolName: string): ToolBadgeConfig {
       return {
         icon: <BookOpen className="size-2.5" />,
         colors: tealColors,
+      };
+
+    // Interactive / user-prompt tools — Pink
+    case "AskUserQuestion":
+      return {
+        icon: <MessageCircleQuestion className="size-2.5" />,
+        colors: pinkColors,
+      };
+    case "ExitPlanMode":
+    case "EnterPlanMode":
+      return {
+        icon: <ClipboardList className="size-2.5" />,
+        colors: amberColors,
       };
 
     // Default fallback — Blue (MCP tools get Rose/Sparkles like Skill)
@@ -223,6 +238,18 @@ export function getToolLabel(
       const editMode = (parsedInput.edit_mode as string) || "replace";
       return `${editMode.charAt(0).toUpperCase() + editMode.slice(1)} notebook cell`;
     }
+    case "AskUserQuestion": {
+      const questions = parsedInput.questions as Array<{ header?: string }> | undefined;
+      if (questions?.length === 1 && questions[0].header) {
+        return questions[0].header;
+      }
+      return "Question";
+    }
+    case "ExitPlanMode":
+      return "Plan Ready";
+    case "EnterPlanMode":
+      return "Enter Plan Mode";
+
     default:
       // MCP tools: mcp__server__method → readable label
       if (name.startsWith("mcp__")) {
@@ -298,6 +325,15 @@ const tealColors = {
   hoverBg: "hover:bg-teal-100/80",
   chevron: "text-teal-400",
   iconColor: "text-teal-500",
+};
+
+const pinkColors = {
+  border: "border-pink-200/60",
+  bg: "bg-pink-50/80",
+  text: "text-pink-600",
+  hoverBg: "hover:bg-pink-100/80",
+  chevron: "text-pink-400",
+  iconColor: "text-pink-500",
 };
 
 const blueColors = {

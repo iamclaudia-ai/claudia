@@ -5,4 +5,6 @@ export interface ToolProps {
   result?: { content: string; is_error?: boolean };
   isLoading?: boolean;
   isError?: boolean;
+  /** Send a message to the chat (for interactive tools like AskUserQuestion) */
+  onSendMessage?: (text: string) => void;
 }

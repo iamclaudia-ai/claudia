@@ -64,6 +64,11 @@ function ChatInner({ gatewayOptions }: { gatewayOptions?: UseGatewayOptions }) {
     setInput(value);
   }, []);
 
+  /** For interactive tools (AskUserQuestion, ExitPlanMode) to send messages */
+  const handleToolMessage = useCallback((text: string) => {
+    gateway.sendPrompt(text, []);
+  }, [gateway]);
+
   return (
     <WorkspaceProvider cwd={gateway.workspace?.cwd}>
       <div className="flex flex-col h-screen w-full">
@@ -89,6 +94,7 @@ function ChatInner({ gatewayOptions }: { gatewayOptions?: UseGatewayOptions }) {
           onLoadEarlier={gateway.loadEarlierMessages}
           messagesContainerRef={gateway.messagesContainerRef}
           messagesEndRef={gateway.messagesEndRef}
+          onSendMessage={handleToolMessage}
         />
 
         {/* Thinking indicator */}

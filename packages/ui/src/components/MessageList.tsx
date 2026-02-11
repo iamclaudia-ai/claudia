@@ -66,6 +66,8 @@ interface MessageListProps {
   onLoadEarlier(): void;
   messagesContainerRef: React.RefObject<HTMLDivElement | null>;
   messagesEndRef: React.RefObject<HTMLDivElement | null>;
+  /** Callback for interactive tools (AskUserQuestion, ExitPlanMode) to send messages */
+  onSendMessage?: (text: string) => void;
 }
 
 export function MessageList({
@@ -76,6 +78,7 @@ export function MessageList({
   onLoadEarlier,
   messagesContainerRef,
   messagesEndRef,
+  onSendMessage,
 }: MessageListProps) {
   const remainingCount = totalMessages - messages.length;
   const displayRows = buildDisplayRows(messages);
@@ -101,6 +104,8 @@ export function MessageList({
       {displayRows.map((row, rowIdx) => {
         // ── Tool row: grouped badges in a single flex-wrap container ──
         if (row.kind === "tool-row") {
+          // Only allow interaction on the very latest message
+          const isLatestRow = row.messages.some(({ msgIdx: mi }) => mi === messages.length - 1);
           return (
             <div key={`toolrow-${rowIdx}`} className="mr-12">
               <div className="flex flex-wrap gap-2 my-1">
@@ -125,6 +130,7 @@ export function MessageList({
                           input={block.input}
                           result={block.result}
                           isLoading={!block.result && isQuerying}
+                          onSendMessage={isLatestRow ? onSendMessage : undefined}
                         />
                       );
                     }
@@ -172,7 +178,7 @@ export function MessageList({
             {msg.role === "user" ? (
               <UserMessage msg={msg} />
             ) : (
-              <AssistantMessage msg={msg} msgIdx={msgIdx} totalMessages={messages.length} isQuerying={isQuerying} />
+              <AssistantMessage msg={msg} msgIdx={msgIdx} totalMessages={messages.length} isQuerying={isQuerying} onSendMessage={msgIdx === messages.length - 1 ? onSendMessage : undefined} />
             )}
           </div>
         );
@@ -233,11 +239,13 @@ function UserMessage({ msg }: { msg: Message }) {
 function AssistantMessage({
   msg,
   isQuerying,
+  onSendMessage,
 }: {
   msg: Message;
   msgIdx: number;
   totalMessages: number;
   isQuerying: boolean;
+  onSendMessage?: (text: string) => void;
 }) {
   // Group blocks within this message: consecutive tool-like → flex row, text/error → standalone
   const groups: Array<{
@@ -293,6 +301,7 @@ function AssistantMessage({
                       input={tool.input}
                       result={tool.result}
                       isLoading={!tool.result && isQuerying}
+                      onSendMessage={onSendMessage}
                     />
                   );
                 }

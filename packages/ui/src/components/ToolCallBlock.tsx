@@ -14,6 +14,8 @@ import TodoWriteTool from "./tools/TodoWriteTool";
 import SkillTool from "./tools/SkillTool";
 import NotebookEditTool from "./tools/NotebookEditTool";
 import KillShellTool from "./tools/KillShellTool";
+import AskUserQuestionTool from "./tools/AskUserQuestionTool";
+import ExitPlanModeTool from "./tools/ExitPlanModeTool";
 
 interface ToolCallBlockProps {
   name: string;
@@ -23,6 +25,8 @@ interface ToolCallBlockProps {
     is_error?: boolean;
   };
   isLoading?: boolean;
+  /** Callback for interactive tools to send messages back to the chat */
+  onSendMessage?: (text: string) => void;
 }
 
 /** Parse the JSON input string, returning null on failure */
@@ -39,11 +43,12 @@ export const ToolCallBlock = memo(function ToolCallBlock({
   input,
   result,
   isLoading,
+  onSendMessage,
 }: ToolCallBlockProps) {
   const parsedInput = parseInput(input);
   const isError = result?.is_error;
 
-  const toolProps = { name, parsedInput, result, isLoading, isError };
+  const toolProps = { name, parsedInput, result, isLoading, isError, onSendMessage };
 
   switch (name) {
     case "Bash":
@@ -77,6 +82,13 @@ export const ToolCallBlock = memo(function ToolCallBlock({
       return <NotebookEditTool {...toolProps} />;
     case "KillShell":
       return <KillShellTool {...toolProps} />;
+
+    // Interactive tools — render as full inline cards
+    case "AskUserQuestion":
+      return <AskUserQuestionTool {...toolProps} />;
+    case "ExitPlanMode":
+    case "EnterPlanMode":
+      return <ExitPlanModeTool {...toolProps} />;
 
     default: {
       // Route MCP tools (mcp__*) to SkillTool
