@@ -107,6 +107,22 @@ export class CliBridge extends EventEmitter {
     this.send(message);
   }
 
+  /**
+   * Send an interrupt request to the CLI.
+   * Gracefully aborts the current agent turn via the WebSocket protocol
+   * instead of killing the process.
+   */
+  sendInterrupt(): void {
+    if (!this.cliSocket) return;
+
+    const message = JSON.stringify({
+      type: "control_request",
+      request_id: crypto.randomUUID(),
+      request: { subtype: "interrupt" },
+    });
+    this.sendRaw(message);
+  }
+
   // ── Message Routing ─────────────────────────────────────────
 
   private routeMessage(msg: CliMessage): void {

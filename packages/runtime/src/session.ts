@@ -142,20 +142,34 @@ export class RuntimeSession extends EventEmitter {
 
   /**
    * Interrupt the current response.
-   * Kills the Claude process — with --sdk-url the CLI handles cleanup
-   * more gracefully than before, but we still emit synthetic stops
-   * for any open blocks to keep the UI in sync.
+   * Sends a graceful interrupt via WebSocket, then emits synthetic stop
+   * events to immediately update the UI. The CLI may also send its own
+   * stop events, but the UI handles duplicates gracefully.
    */
   interrupt(): void {
     if (!this.proc) return;
 
-    // Emit synthetic content_block_stop for each open block
+    // Try graceful interrupt over WebSocket first
+    if (this.bridge.connected) {
+      console.log(`[Session ${this.id.slice(0, 8)}] Sending graceful interrupt`);
+      this.bridge.sendInterrupt();
+    }
+
+    // Always emit synthetic stops so the UI updates immediately
+    this.emitSyntheticStops();
+    this.emit("interrupted");
+  }
+
+  /**
+   * Emit synthetic stop events for any open blocks/messages.
+   * Used when killing the process directly (no graceful shutdown).
+   */
+  private emitSyntheticStops(): void {
     for (const index of this.openBlockIndices) {
       this.emit("sse", { type: "content_block_stop", index });
     }
     this.openBlockIndices.clear();
 
-    // Emit message_delta with abort and message_stop
     if (this.messageOpen) {
       this.emit("sse", {
         type: "message_delta",
@@ -166,16 +180,11 @@ export class RuntimeSession extends EventEmitter {
       this.messageOpen = false;
     }
 
-    // Emit turn_stop
     this.emit("sse", {
       type: "turn_stop",
       timestamp: new Date().toISOString(),
       stop_reason: "abort",
     });
-
-    this.proc.kill("SIGTERM");
-    this.proc = null;
-    this.emit("interrupted");
   }
 
   /**

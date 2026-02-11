@@ -2,7 +2,7 @@ import type { Message, TextBlock, ImageBlock, FileBlock, ToolUseBlock, ErrorBloc
 import { MessageContent } from "./MessageContent";
 import { ToolCallBlock } from "./ToolCallBlock";
 import { CopyButton } from "./CopyButton";
-import { FileText, FileImage, File } from "lucide-react";
+import { FileText, FileImage, File, OctagonX } from "lucide-react";
 
 function getFileIcon(mediaType: string) {
   if (mediaType.startsWith("image/")) return FileImage;
@@ -361,8 +361,9 @@ function AssistantMessage({
         );
       })}
       {msg.aborted && (
-        <div className="mt-2 px-3 py-1.5 text-sm text-orange-600 bg-orange-50 border border-orange-200 rounded-md inline-block">
-          Response interrupted
+        <div className="mt-3 flex items-center gap-2 px-3 py-2 text-sm text-red-700 bg-red-50 border border-red-200 rounded-md w-fit">
+          <OctagonX className="w-4 h-4 flex-shrink-0" />
+          <span>Interrupted · What should Claudia do instead?</span>
         </div>
       )}
     </>
