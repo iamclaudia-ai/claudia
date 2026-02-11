@@ -21,6 +21,13 @@ export default function ExitPlanModeTool({
 
   const isAnswered = !!result;
   const isDisabled = submitted || isAnswered;
+  const isEntering = name === "EnterPlanMode";
+
+  // Different labels for enter vs exit
+  const label = isEntering ? "Entering Plan Mode" : "Plan Ready";
+  const description = isEntering
+    ? "Plan mode activated. I'll explore the codebase and design an approach before implementation."
+    : "A plan has been prepared and is ready for your review. Check the plan above, then approve or request changes.";
 
   const handleApprove = useCallback(() => {
     if (!onSendMessage) return;
@@ -41,7 +48,7 @@ export default function ExitPlanModeTool({
     <div className={`w-full rounded-lg border ${config.colors.border} ${config.colors.bg} overflow-hidden`}>
       {/* Header */}
       <div className={`flex items-center gap-2 px-3 py-2 border-b ${config.colors.border}`}>
-        <ToolHeader toolName={name} label="Plan Ready" />
+        <ToolHeader toolName={name} label={label} />
         {isAnswered && (
           <span className="ml-auto text-[10px] font-medium text-neutral-400 uppercase tracking-wider">
             reviewed
@@ -57,12 +64,11 @@ export default function ExitPlanModeTool({
       <div className="p-3 space-y-3">
         {/* Description */}
         <p className="text-sm text-neutral-600 leading-relaxed">
-          A plan has been prepared and is ready for your review.
-          Check the plan above, then approve or request changes.
+          {description}
         </p>
 
-        {/* Allowed prompts / permissions */}
-        {allowedPrompts.length > 0 && (
+        {/* Allowed prompts / permissions - only for ExitPlanMode */}
+        {!isEntering && allowedPrompts.length > 0 && (
           <div className="space-y-1.5">
             <span className="text-xs font-semibold text-neutral-500 uppercase tracking-wider">
               Permissions requested
@@ -83,8 +89,8 @@ export default function ExitPlanModeTool({
           </div>
         )}
 
-        {/* Action buttons */}
-        {!isDisabled && onSendMessage && (
+        {/* Action buttons - only for ExitPlanMode */}
+        {!isEntering && !isDisabled && onSendMessage && (
           <div className="flex gap-2">
             <button
               onClick={handleApprove}

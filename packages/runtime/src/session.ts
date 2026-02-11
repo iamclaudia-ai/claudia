@@ -104,6 +104,7 @@ export class RuntimeSession extends EventEmitter {
   private model: string;
   private systemPrompt?: string;
   private effort?: ThinkingEffort;
+  private stdioLogFile?: string;
 
   // Logging
   private logFile?: string;
@@ -292,8 +293,16 @@ export class RuntimeSession extends EventEmitter {
     args.push("-p", "");
 
     const cmd = ["claude", ...args];
+
+    // Create a stdio log file for debugging visibility
+    const stdioLogDir = join(homedir(), ".claudia", "logs");
+    if (!existsSync(stdioLogDir)) mkdirSync(stdioLogDir, { recursive: true });
+    const stdioLogFile = join(stdioLogDir, `stdio-${this.id.slice(0, 8)}.log`);
+    this.stdioLogFile = stdioLogFile;
+
     console.log(`[Session ${this.id.slice(0, 8)}] Spawning: claude (stdio mode)`);
     console.log(`[Session ${this.id.slice(0, 8)}]   cwd: ${this.cwd}`);
+    console.log(`[Session ${this.id.slice(0, 8)}]   log: ${stdioLogFile}`);
 
     const proc = spawn({
       cmd,
@@ -342,6 +351,7 @@ export class RuntimeSession extends EventEmitter {
       this.proc.kill("SIGTERM");
       this.proc = null;
     }
+
     this.stdoutBuffer = "";
   }
 
@@ -405,6 +415,15 @@ export class RuntimeSession extends EventEmitter {
    * Parse and route a single NDJSON line from stdout.
    */
   private handleCliLine(line: string): void {
+    // Log raw stdio for debugging (tail -f ~/.claudia/logs/stdio-{id}.log)
+    if (this.stdioLogFile) {
+      try {
+        appendFileSync(this.stdioLogFile, line + "\n");
+      } catch {
+        // Ignore log write errors
+      }
+    }
+
     try {
       const msg = JSON.parse(line);
       this.routeMessage(msg);
@@ -525,6 +544,15 @@ export class RuntimeSession extends EventEmitter {
     if (!stdin || typeof stdin === "number") {
       console.warn(`[Session ${this.id.slice(0, 8)}] Cannot write to stdin: no process`);
       return;
+    }
+
+    // Log stdin for debugging (tail -f ~/.claudia/logs/stdio-{id}.log)
+    if (this.stdioLogFile) {
+      try {
+        appendFileSync(this.stdioLogFile, `>>> STDIN: ${message}\n`);
+      } catch {
+        // Ignore log write errors
+      }
     }
 
     try {

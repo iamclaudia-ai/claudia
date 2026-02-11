@@ -248,7 +248,7 @@ export function getToolLabel(
     case "ExitPlanMode":
       return "Plan Ready";
     case "EnterPlanMode":
-      return "Enter Plan Mode";
+      return "Entering Plan Mode";
 
     default:
       // MCP tools: mcp__server__method → readable label
