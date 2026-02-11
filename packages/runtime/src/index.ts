@@ -27,12 +27,14 @@ import { ThinkingProxy } from "./thinking-proxy";
 
 const config = loadConfig();
 const PORT = config.runtime?.port || 30087;
-const PROXY_PORT = 30088;
 
 // Set runtime port on session class so --sdk-url points here
 RuntimeSession.runtimePort = PORT;
 
 // ── Thinking Proxy ──────────────────────────────────────────
+// Integrated into the runtime server — no separate port needed.
+// CLI sends API requests to http://localhost:30087/v1/messages
+// and we inject thinking config before forwarding to Anthropic.
 
 const sessionConfig = config.session || {};
 const thinkingEnabled = sessionConfig.thinking !== false;
@@ -43,13 +45,10 @@ if (thinkingEnabled) {
   thinkingProxy = new ThinkingProxy({
     effort: sessionConfig.effort || "medium",
   });
-  await thinkingProxy.start(PROXY_PORT);
 
-  // Set the proxy URL on session class so CLI processes use it
-  RuntimeSession.proxyBaseUrl = thinkingProxy.baseUrl;
-
-  // Note: thinking events come through --sdk-url stream_events naturally
-  // now that the proxy injects thinking config. No need to emit from proxy.
+  // CLI processes use ANTHROPIC_BASE_URL=http://localhost:{PORT}
+  // which routes /v1/ requests through our fetch handler below
+  RuntimeSession.proxyBaseUrl = `http://localhost:${PORT}`;
 }
 
 // ── State ────────────────────────────────────────────────────
@@ -283,6 +282,12 @@ const server = Bun.serve<SocketData>({
       return new globalThis.Response("WebSocket upgrade failed", { status: 400 });
     }
 
+    // Anthropic API proxy — CLI sends requests here via ANTHROPIC_BASE_URL
+    // We inject thinking config and forward to the real API
+    if (url.pathname.startsWith("/v1/") && thinkingProxy) {
+      return thinkingProxy.handleRequest(req);
+    }
+
     // Health check
     if (url.pathname === "/health") {
       return new globalThis.Response(
@@ -341,8 +346,9 @@ console.log(`
 ║                                                           ║
 ║   Gateway WS: ws://localhost:${PORT}/ws                    ║
 ║   CLI WS:     ws://localhost:${PORT}/ws/cli/:sessionId     ║
+║   API Proxy:  http://localhost:${PORT}/v1/messages          ║
 ║   Health:     http://localhost:${PORT}/health               ║
-${thinkingProxy ? `║   Thinking:  http://localhost:${thinkingProxy.port} (${sessionConfig.effort || "medium"})      ║` : `║   Thinking:  disabled                                     ║`}
+║   Thinking:   ${thinkingProxy ? `enabled (${sessionConfig.effort || "medium"})` : "disabled"}                              ║
 ║                                                           ║
 ╚═══════════════════════════════════════════════════════════╝
 `);
@@ -351,7 +357,6 @@ ${thinkingProxy ? `║   Thinking:  http://localhost:${thinkingProxy.port} (${se
 process.on("SIGINT", async () => {
   console.log("\n[Runtime] Shutting down...");
   await manager.closeAll();
-  thinkingProxy?.stop();
   server.stop();
   process.exit(0);
 });

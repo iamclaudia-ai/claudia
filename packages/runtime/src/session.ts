@@ -77,7 +77,7 @@ export class RuntimeSession extends EventEmitter {
   /** Runtime server port — needed for --sdk-url */
   static runtimePort = 30087;
 
-  /** Thinking proxy base URL — set when thinking proxy is active */
+  /** ANTHROPIC_BASE_URL for CLI — points to runtime server when thinking is enabled */
   static proxyBaseUrl: string | null = null;
 
   constructor(

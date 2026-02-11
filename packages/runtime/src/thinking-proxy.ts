@@ -1,20 +1,20 @@
 /**
  * Thinking Injection Proxy
  *
- * Lightweight HTTP proxy that sits between Claude CLI and the Anthropic API.
- * Its ONLY job is to inject adaptive thinking configuration into API requests.
+ * Lightweight HTTP request handler that injects adaptive thinking
+ * configuration into Anthropic API requests.
  *
  * With --sdk-url, the CLI handles everything (streaming, tool results,
  * interrupts) over WebSocket. But the CLI's --effort flag doesn't inject
- * the API-level thinking parameters, so this proxy intercepts requests to add:
+ * the API-level thinking parameters, so this handler intercepts requests to add:
  * - `thinking: { type: "adaptive" }`
  * - `output_config: { effort: "medium" }`
  *
  * Once injected, the API returns thinking blocks in the SSE response, and
  * the CLI forwards them via --sdk-url stream_events naturally.
  *
- * This is a single shared proxy (not per-session) since all sessions
- * go to the same Anthropic API endpoint.
+ * Integrated into the runtime server — no separate port needed.
+ * CLI sends API requests here via ANTHROPIC_BASE_URL=http://localhost:30087.
  */
 
 // ── Types ────────────────────────────────────────────────────
@@ -33,20 +33,10 @@ const ANTHROPIC_API = "https://api.anthropic.com";
 // ── ThinkingProxy ────────────────────────────────────────────
 
 export class ThinkingProxy {
-  private server: ReturnType<typeof Bun.serve> | null = null;
-  private _port = 0;
   private effort: ThinkingEffort;
 
   constructor(options: ThinkingProxyOptions = {}) {
     this.effort = options.effort || "medium";
-  }
-
-  get port(): number {
-    return this._port;
-  }
-
-  get baseUrl(): string {
-    return `http://localhost:${this._port}`;
   }
 
   /**
@@ -58,31 +48,10 @@ export class ThinkingProxy {
   }
 
   /**
-   * Start the proxy server.
+   * Handle an incoming API request — inject thinking config and forward to Anthropic.
+   * Called by the runtime server's fetch handler for /v1/ paths.
    */
-  async start(port: number): Promise<number> {
-    this.server = Bun.serve({
-      port,
-      fetch: async (req) => this.handleRequest(req),
-    });
-    this._port = this.server.port;
-    console.log(`[ThinkingProxy] Listening on port ${this._port} (effort: ${this.effort})`);
-    return this._port;
-  }
-
-  /**
-   * Stop the proxy server.
-   */
-  stop(): void {
-    if (this.server) {
-      this.server.stop();
-      this.server = null;
-    }
-  }
-
-  // ── Request Handling ─────────────────────────────────────
-
-  private async handleRequest(req: Request): Promise<Response> {
+  async handleRequest(req: Request): Promise<Response> {
     const url = new URL(req.url);
     const targetUrl = `${ANTHROPIC_API}${url.pathname}${url.search}`;
 
