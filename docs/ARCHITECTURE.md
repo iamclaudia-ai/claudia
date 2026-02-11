@@ -34,21 +34,21 @@ Claudia is a two-tier system: a **Gateway** that serves clients and a **Runtime*
 │                                                                    │
 │  ┌───────────────┐  ┌──────────────┐  ┌────────────────────────┐   │
 │  │  Session       │  │  CLI Bridge  │  │  Thinking Proxy        │   │
-│  │  Manager       │  │  (per sess)  │  │  (port 30088)          │   │
+│  │  Manager       │  │  (per sess)  │  │  (integrated)          │   │
 │  │               │  │              │  │                        │   │
 │  │  create/      │  │  WS handler  │  │  Injects adaptive      │   │
 │  │  resume/      │  │  msg routing │  │  thinking config into  │   │
-│  │  prompt/      │  │  queue/flush │  │  API requests          │   │
+│  │  prompt/      │  │  queue/flush │  │  /v1/ API requests     │   │
 │  │  interrupt    │  │  interrupt   │  │                        │   │
-│  └───────────────┘  └──────────────┘  └───────────┬────────────┘   │
-└───────────┬───────────────────────────────────────┼────────────────┘
-            │ spawns per session                    │ HTTP proxy
-            ▼                                       ▼
+│  └───────────────┘  └──────────────┘  └────────────────────────┘   │
+└───────────┬────────────────────────────────────────────────────────┘
+            │ spawns per session
+            ▼
 ┌───────────────────────┐              ┌────────────────────────┐
 │   Claude Code CLI     │──────────────│    Anthropic API       │
 │                       │  API calls   │                        │
-│  --sdk-url → WS back  │  via proxy   │  Returns thinking      │
-│    to Runtime :30087   │  :30088      │  blocks when config    │
+│  --sdk-url → WS back  │  via :30087  │  Returns thinking      │
+│    to Runtime :30087   │  /v1/ route  │  blocks when config    │
 │                       │              │  is injected           │
 │  Flags:               │              └────────────────────────┘
 │  --include-partial-   │
@@ -63,7 +63,7 @@ Claudia is a two-tier system: a **Gateway** that serves clients and a **Runtime*
 │  Env:                 │
 │  ANTHROPIC_BASE_URL=  │
 │    http://localhost:   │
-│    30088              │
+│    30087              │
 └───────────────────────┘
 ```
 
@@ -155,6 +155,7 @@ The Runtime is a persistent Bun.serve instance managing Claude Code CLI processe
 
 - **Gateway connections** (`/ws`) — Control plane using the same req/res/event protocol
 - **CLI connections** (`/ws/cli/:sessionId`) — Data plane using Claude Code's NDJSON protocol
+- **API proxy** (`/v1/*`) — HTTP requests from CLI, thinking config injected, forwarded to Anthropic
 
 ### CLI Bridge (--sdk-url)
 
@@ -198,26 +199,26 @@ After the CLI executes tools, it sends results as `type: "user"` messages with `
 
 The CLI takes ~500ms to connect after spawn. User prompts sent before connection are queued in `pendingMessages` and flushed when the WebSocket opens.
 
-### Thinking Proxy (port 30088)
+### Thinking Proxy (integrated)
 
-A lightweight HTTP proxy that injects adaptive thinking configuration into API requests. This is needed because the CLI's `--effort` flag doesn't inject API-level thinking parameters.
+A lightweight request handler that injects adaptive thinking configuration into API requests. Integrated into the runtime server's fetch handler — no separate port needed. The CLI sends API requests to `http://localhost:30087/v1/messages` via `ANTHROPIC_BASE_URL`.
 
 ```
-CLI HTTP Request → Proxy :30088 → Injects thinking config → Anthropic API
-                                                                │
-                                   API returns thinking blocks in SSE
-                                                                │
-                                   CLI forwards via --sdk-url stream_event
+CLI HTTP → Runtime :30087/v1/messages → Injects thinking config → Anthropic API
+                                                                       │
+                                          API returns thinking blocks in SSE
+                                                                       │
+                                          CLI forwards via --sdk-url stream_event
 ```
 
-The proxy only modifies `POST /v1/messages` requests (excluding Haiku side-channel):
+The handler only modifies `POST /v1/messages` requests (excluding Haiku side-channel):
 
 ```typescript
 parsed.thinking = { type: "adaptive" };
 parsed.output_config = { effort: this.effort };  // "low" | "medium" | "high" | "max"
 ```
 
-Thinking events flow through the `--sdk-url` WebSocket bridge naturally — the proxy never parses responses.
+Thinking events flow through the `--sdk-url` WebSocket bridge naturally — the handler never parses responses.
 
 ### Session Lifecycle
 
@@ -271,7 +272,7 @@ CLI executes tool → sends type:"user" with tool_result blocks → CliBridge
 ### Thinking
 
 ```
-CLI HTTP → Proxy :30088 (injects thinking config) → Anthropic API
+CLI HTTP → Runtime :30087/v1/ (injects thinking config) → Anthropic API
 API SSE response → CLI → --sdk-url stream_event → CliBridge → UI
 ```
 
@@ -408,7 +409,7 @@ packages/
       manager.ts            # Session lifecycle, CLI WS routing
       session.ts            # CLI process spawn, interrupt, event tracking
       cli-bridge.ts         # WebSocket bridge for CLI NDJSON protocol
-      thinking-proxy.ts     # HTTP proxy for thinking config injection
+      thinking-proxy.ts     # Thinking config injection handler (integrated)
 
   sdk/                      # claudia-sdk (being replaced by runtime)
 
@@ -447,7 +448,6 @@ extensions/
 | Port | Service | Description |
 |------|---------|-------------|
 | 30086 | Gateway | HTTP + WebSocket + SPA serving |
-| 30087 | Runtime | Gateway WS + CLI WS (dual path) |
-| 30088 | Thinking Proxy | HTTP proxy for thinking injection |
+| 30087 | Runtime | Gateway WS + CLI WS + API proxy (all-in-one) |
 
 Port 30086 = SHA256("Claudia") → x7586 → 30086
