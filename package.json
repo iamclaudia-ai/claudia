@@ -7,8 +7,8 @@
     "extensions/*"
   ],
   "scripts": {
-    "dev": "bun run scripts/dev.ts",
-    "dev:gateway": "bun run --filter @claudia/gateway dev",
+    "dev": "bun run --filter @claudia/gateway dev",
+    "restart": "lsof -ti:30086 | xargs kill -9 2>/dev/null; sleep 0.5 && bun run dev",
     "dev:runtime": "bun run --watch packages/runtime/src/index.ts",
     "watchdog": "bun run scripts/watchdog.ts",
     "cli": "bun run packages/cli/src/index.ts",

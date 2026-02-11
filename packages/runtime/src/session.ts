@@ -1,27 +1,29 @@
 /**
  * Runtime Session
  *
- * Manages a single Claude Code CLI session: proxy + process + stdin.
- * Extracted from @claudia/sdk, adapted for the session runtime service.
+ * Manages a single Claude Code CLI session using the --sdk-url WebSocket bridge.
+ * The CLI connects TO our WebSocket server, giving us native access to all events.
  *
  * Each session has:
- * - An HTTP proxy that intercepts Anthropic API calls
+ * - A CliBridge that handles the CLI WebSocket connection
  * - A Claude CLI process spawned with Bun.spawn
- * - A stdin pipe for sending prompts
  * - Event forwarding via EventEmitter
  */
 
-import { spawn, type Subprocess, type FileSink } from "bun";
+import { spawn, type Subprocess } from "bun";
 import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { AnthropicProxy, type StreamEvent } from "./proxy";
+import { CliBridge, type StreamEvent } from "./cli-bridge";
+
+// Re-export StreamEvent for consumers
+export type { StreamEvent };
 
 // ── Types ────────────────────────────────────────────────────
 
-export type ThinkingEffort = 'low' | 'medium' | 'high' | 'max';
+export type ThinkingEffort = "low" | "medium" | "high" | "max";
 
 export interface CreateSessionOptions {
   /** Working directory for Claude CLI */
@@ -34,8 +36,6 @@ export interface CreateSessionOptions {
   thinking?: boolean;
   /** Thinking effort level */
   effort?: ThinkingEffort;
-  /** Base port for proxy (will find available port) */
-  basePort?: number;
 }
 
 export interface ResumeSessionOptions {
@@ -47,23 +47,19 @@ export interface ResumeSessionOptions {
   thinking?: boolean;
   /** Thinking effort level */
   effort?: ThinkingEffort;
-  /** Base port for proxy */
-  basePort?: number;
 }
 
 // ── Constants ────────────────────────────────────────────────
 
-const DEFAULT_MODEL = "claude-sonnet-4-20250514"; // Fallback only — prefer config via manager
-const DEFAULT_BASE_PORT = 9000;
+const DEFAULT_MODEL = "claude-sonnet-4-20250514";
 
 // ── RuntimeSession ───────────────────────────────────────────
 
 export class RuntimeSession extends EventEmitter {
   readonly id: string;
+  readonly bridge: CliBridge;
 
-  private proxy: AnthropicProxy;
   private proc: Subprocess | null = null;
-  private stdin: FileSink | null = null;
   private isFirstPrompt: boolean;
   private _isStarted = false;
   private _isClosed = false;
@@ -72,35 +68,40 @@ export class RuntimeSession extends EventEmitter {
   private messageOpen = false;
   private openBlockIndices = new Set<number>();
 
-  // Session options (stored for process spawning)
+  // Session options
   private cwd: string;
   private model: string;
   private systemPrompt?: string;
-  private basePort: number;
 
-  constructor(id: string, options: CreateSessionOptions | ResumeSessionOptions, isResume: boolean) {
+  /** Runtime server port — needed for --sdk-url */
+  static runtimePort = 30087;
+
+  constructor(
+    id: string,
+    options: CreateSessionOptions | ResumeSessionOptions,
+    isResume: boolean,
+  ) {
     super();
     this.id = id;
     this.cwd = options.cwd;
     this.model = options.model || DEFAULT_MODEL;
-    this.systemPrompt = "systemPrompt" in options ? options.systemPrompt : undefined;
-    this.basePort = options.basePort || DEFAULT_BASE_PORT;
+    this.systemPrompt =
+      "systemPrompt" in options ? options.systemPrompt : undefined;
     this.isFirstPrompt = !isResume;
 
-    // Set up proxy with thinking config
+    // Set up log directory
     const logDir = join(homedir(), ".claudia", "sessions", this.id);
     if (!existsSync(logDir)) {
       mkdirSync(logDir, { recursive: true });
     }
 
-    this.proxy = new AnthropicProxy({
-      thinking: options.thinking,
-      effort: options.effort,
+    // Create CLI bridge (replaces AnthropicProxy)
+    this.bridge = new CliBridge({
       logFile: join(logDir, "events.jsonl"),
     });
 
-    // Forward proxy SSE events
-    this.proxy.on("sse", (event: StreamEvent) => {
+    // Forward bridge SSE events
+    this.bridge.on("sse", (event: StreamEvent) => {
       this.trackEventState(event);
       this.emit("sse", event);
     });
@@ -109,47 +110,41 @@ export class RuntimeSession extends EventEmitter {
   // ── Lifecycle ──────────────────────────────────────────────
 
   /**
-   * Start the session — spins up the proxy server.
-   * The Claude process is spawned lazily on first prompt.
+   * Start the session — marks it ready for prompts.
+   * The CLI process is spawned lazily on first prompt.
    */
   async start(): Promise<void> {
     if (this._isStarted) throw new Error("Session already started");
 
-    const targetPort = this.derivePort(this.id);
-    const port = await this.proxy.start(targetPort);
-
     this._isStarted = true;
     this._isClosed = false;
 
-    console.log(`[Session ${this.id.slice(0, 8)}] Started (proxy: ${port})`);
-    this.emit("ready", { sessionId: this.id, proxyPort: port });
+    console.log(`[Session ${this.id.slice(0, 8)}] Started`);
+    this.emit("ready", { sessionId: this.id });
   }
 
   /**
    * Send a prompt to Claude.
-   * Spawns the Claude process if not already running.
+   * Spawns the CLI process if not already running.
+   * Uses the bridge to send — queues if CLI hasn't connected yet.
    */
   prompt(content: string | unknown[]): void {
     if (!this._isStarted) throw new Error("Session not started");
 
     this.ensureProcess();
 
-    const message = {
-      type: "user",
-      message: {
-        role: "user",
-        content,
-      },
-    };
+    // Send via WebSocket bridge — with --sdk-url, CLI reads prompts from WS, not stdin
+    this.bridge.sendUserMessage(content);
 
-    this.stdin!.write(JSON.stringify(message) + "\n");
     this.isFirstPrompt = false;
     this.emit("prompt_sent", { content });
   }
 
   /**
    * Interrupt the current response.
-   * Kills the Claude process and emits synthetic stop events.
+   * Kills the Claude process — with --sdk-url the CLI handles cleanup
+   * more gracefully than before, but we still emit synthetic stops
+   * for any open blocks to keep the UI in sync.
    */
   interrupt(): void {
     if (!this.proc) return;
@@ -171,22 +166,20 @@ export class RuntimeSession extends EventEmitter {
       this.messageOpen = false;
     }
 
-    // Emit synthetic turn_stop and reset proxy turn state
+    // Emit turn_stop
     this.emit("sse", {
       type: "turn_stop",
       timestamp: new Date().toISOString(),
       stop_reason: "abort",
     });
-    this.proxy.resetTurn();
 
     this.proc.kill("SIGTERM");
     this.proc = null;
-    this.stdin = null;
     this.emit("interrupted");
   }
 
   /**
-   * Close the session — kill process and stop proxy.
+   * Close the session — kill process.
    */
   async close(): Promise<void> {
     if (!this._isStarted) return;
@@ -196,10 +189,7 @@ export class RuntimeSession extends EventEmitter {
     if (this.proc) {
       this.proc.kill("SIGTERM");
       this.proc = null;
-      this.stdin = null;
     }
-
-    await this.proxy.stop();
 
     this._isStarted = false;
     this.emit("closed");
@@ -216,10 +206,6 @@ export class RuntimeSession extends EventEmitter {
     return this.proc !== null;
   }
 
-  get proxyPort(): number {
-    return this.proxy.port;
-  }
-
   /**
    * Get session info for health/status reporting.
    */
@@ -228,7 +214,6 @@ export class RuntimeSession extends EventEmitter {
       id: this.id,
       cwd: this.cwd,
       model: this.model,
-      proxyPort: this.proxy.port,
       isActive: this.isActive,
       isProcessRunning: this.isProcessRunning,
     };
@@ -237,18 +222,11 @@ export class RuntimeSession extends EventEmitter {
   // ── Private ────────────────────────────────────────────────
 
   /**
-   * Derive a deterministic port from session ID.
-   */
-  private derivePort(sessionId: string): number {
-    const hash = sessionId.split("").reduce((acc, c) => acc + c.charCodeAt(0), 0);
-    return this.basePort + (hash % 1000);
-  }
-
-  /**
    * Ensure the Claude CLI process is running, spawn if needed.
+   * Uses --sdk-url to connect the CLI back to our WebSocket server.
    */
   private ensureProcess(): void {
-    if (this.proc && this.stdin) return;
+    if (this.proc) return;
 
     if (this._isClosed) {
       this._isClosed = false;
@@ -259,16 +237,22 @@ export class RuntimeSession extends EventEmitter {
         "\n\nIMPORTANT: You are running in headless/non-interactive mode. Do NOT use the AskUserQuestion tool - make reasonable decisions autonomously instead."
       : undefined;
 
+    const sdkUrl = `ws://localhost:${RuntimeSession.runtimePort}/ws/cli/${this.id}`;
+
     const args = [
-      "-p",
-      "--dangerously-skip-permissions",
-      "--model",
-      this.model,
-      "--input-format",
-      "stream-json",
+      "--sdk-url",
+      sdkUrl,
+      "--print",
       "--output-format",
       "stream-json",
+      "--input-format",
+      "stream-json",
+      "--include-partial-messages",
       "--verbose",
+      "--model",
+      this.model,
+      "--permission-mode",
+      "bypassPermissions",
     ];
 
     if (systemPrompt && this.isFirstPrompt) {
@@ -281,29 +265,53 @@ export class RuntimeSession extends EventEmitter {
       args.push("--resume", this.id);
     }
 
+    args.push("-p", "");
+
     const cmd = ["claude", ...args];
-    console.log(`[Session ${this.id.slice(0, 8)}] Spawning: claude ${args.slice(0, 4).join(" ")}...`);
+    console.log(
+      `[Session ${this.id.slice(0, 8)}] Spawning: claude --sdk-url ${sdkUrl.slice(0, 40)}...`,
+    );
     console.log(`[Session ${this.id.slice(0, 8)}]   cwd: ${this.cwd}`);
-    console.log(`[Session ${this.id.slice(0, 8)}]   proxy: http://localhost:${this.proxy.port}`);
 
     const proc = spawn({
       cmd,
       stdin: "pipe",
-      stdout: "ignore",
-      stderr: "inherit",
+      stdout: "pipe",
+      stderr: "pipe",
       cwd: this.cwd,
       env: {
         ...process.env,
-        ANTHROPIC_BASE_URL: `http://localhost:${this.proxy.port}`,
+        CLAUDECODE: "1",
       },
     });
 
     this.proc = proc;
-    this.stdin = proc.stdin as FileSink;
 
-    proc.exited.then(() => {
+    // Pipe stdout for debugging (CLI may log info there)
+    if (proc.stdout) {
+      const reader = proc.stdout.getReader();
+      const pump = async () => {
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            const text = new TextDecoder().decode(value);
+            if (text.trim()) {
+              console.log(`[Session ${this.id.slice(0, 8)}] stdout: ${text.trim().substring(0, 200)}`);
+            }
+          }
+        } catch {
+          // Stream closed
+        }
+      };
+      pump();
+    }
+
+    proc.exited.then((exitCode) => {
+      console.log(
+        `[Session ${this.id.slice(0, 8)}] Process exited (code: ${exitCode})`,
+      );
       this.proc = null;
-      this.stdin = null;
       this.emit("process_ended");
     });
 
@@ -318,10 +326,16 @@ export class RuntimeSession extends EventEmitter {
       this.messageOpen = true;
       this.openBlockIndices.clear();
     }
-    if (event.type === "content_block_start" && typeof event.index === "number") {
+    if (
+      event.type === "content_block_start" &&
+      typeof event.index === "number"
+    ) {
       this.openBlockIndices.add(event.index);
     }
-    if (event.type === "content_block_stop" && typeof event.index === "number") {
+    if (
+      event.type === "content_block_stop" &&
+      typeof event.index === "number"
+    ) {
       this.openBlockIndices.delete(event.index);
     }
     if (event.type === "message_stop") {
@@ -333,11 +347,16 @@ export class RuntimeSession extends EventEmitter {
 
 // ── Factory Functions ────────────────────────────────────────
 
-export function createRuntimeSession(options: CreateSessionOptions): RuntimeSession {
+export function createRuntimeSession(
+  options: CreateSessionOptions,
+): RuntimeSession {
   const id = randomUUID();
   return new RuntimeSession(id, options, false);
 }
 
-export function resumeRuntimeSession(sessionId: string, options: ResumeSessionOptions): RuntimeSession {
+export function resumeRuntimeSession(
+  sessionId: string,
+  options: ResumeSessionOptions,
+): RuntimeSession {
   return new RuntimeSession(sessionId, options, true);
 }

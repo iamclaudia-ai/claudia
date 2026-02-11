@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { FileText, FileImage, File, X } from "lucide-react";
 import type { Attachment, Usage } from "../types";
 import { useBridge } from "../bridge";
@@ -34,7 +34,16 @@ export function InputArea({
   onInterrupt,
 }: InputAreaProps) {
   const [isDragging, setIsDragging] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const bridge = useBridge();
+
+  // Auto-resize textarea to fit content
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [input]);
 
   const processFile = useCallback(
     (file: File) => {
@@ -173,61 +182,65 @@ export function InputArea({
         onDrop={handleDrop}
       >
         <textarea
+          ref={textareaRef}
           value={input}
           onChange={handleInputChange}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
           placeholder="Type a message... (⌘↵ send, ESC stop)"
           disabled={!isConnected}
-          className="w-full p-3 pr-24 border border-gray-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 placeholder:text-gray-300"
-          rows={3}
+          className="w-full p-3 border border-gray-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 placeholder:text-gray-300"
+          rows={1}
+          style={{ maxHeight: "200px", overflow: "auto" }}
         />
         {isDragging && (
           <div className="absolute inset-0 bg-blue-50/80 rounded-lg flex items-center justify-center pointer-events-none">
             <span className="text-blue-600 font-medium">Drop files here</span>
           </div>
         )}
-        <div className="absolute right-2 bottom-2 flex gap-2">
-          {isQuerying && (
-            <button
-              onClick={onInterrupt}
-              className="px-3 py-2 rounded-md text-white bg-red-500 hover:bg-red-600"
-            >
-              Stop
-            </button>
-          )}
+      </div>
+
+      <div className="mt-2 flex items-center justify-between">
+        {usage
+          ? (() => {
+              const total =
+                usage.input_tokens +
+                usage.cache_read_input_tokens +
+                usage.cache_creation_input_tokens;
+              const max = 200000;
+              const percent = Math.round((total / max) * 100);
+              const colorClass =
+                percent >= 80
+                  ? "text-red-600"
+                  : percent >= 60
+                    ? "text-orange-500"
+                    : "text-gray-600";
+              return (
+                <div className={`text-xs font-mono ${colorClass}`}>
+                  Context: {total.toLocaleString()}/{max.toLocaleString()} {percent}%
+                </div>
+              );
+            })()
+          : <div />}
+        <div className="flex gap-2">
+          <button
+            onClick={onInterrupt}
+            disabled={!isQuerying}
+            className="px-3 py-1.5 rounded-md text-sm text-white bg-red-500 hover:bg-red-600 disabled:opacity-0 transition-opacity"
+          >
+            Stop
+          </button>
           <button
             onClick={onSend}
             disabled={
               !isConnected || (!input.trim() && attachments.length === 0)
             }
-            className="px-4 py-2 rounded-md text-white bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300"
+            className="px-4 py-1.5 rounded-md text-sm text-white bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300"
           >
             Send
           </button>
         </div>
       </div>
-
-      {usage &&
-        (() => {
-          const total =
-            usage.input_tokens +
-            usage.cache_read_input_tokens +
-            usage.cache_creation_input_tokens;
-          const max = 200000;
-          const percent = Math.round((total / max) * 100);
-          const colorClass =
-            percent >= 80
-              ? "text-red-600"
-              : percent >= 60
-                ? "text-orange-500"
-                : "text-gray-600";
-          return (
-            <div className={`mt-2 text-xs font-mono ${colorClass}`}>
-              Context: {total.toLocaleString()}/{max.toLocaleString()} {percent}%
-            </div>
-          );
-        })()}
     </footer>
   );
 }

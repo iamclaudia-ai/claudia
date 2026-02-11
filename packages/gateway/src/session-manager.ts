@@ -455,7 +455,7 @@ export class SessionManager {
       systemPrompt: sessionConfig.systemPrompt || undefined,
       thinking,
       effort,
-    }) as { sessionId: string; proxyPort: number };
+    }) as { sessionId: string };
 
     this.activeRuntimeSessionId = result.sessionId;
 

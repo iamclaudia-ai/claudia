@@ -6,7 +6,7 @@
  * req/res/event protocol as the gateway.
  *
  * The runtime owns:
- * - HTTP proxy per session (Anthropic API interception)
+ * - WebSocket bridge per session (CLI connects via --sdk-url)
  * - Claude CLI process per session (Bun.spawn with stdin pipe)
  * - SSE event capture and forwarding
  * - Session lifecycle (create, resume, prompt, interrupt, close)
@@ -20,21 +20,24 @@ import type { ServerWebSocket } from "bun";
 import type { Request, Response, Event, Message, ThinkingEffort } from "@claudia/shared";
 import { loadConfig } from "@claudia/shared";
 import { RuntimeSessionManager } from "./manager";
+import { RuntimeSession } from "./session";
 
 // ── Configuration ────────────────────────────────────────────
 
 const config = loadConfig();
 const PORT = config.runtime?.port || 30087;
 
+// Set runtime port on session class so --sdk-url points here
+RuntimeSession.runtimePort = PORT;
+
 // ── State ────────────────────────────────────────────────────
 
-interface ClientState {
-  id: string;
-  connectedAt: Date;
-  subscriptions: Set<string>;
-}
+/** Socket types: gateway clients or CLI connections */
+type SocketData =
+  | { kind: "gateway"; id: string; connectedAt: Date; subscriptions: Set<string> }
+  | { kind: "cli"; sessionId: string };
 
-const clients = new Map<ServerWebSocket<ClientState>, ClientState>();
+const clients = new Map<ServerWebSocket<SocketData>, SocketData>();
 const manager = new RuntimeSessionManager();
 manager.setConfig(config);
 
@@ -46,7 +49,7 @@ manager.on("session.event", ({ eventName, ...payload }) => {
 
 // ── Message Handling ─────────────────────────────────────────
 
-function handleMessage(ws: ServerWebSocket<ClientState>, data: string): void {
+function handleMessage(ws: ServerWebSocket<SocketData>, data: string): void {
   try {
     const message: Message = JSON.parse(data);
     if (message.type === "req") {
@@ -58,7 +61,7 @@ function handleMessage(ws: ServerWebSocket<ClientState>, data: string): void {
   }
 }
 
-async function handleRequest(ws: ServerWebSocket<ClientState>, req: Request): Promise<void> {
+async function handleRequest(ws: ServerWebSocket<SocketData>, req: Request): Promise<void> {
   const [namespace, action] = req.method.split(".");
 
   switch (namespace) {
@@ -79,7 +82,7 @@ async function handleRequest(ws: ServerWebSocket<ClientState>, req: Request): Pr
 // ── Session Methods ──────────────────────────────────────────
 
 async function handleSessionMethod(
-  ws: ServerWebSocket<ClientState>,
+  ws: ServerWebSocket<SocketData>,
   req: Request,
   action: string,
 ): Promise<void> {
@@ -172,17 +175,17 @@ async function handleSessionMethod(
 
 // ── Subscriptions ────────────────────────────────────────────
 
-function handleSubscribe(ws: ServerWebSocket<ClientState>, req: Request): void {
+function handleSubscribe(ws: ServerWebSocket<SocketData>, req: Request): void {
   const state = clients.get(ws);
-  if (!state) return;
+  if (!state || state.kind !== "gateway") return;
   const events = (req.params?.events as string[]) || [];
   events.forEach((event) => state.subscriptions.add(event));
   sendResponse(ws, req.id, { subscribed: events });
 }
 
-function handleUnsubscribe(ws: ServerWebSocket<ClientState>, req: Request): void {
+function handleUnsubscribe(ws: ServerWebSocket<SocketData>, req: Request): void {
   const state = clients.get(ws);
-  if (!state) return;
+  if (!state || state.kind !== "gateway") return;
   const events = (req.params?.events as string[]) || [];
   events.forEach((event) => state.subscriptions.delete(event));
   sendResponse(ws, req.id, { unsubscribed: events });
@@ -190,12 +193,12 @@ function handleUnsubscribe(ws: ServerWebSocket<ClientState>, req: Request): void
 
 // ── Protocol Helpers ─────────────────────────────────────────
 
-function sendResponse(ws: ServerWebSocket<ClientState>, id: string, payload: unknown): void {
+function sendResponse(ws: ServerWebSocket<SocketData>, id: string, payload: unknown): void {
   const response: Response = { type: "res", id, ok: true, payload };
   ws.send(JSON.stringify(response));
 }
 
-function sendError(ws: ServerWebSocket<ClientState>, id: string, error: string): void {
+function sendError(ws: ServerWebSocket<SocketData>, id: string, error: string): void {
   const response: Response = { type: "res", id, ok: false, error };
   ws.send(JSON.stringify(response));
 }
@@ -205,6 +208,8 @@ function broadcastEvent(eventName: string, payload: unknown): void {
   const data = JSON.stringify(event);
 
   for (const [ws, state] of clients) {
+    if (state.kind !== "gateway") continue;
+
     const isSubscribed = Array.from(state.subscriptions).some((pattern) => {
       if (pattern === "*") return true;
       if (pattern === eventName) return true;
@@ -223,17 +228,33 @@ function broadcastEvent(eventName: string, payload: unknown): void {
 
 // ── Server ───────────────────────────────────────────────────
 
-const server = Bun.serve<ClientState>({
+const server = Bun.serve<SocketData>({
   port: PORT,
   async fetch(req, server) {
     const url = new URL(req.url);
 
+    // Gateway WebSocket — the control plane connection
     if (url.pathname === "/ws") {
       const upgraded = server.upgrade(req, {
         data: {
+          kind: "gateway" as const,
           id: crypto.randomUUID(),
           connectedAt: new Date(),
           subscriptions: new Set<string>(),
+        },
+      });
+      if (upgraded) return undefined;
+      return new globalThis.Response("WebSocket upgrade failed", { status: 400 });
+    }
+
+    // CLI WebSocket — Claude Code CLI connects here via --sdk-url
+    const cliMatch = url.pathname.match(/^\/ws\/cli\/([a-f0-9-]+)$/);
+    if (cliMatch) {
+      const sessionId = cliMatch[1];
+      const upgraded = server.upgrade(req, {
+        data: {
+          kind: "cli" as const,
+          sessionId,
         },
       });
       if (upgraded) return undefined;
@@ -256,15 +277,37 @@ const server = Bun.serve<ClientState>({
   },
   websocket: {
     open(ws) {
-      clients.set(ws, ws.data);
-      console.log(`[Runtime] Client connected: ${ws.data.id.slice(0, 8)} (${clients.size} total)`);
+      const data = ws.data;
+
+      if (data.kind === "gateway") {
+        clients.set(ws, data);
+        console.log(`[Runtime] Gateway connected: ${data.id.slice(0, 8)} (${clients.size} total)`);
+      } else if (data.kind === "cli") {
+        // Route CLI connection to the appropriate session's bridge
+        manager.handleCliConnection(data.sessionId, ws);
+        console.log(`[Runtime] CLI connected for session: ${data.sessionId.slice(0, 8)}`);
+      }
     },
     message(ws, message) {
-      handleMessage(ws, message.toString());
+      const data = ws.data;
+
+      if (data.kind === "gateway") {
+        handleMessage(ws, message.toString());
+      } else if (data.kind === "cli") {
+        // Route CLI messages to the appropriate session's bridge
+        manager.handleCliMessage(data.sessionId, message);
+      }
     },
     close(ws) {
-      clients.delete(ws);
-      console.log(`[Runtime] Client disconnected: ${ws.data.id.slice(0, 8)} (${clients.size} total)`);
+      const data = ws.data;
+
+      if (data.kind === "gateway") {
+        clients.delete(ws);
+        console.log(`[Runtime] Gateway disconnected: ${data.id.slice(0, 8)} (${clients.size} total)`);
+      } else if (data.kind === "cli") {
+        manager.handleCliClose(data.sessionId);
+        console.log(`[Runtime] CLI disconnected for session: ${data.sessionId.slice(0, 8)}`);
+      }
     },
   },
 });
@@ -274,8 +317,9 @@ console.log(`
 ║                                                           ║
 ║   ⚡ Claudia Runtime on http://localhost:${PORT}           ║
 ║                                                           ║
-║   WebSocket: ws://localhost:${PORT}/ws                     ║
-║   Health:    http://localhost:${PORT}/health               ║
+║   Gateway WS: ws://localhost:${PORT}/ws                    ║
+║   CLI WS:     ws://localhost:${PORT}/ws/cli/:sessionId     ║
+║   Health:     http://localhost:${PORT}/health               ║
 ║                                                           ║
 ╚═══════════════════════════════════════════════════════════╝
 `);

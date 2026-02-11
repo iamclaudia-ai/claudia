@@ -4,26 +4,28 @@
  * Manages all active RuntimeSession instances.
  * Provides create/resume/prompt/interrupt/close/list operations.
  * Forwards all SSE events from sessions to a callback for WS relay.
+ * Routes CLI WebSocket connections to the appropriate session's bridge.
  *
  * Sessions are lazily resumed: if a prompt arrives for a session that
- * isn't running, the manager auto-resumes it (starts proxy + CLI process).
+ * isn't running, the manager auto-resumes it (spawns CLI process).
  * This means the runtime is self-healing after restarts — no persistence needed.
  */
 
 import { EventEmitter } from "node:events";
+import type { ServerWebSocket } from "bun";
 import {
   RuntimeSession,
   createRuntimeSession,
   resumeRuntimeSession,
   type CreateSessionOptions,
   type ResumeSessionOptions,
+  type StreamEvent,
 } from "./session";
-import type { StreamEvent } from "./proxy";
 import type { ClaudiaConfig } from "@claudia/shared";
 
 // ── Types ────────────────────────────────────────────────────
 
-export type ThinkingEffort = 'low' | 'medium' | 'high' | 'max';
+export type ThinkingEffort = "low" | "medium" | "high" | "max";
 
 export interface SessionCreateParams {
   /** Claude Code session UUID (if pre-assigned by gateway) */
@@ -69,9 +71,11 @@ export class RuntimeSessionManager extends EventEmitter {
 
   /**
    * Create a new Claude session.
-   * Starts proxy, session ready for prompts.
+   * Session is ready for prompts immediately.
    */
-  async create(params: SessionCreateParams): Promise<{ sessionId: string; proxyPort: number }> {
+  async create(
+    params: SessionCreateParams,
+  ): Promise<{ sessionId: string }> {
     const options: CreateSessionOptions = {
       cwd: params.cwd,
       model: params.model,
@@ -86,20 +90,24 @@ export class RuntimeSessionManager extends EventEmitter {
     this.sessions.set(session.id, session);
     this.wireSession(session);
 
-    console.log(`[Manager] Created session: ${session.id.slice(0, 8)} (proxy: ${session.proxyPort})`);
-    return { sessionId: session.id, proxyPort: session.proxyPort };
+    console.log(`[Manager] Created session: ${session.id.slice(0, 8)}`);
+    return { sessionId: session.id };
   }
 
   /**
    * Resume an existing Claude session.
-   * Starts proxy, session ready for prompts.
+   * Session is ready for prompts immediately.
    */
-  async resume(params: SessionResumeParams): Promise<{ sessionId: string; proxyPort: number }> {
+  async resume(
+    params: SessionResumeParams,
+  ): Promise<{ sessionId: string }> {
     // Check if already active
     const existing = this.sessions.get(params.sessionId);
     if (existing?.isActive) {
-      console.log(`[Manager] Session already active: ${params.sessionId.slice(0, 8)}`);
-      return { sessionId: existing.id, proxyPort: existing.proxyPort };
+      console.log(
+        `[Manager] Session already active: ${params.sessionId.slice(0, 8)}`,
+      );
+      return { sessionId: existing.id };
     }
 
     const options: ResumeSessionOptions = {
@@ -115,24 +123,32 @@ export class RuntimeSessionManager extends EventEmitter {
     this.sessions.set(session.id, session);
     this.wireSession(session);
 
-    console.log(`[Manager] Resumed session: ${session.id.slice(0, 8)} (proxy: ${session.proxyPort})`);
-    return { sessionId: session.id, proxyPort: session.proxyPort };
+    console.log(`[Manager] Resumed session: ${session.id.slice(0, 8)}`);
+    return { sessionId: session.id };
   }
 
   /**
    * Send a prompt to a session.
    * If the session isn't running, auto-resumes it first (lazy start).
    */
-  async prompt(sessionId: string, content: string | unknown[], cwd?: string): Promise<void> {
+  async prompt(
+    sessionId: string,
+    content: string | unknown[],
+    cwd?: string,
+  ): Promise<void> {
     let session = this.sessions.get(sessionId);
 
     if (!session || !session.isActive) {
       // Lazy resume — session died or runtime restarted
       if (!cwd) {
-        throw new Error(`Session not found and no cwd provided for auto-resume: ${sessionId}`);
+        throw new Error(
+          `Session not found and no cwd provided for auto-resume: ${sessionId}`,
+        );
       }
       const sessionConfig = this.config?.session;
-      console.log(`[Manager] Auto-resuming session: ${sessionId.slice(0, 8)} (cwd: ${cwd}, model: ${sessionConfig?.model || "default"})`);
+      console.log(
+        `[Manager] Auto-resuming session: ${sessionId.slice(0, 8)} (cwd: ${cwd}, model: ${sessionConfig?.model || "default"})`,
+      );
       await this.resume({
         sessionId,
         cwd,
@@ -157,7 +173,7 @@ export class RuntimeSessionManager extends EventEmitter {
   }
 
   /**
-   * Close a session — stop proxy, kill process.
+   * Close a session — kill process.
    */
   async close(sessionId: string): Promise<void> {
     const session = this.sessions.get(sessionId);
@@ -175,7 +191,6 @@ export class RuntimeSessionManager extends EventEmitter {
     id: string;
     cwd: string;
     model: string;
-    proxyPort: number;
     isActive: boolean;
     isProcessRunning: boolean;
   }> {
@@ -186,22 +201,51 @@ export class RuntimeSessionManager extends EventEmitter {
    * Close all sessions — for graceful shutdown.
    */
   async closeAll(): Promise<void> {
-    const promises = Array.from(this.sessions.keys()).map((id) => this.close(id));
+    const promises = Array.from(this.sessions.keys()).map((id) =>
+      this.close(id),
+    );
     await Promise.all(promises);
   }
 
-  // ── Private ────────────────────────────────────────────────
+  // ── CLI WebSocket Routing ────────────────────────────────────
 
-  private getActiveSession(sessionId: string): RuntimeSession {
+  /**
+   * Route a CLI WebSocket connection to the appropriate session's bridge.
+   * Called when Claude Code CLI connects via --sdk-url.
+   */
+  handleCliConnection(sessionId: string, ws: ServerWebSocket<unknown>): void {
     const session = this.sessions.get(sessionId);
     if (!session) {
-      throw new Error(`Session not found: ${sessionId}`);
+      console.warn(
+        `[Manager] CLI connected for unknown session: ${sessionId.slice(0, 8)}`,
+      );
+      return;
     }
-    if (!session.isActive) {
-      throw new Error(`Session not active: ${sessionId}`);
-    }
-    return session;
+    session.bridge.handleConnection(ws);
   }
+
+  /**
+   * Route a CLI WebSocket message to the appropriate session's bridge.
+   */
+  handleCliMessage(
+    sessionId: string,
+    message: string | Buffer,
+  ): void {
+    const session = this.sessions.get(sessionId);
+    if (!session) return;
+    session.bridge.handleMessage(message);
+  }
+
+  /**
+   * Handle CLI WebSocket disconnect.
+   */
+  handleCliClose(sessionId: string): void {
+    const session = this.sessions.get(sessionId);
+    if (!session) return;
+    session.bridge.handleClose();
+  }
+
+  // ── Private ────────────────────────────────────────────────
 
   /**
    * Wire a session's events to this manager's EventEmitter.
