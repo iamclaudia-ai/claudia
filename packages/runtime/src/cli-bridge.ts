@@ -119,6 +119,10 @@ export class CliBridge extends EventEmitter {
         this.handleAssistantMessage(msg);
         break;
 
+      case "user":
+        this.handleUserMessage(msg);
+        break;
+
       case "result":
         this.handleResultMessage(msg);
         break;
@@ -162,9 +166,7 @@ export class CliBridge extends EventEmitter {
    *
    * With --include-partial-messages, real stream_event messages arrive BEFORE
    * this assistant message, so we DON'T need to synthesize SSE events.
-   * The assistant message is used for:
-   * - Extracting tool_result blocks (from subsequent turns after tool execution)
-   * - Logging the complete response
+   * Logged for debugging but no events emitted (streaming handles it).
    */
   private handleAssistantMessage(msg: CliMessage): void {
     const message = msg.message as Record<string, unknown> | undefined;
@@ -173,7 +175,25 @@ export class CliBridge extends EventEmitter {
     const content = message.content as Array<Record<string, unknown>> | undefined;
     if (!content) return;
 
-    // Extract tool results for logging/forwarding
+    this.log({ type: "assistant", blocks: content.length });
+  }
+
+  /**
+   * user — user message with tool_result blocks.
+   *
+   * After Claude calls tools, the CLI executes them and sends the results
+   * back as a user message containing tool_result content blocks.
+   * We extract these and emit as request_tool_results events so the UI
+   * can display tool output in the tool call badges.
+   */
+  private handleUserMessage(msg: CliMessage): void {
+    const message = msg.message as Record<string, unknown> | undefined;
+    if (!message) return;
+
+    const content = message.content as Array<Record<string, unknown>> | undefined;
+    if (!content) return;
+
+    // Extract tool results
     const toolResults = content.filter((c) => c.type === "tool_result");
     if (toolResults.length > 0) {
       const event = {
@@ -181,15 +201,13 @@ export class CliBridge extends EventEmitter {
         timestamp: new Date().toISOString(),
         tool_results: toolResults.map((c) => ({
           tool_use_id: c.tool_use_id,
-          content: typeof c.content === "string" ? c.content.substring(0, 500) : c.content,
+          content: c.content,
           is_error: c.is_error,
         })),
       };
       this.log(event);
       this.emit("sse", event);
     }
-
-    this.log({ type: "assistant", blocks: content.length });
   }
 
   /**

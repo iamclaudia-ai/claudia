@@ -624,8 +624,27 @@ export function useGateway(
       ];
 
       setMessages((draft) => { draft.push({ role: "user", blocks, timestamp: Date.now() }); });
+
+      // Build content for the API — plain string if text-only, array of content blocks if attachments
+      let content: string | unknown[];
+      if (attachments.length === 0) {
+        content = text;
+      } else {
+        content = [
+          ...attachments.filter((f) => f.type === "image").map((f) => ({
+            type: "image",
+            source: { type: "base64", media_type: f.mediaType, data: f.data },
+          })),
+          ...attachments.filter((f) => f.type === "file").map((f) => ({
+            type: "document",
+            source: { type: "base64", media_type: f.mediaType, data: f.data },
+          })),
+          ...(text.trim() ? [{ type: "text", text }] : []),
+        ];
+      }
+
       // Pass session record ID so the gateway targets the right session
-      const params: Record<string, unknown> = { content: text };
+      const params: Record<string, unknown> = { content };
       if (sessionRecordIdRef.current) params.sessionId = sessionRecordIdRef.current;
       sendRequest("session.prompt", params);
     },
