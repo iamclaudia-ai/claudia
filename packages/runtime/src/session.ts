@@ -1,27 +1,32 @@
 /**
  * Runtime Session
  *
- * Manages a single Claude Code CLI session using the --sdk-url WebSocket bridge.
- * The CLI connects TO our WebSocket server, giving us native access to all events.
+ * Manages a single Claude Code CLI session using stdio pipes.
+ * Communicates via stdin (NDJSON prompts, control requests) and
+ * stdout (NDJSON streaming events, tool results, completions).
  *
  * Each session has:
- * - A CliBridge that handles the CLI WebSocket connection
- * - A Claude CLI process spawned with Bun.spawn
+ * - A Claude CLI process spawned with Bun.spawn (stdin/stdout pipes)
+ * - NDJSON message routing from stdout
  * - Event forwarding via EventEmitter
+ *
+ * Thinking is enabled via control_request (set_max_thinking_tokens)
+ * sent on stdin after process spawn — no HTTP proxy needed.
  */
 
 import { spawn, type Subprocess } from "bun";
 import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, appendFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { CliBridge, type StreamEvent } from "./cli-bridge";
-
-// Re-export StreamEvent for consumers
-export type { StreamEvent };
 
 // ── Types ────────────────────────────────────────────────────
+
+export interface StreamEvent {
+  type: string;
+  [key: string]: unknown;
+}
 
 export type ThinkingEffort = "low" | "medium" | "high" | "max";
 
@@ -53,16 +58,26 @@ export interface ResumeSessionOptions {
 
 const DEFAULT_MODEL = "claude-sonnet-4-20250514";
 
+/** Map effort levels to max_thinking_tokens for control_request */
+const THINKING_TOKENS: Record<ThinkingEffort, number> = {
+  low: 4000,
+  medium: 8000,
+  high: 16000,
+  max: 32000,
+};
+
 // ── RuntimeSession ───────────────────────────────────────────
 
 export class RuntimeSession extends EventEmitter {
   readonly id: string;
-  readonly bridge: CliBridge;
 
   private proc: Subprocess | null = null;
   private isFirstPrompt: boolean;
   private _isStarted = false;
   private _isClosed = false;
+
+  // Stdout NDJSON buffering
+  private stdoutBuffer = "";
 
   // Abort tracking — emit synthetic stops on interrupt
   private messageOpen = false;
@@ -74,11 +89,8 @@ export class RuntimeSession extends EventEmitter {
   private systemPrompt?: string;
   private effort?: ThinkingEffort;
 
-  /** Runtime server port — needed for --sdk-url */
-  static runtimePort = 30087;
-
-  /** ANTHROPIC_BASE_URL for CLI — points to runtime server when thinking is enabled */
-  static proxyBaseUrl: string | null = null;
+  // Logging
+  private logFile?: string;
 
   constructor(
     id: string,
@@ -99,17 +111,7 @@ export class RuntimeSession extends EventEmitter {
     if (!existsSync(logDir)) {
       mkdirSync(logDir, { recursive: true });
     }
-
-    // Create CLI bridge (replaces AnthropicProxy)
-    this.bridge = new CliBridge({
-      logFile: join(logDir, "events.jsonl"),
-    });
-
-    // Forward bridge SSE events
-    this.bridge.on("sse", (event: StreamEvent) => {
-      this.trackEventState(event);
-      this.emit("sse", event);
-    });
+    this.logFile = join(logDir, "events.jsonl");
   }
 
   // ── Lifecycle ──────────────────────────────────────────────
@@ -131,15 +133,18 @@ export class RuntimeSession extends EventEmitter {
   /**
    * Send a prompt to Claude.
    * Spawns the CLI process if not already running.
-   * Uses the bridge to send — queues if CLI hasn't connected yet.
+   * Writes directly to stdin as NDJSON.
    */
   prompt(content: string | unknown[]): void {
     if (!this._isStarted) throw new Error("Session not started");
 
     this.ensureProcess();
 
-    // Send via WebSocket bridge — with --sdk-url, CLI reads prompts from WS, not stdin
-    this.bridge.sendUserMessage(content);
+    const message = JSON.stringify({
+      type: "user",
+      message: { role: "user", content },
+    });
+    this.sendToStdin(message);
 
     this.isFirstPrompt = false;
     this.emit("prompt_sent", { content });
@@ -147,27 +152,29 @@ export class RuntimeSession extends EventEmitter {
 
   /**
    * Interrupt the current response.
-   * Sends a graceful interrupt via WebSocket, then emits synthetic stop
-   * events to immediately update the UI. The CLI may also send its own
-   * stop events, but the UI handles duplicates gracefully.
+   * Sends a graceful interrupt via stdin control_request, then emits
+   * synthetic stop events to immediately update the UI.
    */
   interrupt(): void {
     if (!this.proc) return;
 
-    // Try graceful interrupt over WebSocket first
-    if (this.bridge.connected) {
-      console.log(`[Session ${this.id.slice(0, 8)}] Sending graceful interrupt`);
-      this.bridge.sendInterrupt();
-    }
+    console.log(`[Session ${this.id.slice(0, 8)}] Sending graceful interrupt`);
 
-    // Always emit synthetic stops so the UI updates immediately
+    const message = JSON.stringify({
+      type: "control_request",
+      request_id: randomUUID(),
+      request: { subtype: "interrupt" },
+    });
+    this.sendToStdin(message);
+
+    // Emit synthetic stops so the UI updates immediately
     this.emitSyntheticStops();
     this.emit("interrupted");
   }
 
   /**
    * Emit synthetic stop events for any open blocks/messages.
-   * Used when killing the process directly (no graceful shutdown).
+   * Ensures immediate UI feedback on interrupt.
    */
   private emitSyntheticStops(): void {
     for (const index of this.openBlockIndices) {
@@ -193,18 +200,13 @@ export class RuntimeSession extends EventEmitter {
   }
 
   /**
-   * Close the session — kill process.
+   * Close the session — kill process and clean up.
    */
   async close(): Promise<void> {
     if (!this._isStarted) return;
 
     this._isClosed = true;
-
-    if (this.proc) {
-      this.proc.kill("SIGTERM");
-      this.proc = null;
-    }
-
+    this.cleanup();
     this._isStarted = false;
     this.emit("closed");
     console.log(`[Session ${this.id.slice(0, 8)}] Closed`);
@@ -233,11 +235,11 @@ export class RuntimeSession extends EventEmitter {
     };
   }
 
-  // ── Private ────────────────────────────────────────────────
+  // ── Process Management ────────────────────────────────────
 
   /**
    * Ensure the Claude CLI process is running, spawn if needed.
-   * Uses --sdk-url to connect the CLI back to our WebSocket server.
+   * Uses stdio pipes for all communication — no WebSocket, no proxy.
    */
   private ensureProcess(): void {
     if (this.proc) return;
@@ -251,27 +253,15 @@ export class RuntimeSession extends EventEmitter {
         "\n\nIMPORTANT: You are running in headless/non-interactive mode. Do NOT use the AskUserQuestion tool - make reasonable decisions autonomously instead."
       : undefined;
 
-    const sdkUrl = `ws://localhost:${RuntimeSession.runtimePort}/ws/cli/${this.id}`;
-
     const args = [
-      "--sdk-url",
-      sdkUrl,
       "--print",
-      "--output-format",
-      "stream-json",
-      "--input-format",
-      "stream-json",
+      "--output-format", "stream-json",
+      "--input-format", "stream-json",
       "--include-partial-messages",
       "--verbose",
-      "--model",
-      this.model,
-      "--permission-mode",
-      "bypassPermissions",
+      "--model", this.model,
+      "--permission-mode", "bypassPermissions",
     ];
-
-    if (this.effort) {
-      args.push("--effort", this.effort);
-    }
 
     if (systemPrompt && this.isFirstPrompt) {
       args.push("--system-prompt", systemPrompt);
@@ -286,20 +276,8 @@ export class RuntimeSession extends EventEmitter {
     args.push("-p", "");
 
     const cmd = ["claude", ...args];
-    console.log(
-      `[Session ${this.id.slice(0, 8)}] Spawning: claude --sdk-url ${sdkUrl.slice(0, 40)}...`,
-    );
+    console.log(`[Session ${this.id.slice(0, 8)}] Spawning: claude (stdio mode)`);
     console.log(`[Session ${this.id.slice(0, 8)}]   cwd: ${this.cwd}`);
-
-    // Build env — include thinking proxy if available
-    const env: Record<string, string> = {
-      ...process.env as Record<string, string>,
-      CLAUDECODE: "1",
-    };
-    if (RuntimeSession.proxyBaseUrl) {
-      env.ANTHROPIC_BASE_URL = RuntimeSession.proxyBaseUrl;
-      console.log(`[Session ${this.id.slice(0, 8)}]   proxy: ${RuntimeSession.proxyBaseUrl}`);
-    }
 
     const proc = spawn({
       cmd,
@@ -307,41 +285,268 @@ export class RuntimeSession extends EventEmitter {
       stdout: "pipe",
       stderr: "pipe",
       cwd: this.cwd,
-      env,
+      env: {
+        ...(process.env as Record<string, string>),
+        CLAUDECODE: "1",
+      },
     });
 
     this.proc = proc;
+    this.stdoutBuffer = "";
 
-    // Pipe stdout for debugging (CLI may log info there)
+    // Read stdout NDJSON — this is where all CLI messages come from
     if (proc.stdout) {
-      const reader = proc.stdout.getReader();
-      const pump = async () => {
-        try {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            const text = new TextDecoder().decode(value);
-            if (text.trim()) {
-              console.log(`[Session ${this.id.slice(0, 8)}] stdout: ${text.trim().substring(0, 200)}`);
-            }
-          }
-        } catch {
-          // Stream closed
-        }
-      };
-      pump();
+      this.readStdout(proc.stdout);
+    }
+
+    // Read stderr for debugging
+    if (proc.stderr) {
+      this.readStderr(proc.stderr);
+    }
+
+    // Configure thinking via control_request if enabled
+    if (this.effort) {
+      this.sendThinkingConfig(this.effort);
     }
 
     proc.exited.then((exitCode) => {
-      console.log(
-        `[Session ${this.id.slice(0, 8)}] Process exited (code: ${exitCode})`,
-      );
+      console.log(`[Session ${this.id.slice(0, 8)}] Process exited (code: ${exitCode})`);
       this.proc = null;
       this.emit("process_ended");
     });
 
     this.emit("process_started");
   }
+
+  /**
+   * Clean up process and reset state.
+   */
+  private cleanup(): void {
+    if (this.proc) {
+      this.proc.kill("SIGTERM");
+      this.proc = null;
+    }
+    this.stdoutBuffer = "";
+  }
+
+  // ── Stdout Reading ────────────────────────────────────────
+
+  /**
+   * Read stdout as an NDJSON stream.
+   * Each line is a complete JSON message from the CLI.
+   */
+  private async readStdout(stdout: ReadableStream<Uint8Array>): Promise<void> {
+    const reader = stdout.getReader();
+    const decoder = new TextDecoder();
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        this.stdoutBuffer += decoder.decode(value, { stream: true });
+
+        // Process complete lines
+        let newlineIndex: number;
+        while ((newlineIndex = this.stdoutBuffer.indexOf("\n")) !== -1) {
+          const line = this.stdoutBuffer.slice(0, newlineIndex).trim();
+          this.stdoutBuffer = this.stdoutBuffer.slice(newlineIndex + 1);
+
+          if (line.length > 0) {
+            this.handleCliLine(line);
+          }
+        }
+      }
+    } catch {
+      // Stream closed — process exited
+    }
+  }
+
+  /**
+   * Read stderr for debugging output.
+   */
+  private async readStderr(stderr: ReadableStream<Uint8Array>): Promise<void> {
+    const reader = stderr.getReader();
+    const decoder = new TextDecoder();
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const text = decoder.decode(value, { stream: true });
+        if (text.trim()) {
+          console.log(`[Session ${this.id.slice(0, 8)}] stderr: ${text.trim().substring(0, 200)}`);
+        }
+      }
+    } catch {
+      // Stream closed
+    }
+  }
+
+  // ── CLI Message Routing ───────────────────────────────────
+
+  /**
+   * Parse and route a single NDJSON line from stdout.
+   */
+  private handleCliLine(line: string): void {
+    try {
+      const msg = JSON.parse(line);
+      this.routeMessage(msg);
+    } catch {
+      console.warn(`[Session ${this.id.slice(0, 8)}] Failed to parse: ${line.substring(0, 200)}`);
+    }
+  }
+
+  /**
+   * Route a parsed CLI message by type.
+   * Same message types as the old CliBridge handled.
+   */
+  private routeMessage(msg: Record<string, unknown>): void {
+    switch (msg.type) {
+      case "stream_event":
+        this.handleStreamEvent(msg);
+        break;
+
+      case "assistant":
+        // With --include-partial-messages, stream_events arrive before this.
+        // Just log for debugging — streaming already handled the UI updates.
+        this.log({ type: "assistant", blocks: ((msg.message as Record<string, unknown>)?.content as unknown[])?.length || 0 });
+        break;
+
+      case "user":
+        this.handleUserMessage(msg);
+        break;
+
+      case "result":
+        this.handleResultMessage(msg);
+        break;
+
+      case "control_response":
+        this.handleControlResponse(msg);
+        break;
+
+      case "system":
+        console.log(`[Session ${this.id.slice(0, 8)}] system: ${JSON.stringify(msg).substring(0, 200)}`);
+        this.log({ ...msg, logged_as: "system" });
+        break;
+
+      case "keep_alive":
+        break;
+
+      default:
+        this.log({ type: "unknown_message", messageType: msg.type, raw: msg });
+        break;
+    }
+  }
+
+  /**
+   * stream_event — unwrap the inner Anthropic SSE event and emit it.
+   * CLI sends:  { type: "stream_event", event: { type: "content_block_delta", ... } }
+   * We emit:    { type: "content_block_delta", ... }
+   */
+  private handleStreamEvent(msg: Record<string, unknown>): void {
+    const event = msg.event as StreamEvent | undefined;
+    if (!event) return;
+
+    this.trackEventState(event);
+    this.log(event);
+    this.emit("sse", event);
+  }
+
+  /**
+   * user — extract tool_result blocks and emit as request_tool_results.
+   * After Claude calls tools, the CLI executes them and sends results
+   * back as a user message containing tool_result content blocks.
+   */
+  private handleUserMessage(msg: Record<string, unknown>): void {
+    const message = msg.message as Record<string, unknown> | undefined;
+    if (!message) return;
+
+    const content = message.content as Array<Record<string, unknown>> | undefined;
+    if (!content) return;
+
+    const toolResults = content.filter((c) => c.type === "tool_result");
+    if (toolResults.length > 0) {
+      const event = {
+        type: "request_tool_results",
+        timestamp: new Date().toISOString(),
+        tool_results: toolResults.map((c) => ({
+          tool_use_id: c.tool_use_id,
+          content: c.content,
+          is_error: c.is_error,
+        })),
+      };
+      this.log(event);
+      this.emit("sse", event);
+    }
+  }
+
+  /**
+   * result — query completion with usage/cost data.
+   */
+  private handleResultMessage(msg: Record<string, unknown>): void {
+    const stopReason = (msg.stop_reason as string) || (msg.subtype as string) || "end_turn";
+
+    this.emit("sse", {
+      type: "turn_stop",
+      timestamp: new Date().toISOString(),
+      stop_reason: stopReason,
+      duration_ms: msg.duration_ms,
+      num_turns: msg.num_turns,
+      usage: msg.usage,
+      cost_usd: msg.total_cost_usd,
+    });
+
+    this.log({ ...msg, logged_as: "result" });
+  }
+
+  /**
+   * control_response — confirmation of control requests we sent.
+   */
+  private handleControlResponse(msg: Record<string, unknown>): void {
+    const response = msg.response as Record<string, unknown> | undefined;
+    if (!response) return;
+    console.log(`[Session ${this.id.slice(0, 8)}] control_response: ${response.subtype}`);
+  }
+
+  // ── Stdin Writing ─────────────────────────────────────────
+
+  /**
+   * Write an NDJSON message to the CLI's stdin.
+   */
+  private sendToStdin(message: string): void {
+    if (!this.proc?.stdin) {
+      console.warn(`[Session ${this.id.slice(0, 8)}] Cannot write to stdin: no process`);
+      return;
+    }
+
+    try {
+      this.proc.stdin.write(message + "\n");
+    } catch (error) {
+      console.error(`[Session ${this.id.slice(0, 8)}] Failed to write to stdin:`, error);
+    }
+  }
+
+  /**
+   * Send thinking configuration via control_request.
+   * Maps effort level to max_thinking_tokens.
+   */
+  private sendThinkingConfig(effort: ThinkingEffort): void {
+    const maxTokens = THINKING_TOKENS[effort];
+    console.log(`[Session ${this.id.slice(0, 8)}] Configuring thinking: ${effort} (${maxTokens} tokens)`);
+
+    const message = JSON.stringify({
+      type: "control_request",
+      request_id: randomUUID(),
+      request: {
+        subtype: "set_max_thinking_tokens",
+        max_thinking_tokens: maxTokens,
+      },
+    });
+    this.sendToStdin(message);
+  }
+
+  // ── Event State Tracking ──────────────────────────────────
 
   /**
    * Track SSE event state for interrupt cleanup.
@@ -351,21 +556,26 @@ export class RuntimeSession extends EventEmitter {
       this.messageOpen = true;
       this.openBlockIndices.clear();
     }
-    if (
-      event.type === "content_block_start" &&
-      typeof event.index === "number"
-    ) {
+    if (event.type === "content_block_start" && typeof event.index === "number") {
       this.openBlockIndices.add(event.index);
     }
-    if (
-      event.type === "content_block_stop" &&
-      typeof event.index === "number"
-    ) {
+    if (event.type === "content_block_stop" && typeof event.index === "number") {
       this.openBlockIndices.delete(event.index);
     }
     if (event.type === "message_stop") {
       this.messageOpen = false;
       this.openBlockIndices.clear();
+    }
+  }
+
+  // ── Logging ───────────────────────────────────────────────
+
+  private log(event: Record<string, unknown>): void {
+    if (!this.logFile) return;
+    try {
+      appendFileSync(this.logFile, JSON.stringify(event) + "\n");
+    } catch {
+      // Ignore log errors
     }
   }
 }

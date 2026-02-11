@@ -6,9 +6,8 @@
  * req/res/event protocol as the gateway.
  *
  * The runtime owns:
- * - WebSocket bridge per session (CLI connects via --sdk-url)
- * - Claude CLI process per session (Bun.spawn with stdin pipe)
- * - SSE event capture and forwarding
+ * - Claude CLI process per session (Bun.spawn with stdio pipes)
+ * - NDJSON event capture from stdout and forwarding
  * - Session lifecycle (create, resume, prompt, interrupt, close)
  *
  * The gateway connects here and relays to clients/extensions.
@@ -20,50 +19,25 @@ import type { ServerWebSocket } from "bun";
 import type { Request, Response, Event, Message, ThinkingEffort } from "@claudia/shared";
 import { loadConfig } from "@claudia/shared";
 import { RuntimeSessionManager } from "./manager";
-import { RuntimeSession } from "./session";
-import { ThinkingProxy } from "./thinking-proxy";
 
 // ── Configuration ────────────────────────────────────────────
 
 const config = loadConfig();
 const PORT = config.runtime?.port || 30087;
 
-// Set runtime port on session class so --sdk-url points here
-RuntimeSession.runtimePort = PORT;
-
-// ── Thinking Proxy ──────────────────────────────────────────
-// Integrated into the runtime server — no separate port needed.
-// CLI sends API requests to http://localhost:30087/v1/messages
-// and we inject thinking config before forwarding to Anthropic.
-
-const sessionConfig = config.session || {};
-const thinkingEnabled = sessionConfig.thinking !== false;
-
-let thinkingProxy: ThinkingProxy | null = null;
-
-if (thinkingEnabled) {
-  thinkingProxy = new ThinkingProxy({
-    effort: sessionConfig.effort || "medium",
-  });
-
-  // CLI processes use ANTHROPIC_BASE_URL=http://localhost:{PORT}
-  // which routes /v1/ requests through our fetch handler below
-  RuntimeSession.proxyBaseUrl = `http://localhost:${PORT}`;
-}
-
 // ── State ────────────────────────────────────────────────────
 
-/** Socket types: gateway clients or CLI connections */
-type SocketData =
-  | { kind: "gateway"; id: string; connectedAt: Date; subscriptions: Set<string> }
-  | { kind: "cli"; sessionId: string };
+type SocketData = {
+  id: string;
+  connectedAt: Date;
+  subscriptions: Set<string>;
+};
 
 const clients = new Map<ServerWebSocket<SocketData>, SocketData>();
 const manager = new RuntimeSessionManager();
 manager.setConfig(config);
 
 // Forward all session events to subscribed WS clients
-// Events arrive with session-scoped names: session.{sessionId}.{eventType}
 manager.on("session.event", ({ eventName, ...payload }) => {
   broadcastEvent(eventName, payload);
 });
@@ -198,7 +172,7 @@ async function handleSessionMethod(
 
 function handleSubscribe(ws: ServerWebSocket<SocketData>, req: Request): void {
   const state = clients.get(ws);
-  if (!state || state.kind !== "gateway") return;
+  if (!state) return;
   const events = (req.params?.events as string[]) || [];
   events.forEach((event) => state.subscriptions.add(event));
   sendResponse(ws, req.id, { subscribed: events });
@@ -206,7 +180,7 @@ function handleSubscribe(ws: ServerWebSocket<SocketData>, req: Request): void {
 
 function handleUnsubscribe(ws: ServerWebSocket<SocketData>, req: Request): void {
   const state = clients.get(ws);
-  if (!state || state.kind !== "gateway") return;
+  if (!state) return;
   const events = (req.params?.events as string[]) || [];
   events.forEach((event) => state.subscriptions.delete(event));
   sendResponse(ws, req.id, { unsubscribed: events });
@@ -229,8 +203,6 @@ function broadcastEvent(eventName: string, payload: unknown): void {
   const data = JSON.stringify(event);
 
   for (const [ws, state] of clients) {
-    if (state.kind !== "gateway") continue;
-
     const isSubscribed = Array.from(state.subscriptions).some((pattern) => {
       if (pattern === "*") return true;
       if (pattern === eventName) return true;
@@ -258,7 +230,6 @@ const server = Bun.serve<SocketData>({
     if (url.pathname === "/ws") {
       const upgraded = server.upgrade(req, {
         data: {
-          kind: "gateway" as const,
           id: crypto.randomUUID(),
           connectedAt: new Date(),
           subscriptions: new Set<string>(),
@@ -266,26 +237,6 @@ const server = Bun.serve<SocketData>({
       });
       if (upgraded) return undefined;
       return new globalThis.Response("WebSocket upgrade failed", { status: 400 });
-    }
-
-    // CLI WebSocket — Claude Code CLI connects here via --sdk-url
-    const cliMatch = url.pathname.match(/^\/ws\/cli\/([a-f0-9-]+)$/);
-    if (cliMatch) {
-      const sessionId = cliMatch[1];
-      const upgraded = server.upgrade(req, {
-        data: {
-          kind: "cli" as const,
-          sessionId,
-        },
-      });
-      if (upgraded) return undefined;
-      return new globalThis.Response("WebSocket upgrade failed", { status: 400 });
-    }
-
-    // Anthropic API proxy — CLI sends requests here via ANTHROPIC_BASE_URL
-    // We inject thinking config and forward to the real API
-    if (url.pathname.startsWith("/v1/") && thinkingProxy) {
-      return thinkingProxy.handleRequest(req);
     }
 
     // Health check
@@ -304,51 +255,29 @@ const server = Bun.serve<SocketData>({
   },
   websocket: {
     open(ws) {
-      const data = ws.data;
-
-      if (data.kind === "gateway") {
-        clients.set(ws, data);
-        console.log(`[Runtime] Gateway connected: ${data.id.slice(0, 8)} (${clients.size} total)`);
-      } else if (data.kind === "cli") {
-        // Route CLI connection to the appropriate session's bridge
-        manager.handleCliConnection(data.sessionId, ws);
-        console.log(`[Runtime] CLI connected for session: ${data.sessionId.slice(0, 8)}`);
-      }
+      clients.set(ws, ws.data);
+      console.log(`[Runtime] Gateway connected: ${ws.data.id.slice(0, 8)} (${clients.size} total)`);
     },
     message(ws, message) {
-      const data = ws.data;
-
-      if (data.kind === "gateway") {
-        handleMessage(ws, message.toString());
-      } else if (data.kind === "cli") {
-        // Route CLI messages to the appropriate session's bridge
-        manager.handleCliMessage(data.sessionId, message);
-      }
+      handleMessage(ws, message.toString());
     },
     close(ws) {
-      const data = ws.data;
-
-      if (data.kind === "gateway") {
-        clients.delete(ws);
-        console.log(`[Runtime] Gateway disconnected: ${data.id.slice(0, 8)} (${clients.size} total)`);
-      } else if (data.kind === "cli") {
-        manager.handleCliClose(data.sessionId);
-        console.log(`[Runtime] CLI disconnected for session: ${data.sessionId.slice(0, 8)}`);
-      }
+      clients.delete(ws);
+      console.log(`[Runtime] Gateway disconnected: ${ws.data.id.slice(0, 8)} (${clients.size} total)`);
     },
   },
 });
 
+const sessionConfig = config.session || {};
 console.log(`
 ╔═══════════════════════════════════════════════════════════╗
 ║                                                           ║
 ║   ⚡ Claudia Runtime on http://localhost:${PORT}           ║
 ║                                                           ║
 ║   Gateway WS: ws://localhost:${PORT}/ws                    ║
-║   CLI WS:     ws://localhost:${PORT}/ws/cli/:sessionId     ║
-║   API Proxy:  http://localhost:${PORT}/v1/messages          ║
 ║   Health:     http://localhost:${PORT}/health               ║
-║   Thinking:   ${thinkingProxy ? `enabled (${sessionConfig.effort || "medium"})` : "disabled"}                              ║
+║   Thinking:   ${sessionConfig.thinking !== false ? `enabled (${sessionConfig.effort || "medium"})` : "disabled"}                              ║
+║   Mode:       stdio (stdin/stdout pipes)                  ║
 ║                                                           ║
 ╚═══════════════════════════════════════════════════════════╝
 `);

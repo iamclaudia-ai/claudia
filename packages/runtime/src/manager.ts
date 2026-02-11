@@ -4,7 +4,6 @@
  * Manages all active RuntimeSession instances.
  * Provides create/resume/prompt/interrupt/close/list operations.
  * Forwards all SSE events from sessions to a callback for WS relay.
- * Routes CLI WebSocket connections to the appropriate session's bridge.
  *
  * Sessions are lazily resumed: if a prompt arrives for a session that
  * isn't running, the manager auto-resumes it (spawns CLI process).
@@ -12,7 +11,6 @@
  */
 
 import { EventEmitter } from "node:events";
-import type { ServerWebSocket } from "bun";
 import {
   RuntimeSession,
   createRuntimeSession,
@@ -60,7 +58,6 @@ export interface SessionResumeParams {
 export class RuntimeSessionManager extends EventEmitter {
   private sessions = new Map<string, RuntimeSession>();
   private config?: ClaudiaConfig;
-  private lastPromptedSessionId: string | null = null;
 
   /**
    * Set config for session defaults (model, thinking, etc.)
@@ -160,16 +157,7 @@ export class RuntimeSessionManager extends EventEmitter {
       session = this.sessions.get(sessionId)!;
     }
 
-    this.lastPromptedSessionId = sessionId;
     session.prompt(content);
-  }
-
-  /**
-   * Get the session ID that most recently received a prompt.
-   * Used to tag thinking proxy events with the correct session.
-   */
-  getActiveStreamingSession(): string | null {
-    return this.lastPromptedSessionId;
   }
 
   /**
@@ -215,44 +203,6 @@ export class RuntimeSessionManager extends EventEmitter {
       this.close(id),
     );
     await Promise.all(promises);
-  }
-
-  // ── CLI WebSocket Routing ────────────────────────────────────
-
-  /**
-   * Route a CLI WebSocket connection to the appropriate session's bridge.
-   * Called when Claude Code CLI connects via --sdk-url.
-   */
-  handleCliConnection(sessionId: string, ws: ServerWebSocket<unknown>): void {
-    const session = this.sessions.get(sessionId);
-    if (!session) {
-      console.warn(
-        `[Manager] CLI connected for unknown session: ${sessionId.slice(0, 8)}`,
-      );
-      return;
-    }
-    session.bridge.handleConnection(ws);
-  }
-
-  /**
-   * Route a CLI WebSocket message to the appropriate session's bridge.
-   */
-  handleCliMessage(
-    sessionId: string,
-    message: string | Buffer,
-  ): void {
-    const session = this.sessions.get(sessionId);
-    if (!session) return;
-    session.bridge.handleMessage(message);
-  }
-
-  /**
-   * Handle CLI WebSocket disconnect.
-   */
-  handleCliClose(sessionId: string): void {
-    const session = this.sessions.get(sessionId);
-    if (!session) return;
-    session.bridge.handleClose();
   }
 
   // ── Private ────────────────────────────────────────────────

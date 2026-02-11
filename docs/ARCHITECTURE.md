@@ -2,7 +2,7 @@
 
 ## System Overview
 
-Claudia is a two-tier system: a **Gateway** that serves clients and a **Runtime** that manages Claude Code CLI processes. The Gateway handles HTTP, WebSocket, and web UI on port 30086. The Runtime manages CLI sessions, WebSocket bridges, and thinking injection on port 30087.
+Claudia is a two-tier system: a **Gateway** that serves clients and a **Runtime** that manages Claude Code CLI processes. The Gateway handles HTTP, WebSocket, and web UI on port 30086. The Runtime manages CLI sessions via stdin/stdout pipes on port 30087.
 
 ```
 ┌────────────────────────────────────────────────────────────────────┐
@@ -28,42 +28,43 @@ Claudia is a two-tier system: a **Gateway** that serves clients and a **Runtime*
 ┌──────────────────────────▼─────────────────────────────────────────┐
 │                    Runtime (port 30087)                             │
 │                                                                    │
-│  Bun.serve with dual WebSocket paths:                              │
-│    /ws          → Gateway clients (control plane)                  │
-│    /ws/cli/:id  → Claude CLI connections (NDJSON protocol)         │
+│  Bun.serve with single WebSocket path:                             │
+│    /ws      → Gateway clients (control plane)                      │
+│    /health  → JSON status endpoint                                 │
 │                                                                    │
-│  ┌───────────────┐  ┌──────────────┐  ┌────────────────────────┐   │
-│  │  Session       │  │  CLI Bridge  │  │  Thinking Proxy        │   │
-│  │  Manager       │  │  (per sess)  │  │  (integrated)          │   │
-│  │               │  │              │  │                        │   │
-│  │  create/      │  │  WS handler  │  │  Injects adaptive      │   │
-│  │  resume/      │  │  msg routing │  │  thinking config into  │   │
-│  │  prompt/      │  │  queue/flush │  │  /v1/ API requests     │   │
-│  │  interrupt    │  │  interrupt   │  │                        │   │
-│  └───────────────┘  └──────────────┘  └────────────────────────┘   │
+│  ┌───────────────┐  ┌──────────────────────────────────────────┐   │
+│  │  Session       │  │  RuntimeSession (per session)            │   │
+│  │  Manager       │  │                                          │   │
+│  │               │  │  Bun.spawn with stdin/stdout pipes        │   │
+│  │  create/      │  │  NDJSON on stdout → event routing         │   │
+│  │  resume/      │  │  NDJSON on stdin  ← prompts + control     │   │
+│  │  prompt/      │  │  Thinking via control_request on stdin    │   │
+│  │  interrupt    │  │                                          │   │
+│  └───────────────┘  └──────────────────────────────────────────┘   │
 └───────────┬────────────────────────────────────────────────────────┘
-            │ spawns per session
+            │ spawns per session (Bun.spawn, stdio pipes)
             ▼
 ┌───────────────────────┐              ┌────────────────────────┐
-│   Claude Code CLI     │──────────────│    Anthropic API       │
-│                       │  API calls   │                        │
-│  --sdk-url → WS back  │  via :30087  │  Returns thinking      │
-│    to Runtime :30087   │  /v1/ route  │  blocks when config    │
-│                       │              │  is injected           │
-│  Flags:               │              └────────────────────────┘
+│   Claude Code CLI     │              │    Anthropic API       │
+│                       │──────────────│                        │
+│  stdin:  NDJSON in    │  Direct API  │  CLI talks to API      │
+│  stdout: NDJSON out   │  calls       │  directly (no proxy)   │
+│                       │              │                        │
+│  Flags:               │              │  Thinking enabled via  │
+│  --print              │              │  control_request on    │
+│  --output-format      │              │  stdin, not HTTP       │
+│    stream-json        │              │  interception          │
+│  --input-format       │              └────────────────────────┘
+│    stream-json        │
 │  --include-partial-   │
 │    messages            │
+│  --verbose            │
 │  --permission-mode    │
 │    bypassPermissions  │
-│  --output-format      │
-│    stream-json        │
-│  --input-format       │
-│    stream-json        │
+│  --session-id / --resume │
 │                       │
-│  Env:                 │
-│  ANTHROPIC_BASE_URL=  │
-│    http://localhost:   │
-│    30087              │
+│  No ANTHROPIC_BASE_URL│
+│  No --sdk-url         │
 └───────────────────────┘
 ```
 
@@ -151,21 +152,40 @@ Events are broadcast only to clients whose subscriptions match.
 
 ## Runtime (port 30087)
 
-The Runtime is a persistent Bun.serve instance managing Claude Code CLI processes. It accepts two types of WebSocket connections:
+The Runtime is a persistent Bun.serve instance managing Claude Code CLI processes. It accepts a single type of WebSocket connection:
 
 - **Gateway connections** (`/ws`) — Control plane using the same req/res/event protocol
-- **CLI connections** (`/ws/cli/:sessionId`) — Data plane using Claude Code's NDJSON protocol
-- **API proxy** (`/v1/*`) — HTTP requests from CLI, thinking config injected, forwarded to Anthropic
 
-### CLI Bridge (--sdk-url)
+That's it. No CLI WebSocket path, no HTTP proxy. The CLI communicates exclusively via stdin/stdout pipes managed by each `RuntimeSession` instance.
 
-Each session gets a `CliBridge` instance that handles the WebSocket connection from a Claude Code CLI process spawned with `--sdk-url ws://localhost:30087/ws/cli/:sessionId`.
+### Stdio Architecture
 
-The CLI connects TO us (we are the server). This gives us native access to all events without intercepting HTTP traffic.
+Each session spawns a Claude Code CLI process using `Bun.spawn` with `stdin: "pipe"` and `stdout: "pipe"`. All communication flows through these pipes as NDJSON (newline-delimited JSON):
 
-#### NDJSON Message Protocol
+```
+Runtime                              CLI Process
+  │                                      │
+  │──── stdin (NDJSON) ─────────────────►│
+  │  { type: "user", message: {...} }    │
+  │  { type: "control_request", ... }    │
+  │                                      │
+  │◄──── stdout (NDJSON) ───────────────│
+  │  { type: "stream_event", ... }       │
+  │  { type: "user", ... }              │
+  │  { type: "result", ... }            │
+  │  { type: "system", ... }            │
+  │  { type: "keep_alive" }             │
+```
 
-Messages from the CLI are newline-delimited JSON:
+#### Stdin Messages (Runtime → CLI)
+
+| Message Type | Format | Purpose |
+|-------------|--------|---------|
+| Prompt | `{ type: "user", message: { role: "user", content: "..." } }` | Send user message to Claude |
+| Interrupt | `{ type: "control_request", request_id: "uuid", request: { subtype: "interrupt" } }` | Gracefully interrupt current response |
+| Thinking config | `{ type: "control_request", request_id: "uuid", request: { subtype: "set_max_thinking_tokens", max_thinking_tokens: N } }` | Configure thinking tokens |
+
+#### Stdout Messages (CLI → Runtime)
 
 | CLI Message Type | Action | Description |
 |-----------------|--------|-------------|
@@ -173,11 +193,44 @@ Messages from the CLI are newline-delimited JSON:
 | `assistant` | Log only | Complete assistant message (streaming already handled) |
 | `user` | Extract `tool_result` blocks, emit as `request_tool_results` | Tool execution results from CLI |
 | `result` | Emit `turn_stop` with usage/cost | Agent turn completed |
-| `control_request` | Auto-approve with `control_response` | Permission requests (safety net) |
+| `control_response` | Log | Confirmation of control requests we sent |
 | `system` | Log | Initialization with capabilities |
 | `keep_alive` | Ignore | Heartbeat |
 
-#### Key Pattern: stream_event Unwrapping
+#### Stdout Buffering
+
+Stdout arrives as raw byte chunks, not line-delimited. The session maintains a `stdoutBuffer` string, appends decoded chunks, and splits by newline to extract complete NDJSON lines:
+
+```typescript
+this.stdoutBuffer += decoder.decode(value, { stream: true });
+while ((newlineIndex = this.stdoutBuffer.indexOf("\n")) !== -1) {
+  const line = this.stdoutBuffer.slice(0, newlineIndex).trim();
+  this.stdoutBuffer = this.stdoutBuffer.slice(newlineIndex + 1);
+  if (line.length > 0) this.handleCliLine(line);
+}
+```
+
+### Thinking Configuration
+
+Thinking is enabled via `control_request` messages sent on stdin immediately after process spawn — no HTTP proxy needed. The CLI uses its default Anthropic API connection directly.
+
+```
+Session spawns CLI → sendThinkingConfig(effort) → stdin control_request
+                                                    → CLI acknowledges via control_response on stdout
+                                                    → CLI includes thinking in API requests
+                                                    → Thinking blocks stream back in stream_event messages
+```
+
+Effort levels map to `max_thinking_tokens`:
+
+| Effort | Tokens |
+|--------|--------|
+| `low` | 4,000 |
+| `medium` | 8,000 |
+| `high` | 16,000 |
+| `max` | 32,000 |
+
+### Key Pattern: stream_event Unwrapping
 
 The CLI wraps Anthropic SSE events in a `stream_event` envelope. We unwrap to preserve the standard format:
 
@@ -186,7 +239,7 @@ The CLI wraps Anthropic SSE events in a `stream_event` envelope. We unwrap to pr
 // We emit:    { type: "content_block_delta", ... }  ← Same format for all consumers
 ```
 
-#### Key Pattern: Tool Results from User Messages
+### Key Pattern: Tool Results from User Messages
 
 After the CLI executes tools, it sends results as `type: "user"` messages with `tool_result` content blocks. We extract these and emit `request_tool_results` events so the UI can display tool output:
 
@@ -195,39 +248,14 @@ After the CLI executes tools, it sends results as `type: "user"` messages with `
 // We emit:    { type: "request_tool_results", tool_results: [{ tool_use_id, content, is_error }] }
 ```
 
-#### Flush-on-Connect Pattern
-
-The CLI takes ~500ms to connect after spawn. User prompts sent before connection are queued in `pendingMessages` and flushed when the WebSocket opens.
-
-### Thinking Proxy (integrated)
-
-A lightweight request handler that injects adaptive thinking configuration into API requests. Integrated into the runtime server's fetch handler — no separate port needed. The CLI sends API requests to `http://localhost:30087/v1/messages` via `ANTHROPIC_BASE_URL`.
-
-```
-CLI HTTP → Runtime :30087/v1/messages → Injects thinking config → Anthropic API
-                                                                       │
-                                          API returns thinking blocks in SSE
-                                                                       │
-                                          CLI forwards via --sdk-url stream_event
-```
-
-The handler only modifies `POST /v1/messages` requests (excluding Haiku side-channel):
-
-```typescript
-parsed.thinking = { type: "adaptive" };
-parsed.output_config = { effort: this.effort };  // "low" | "medium" | "high" | "max"
-```
-
-Thinking events flow through the `--sdk-url` WebSocket bridge naturally — the handler never parses responses.
-
 ### Session Lifecycle
 
-1. **Create**: Gateway sends `session.create` → Runtime spawns nothing yet (lazy start)
-2. **First prompt**: `session.prompt` → `ensureProcess()` spawns CLI with `--sdk-url` + `--session-id`
+1. **Create**: Gateway sends `session.create` → Runtime creates session (lazy start — no process spawned yet)
+2. **First prompt**: `session.prompt` → `ensureProcess()` spawns CLI with `--session-id`
 3. **Resume**: `session.prompt` to existing session → `ensureProcess()` spawns CLI with `--resume`
-4. **Auto-resume**: If session not running (runtime restarted), auto-spawns on next prompt
-5. **Interrupt**: Gateway sends `session.interrupt` → Bridge sends graceful interrupt via WebSocket + emits synthetic stop events for immediate UI update
-6. **Close**: Kill CLI process, clean up bridge
+4. **Auto-resume**: If session not running (runtime restarted), auto-spawns on next prompt with `cwd` from gateway
+5. **Interrupt**: Gateway sends `session.interrupt` → stdin control_request + synthetic stop events for immediate UI update
+6. **Close**: Kill CLI process (SIGTERM), clean up
 
 ### Interrupt Flow
 
@@ -235,7 +263,7 @@ Interrupts use a hybrid approach for responsiveness:
 
 ```
 User presses ESC → Gateway → Runtime → session.interrupt()
-  ├── bridge.sendInterrupt() → WebSocket message to CLI (graceful)
+  ├── sendToStdin(control_request: interrupt) → stdin to CLI (graceful)
   └── emitSyntheticStops()  → Immediate UI update (content_block_stop, message_stop, turn_stop)
 ```
 
@@ -246,7 +274,7 @@ The synthetic events ensure the UI reflects the abort immediately, even if the C
 ### Prompts (User → Claude)
 
 ```
-Browser → Gateway WS → Runtime WS → CliBridge → CLI WS (NDJSON)
+Browser → Gateway WS → Runtime WS → RuntimeSession → stdin (NDJSON)
 ```
 
 Attachments are sent as Anthropic API content blocks:
@@ -256,8 +284,8 @@ Attachments are sent as Anthropic API content blocks:
 ### Streaming (Claude → User)
 
 ```
-Anthropic API SSE → CLI → --sdk-url stream_event → CliBridge
-  → unwrap to SSE event → Runtime EventEmitter → Gateway WS → UI
+Anthropic API → CLI → stdout (NDJSON stream_event) → RuntimeSession
+  → unwrap to SSE event → Manager EventEmitter → Runtime WS → Gateway WS → UI
 ```
 
 SSE event types: `message_start`, `content_block_start`, `content_block_delta`, `content_block_stop`, `message_delta`, `message_stop`, `turn_stop`
@@ -265,15 +293,16 @@ SSE event types: `message_start`, `content_block_start`, `content_block_delta`, 
 ### Tool Results
 
 ```
-CLI executes tool → sends type:"user" with tool_result blocks → CliBridge
-  → extracts tool_results → emits request_tool_results → Gateway → UI
+CLI executes tool → sends type:"user" with tool_result blocks → stdout
+  → RuntimeSession extracts tool_results → emits request_tool_results → Gateway → UI
 ```
 
 ### Thinking
 
 ```
-CLI HTTP → Runtime :30087/v1/ (injects thinking config) → Anthropic API
-API SSE response → CLI → --sdk-url stream_event → CliBridge → UI
+Session spawns CLI → sends control_request(set_max_thinking_tokens) on stdin
+CLI includes thinking in API requests → thinking blocks stream back as stream_event
+  → RuntimeSession unwraps → Gateway → UI
 ```
 
 Thinking blocks appear as `content_block_start` with `type: "thinking"`, followed by `content_block_delta` with thinking text.
@@ -405,13 +434,9 @@ packages/
 
   runtime/
     src/
-      index.ts              # Bun.serve, dual WS paths, ThinkingProxy setup
-      manager.ts            # Session lifecycle, CLI WS routing
-      session.ts            # CLI process spawn, interrupt, event tracking
-      cli-bridge.ts         # WebSocket bridge for CLI NDJSON protocol
-      thinking-proxy.ts     # Thinking config injection handler (integrated)
-
-  sdk/                      # claudia-sdk (being replaced by runtime)
+      index.ts              # Bun.serve, single WS path (/ws), health endpoint
+      manager.ts            # Session lifecycle, event forwarding, auto-resume
+      session.ts            # CLI process spawn (stdio), NDJSON routing, thinking config
 
   shared/
     src/
@@ -448,6 +473,6 @@ extensions/
 | Port | Service | Description |
 |------|---------|-------------|
 | 30086 | Gateway | HTTP + WebSocket + SPA serving |
-| 30087 | Runtime | Gateway WS + CLI WS + API proxy (all-in-one) |
+| 30087 | Runtime | Gateway WS + health check (stdio to CLI processes) |
 
 Port 30086 = SHA256("Claudia") → x7586 → 30086
