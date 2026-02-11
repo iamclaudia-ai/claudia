@@ -21,14 +21,36 @@ import type { Request, Response, Event, Message, ThinkingEffort } from "@claudia
 import { loadConfig } from "@claudia/shared";
 import { RuntimeSessionManager } from "./manager";
 import { RuntimeSession } from "./session";
+import { ThinkingProxy } from "./thinking-proxy";
 
 // ── Configuration ────────────────────────────────────────────
 
 const config = loadConfig();
 const PORT = config.runtime?.port || 30087;
+const PROXY_PORT = 30088;
 
 // Set runtime port on session class so --sdk-url points here
 RuntimeSession.runtimePort = PORT;
+
+// ── Thinking Proxy ──────────────────────────────────────────
+
+const sessionConfig = config.session || {};
+const thinkingEnabled = sessionConfig.thinking !== false;
+
+let thinkingProxy: ThinkingProxy | null = null;
+
+if (thinkingEnabled) {
+  thinkingProxy = new ThinkingProxy({
+    effort: sessionConfig.effort || "medium",
+  });
+  await thinkingProxy.start(PROXY_PORT);
+
+  // Set the proxy URL on session class so CLI processes use it
+  RuntimeSession.proxyBaseUrl = thinkingProxy.baseUrl;
+
+  // Note: thinking events come through --sdk-url stream_events naturally
+  // now that the proxy injects thinking config. No need to emit from proxy.
+}
 
 // ── State ────────────────────────────────────────────────────
 
@@ -320,6 +342,7 @@ console.log(`
 ║   Gateway WS: ws://localhost:${PORT}/ws                    ║
 ║   CLI WS:     ws://localhost:${PORT}/ws/cli/:sessionId     ║
 ║   Health:     http://localhost:${PORT}/health               ║
+${thinkingProxy ? `║   Thinking:  http://localhost:${thinkingProxy.port} (${sessionConfig.effort || "medium"})      ║` : `║   Thinking:  disabled                                     ║`}
 ║                                                           ║
 ╚═══════════════════════════════════════════════════════════╝
 `);
@@ -328,6 +351,7 @@ console.log(`
 process.on("SIGINT", async () => {
   console.log("\n[Runtime] Shutting down...");
   await manager.closeAll();
+  thinkingProxy?.stop();
   server.stop();
   process.exit(0);
 });

@@ -72,9 +72,13 @@ export class RuntimeSession extends EventEmitter {
   private cwd: string;
   private model: string;
   private systemPrompt?: string;
+  private effort?: ThinkingEffort;
 
   /** Runtime server port — needed for --sdk-url */
   static runtimePort = 30087;
+
+  /** Thinking proxy base URL — set when thinking proxy is active */
+  static proxyBaseUrl: string | null = null;
 
   constructor(
     id: string,
@@ -87,6 +91,7 @@ export class RuntimeSession extends EventEmitter {
     this.model = options.model || DEFAULT_MODEL;
     this.systemPrompt =
       "systemPrompt" in options ? options.systemPrompt : undefined;
+    this.effort = options.effort;
     this.isFirstPrompt = !isResume;
 
     // Set up log directory
@@ -264,6 +269,10 @@ export class RuntimeSession extends EventEmitter {
       "bypassPermissions",
     ];
 
+    if (this.effort) {
+      args.push("--effort", this.effort);
+    }
+
     if (systemPrompt && this.isFirstPrompt) {
       args.push("--system-prompt", systemPrompt);
     }
@@ -282,16 +291,23 @@ export class RuntimeSession extends EventEmitter {
     );
     console.log(`[Session ${this.id.slice(0, 8)}]   cwd: ${this.cwd}`);
 
+    // Build env — include thinking proxy if available
+    const env: Record<string, string> = {
+      ...process.env as Record<string, string>,
+      CLAUDECODE: "1",
+    };
+    if (RuntimeSession.proxyBaseUrl) {
+      env.ANTHROPIC_BASE_URL = RuntimeSession.proxyBaseUrl;
+      console.log(`[Session ${this.id.slice(0, 8)}]   proxy: ${RuntimeSession.proxyBaseUrl}`);
+    }
+
     const proc = spawn({
       cmd,
       stdin: "pipe",
       stdout: "pipe",
       stderr: "pipe",
       cwd: this.cwd,
-      env: {
-        ...process.env,
-        CLAUDECODE: "1",
-      },
+      env,
     });
 
     this.proc = proc;

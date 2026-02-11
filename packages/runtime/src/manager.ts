@@ -60,6 +60,7 @@ export interface SessionResumeParams {
 export class RuntimeSessionManager extends EventEmitter {
   private sessions = new Map<string, RuntimeSession>();
   private config?: ClaudiaConfig;
+  private lastPromptedSessionId: string | null = null;
 
   /**
    * Set config for session defaults (model, thinking, etc.)
@@ -159,7 +160,16 @@ export class RuntimeSessionManager extends EventEmitter {
       session = this.sessions.get(sessionId)!;
     }
 
+    this.lastPromptedSessionId = sessionId;
     session.prompt(content);
+  }
+
+  /**
+   * Get the session ID that most recently received a prompt.
+   * Used to tag thinking proxy events with the correct session.
+   */
+  getActiveStreamingSession(): string | null {
+    return this.lastPromptedSessionId;
   }
 
   /**
