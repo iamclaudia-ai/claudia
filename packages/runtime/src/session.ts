@@ -20,15 +20,31 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, appendFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import type {
+  SDKMessage,
+  SDKUserMessage,
+  SDKResultMessage,
+  SDKPartialAssistantMessage,
+} from "@anthropic-ai/claude-agent-sdk";
+import type { ThinkingEffort } from "@claudia/shared";
 
 // ── Types ────────────────────────────────────────────────────
 
+/** Emitted SSE event — the unwrapped inner Anthropic event */
 export interface StreamEvent {
   type: string;
   [key: string]: unknown;
 }
 
-export type ThinkingEffort = "low" | "medium" | "high" | "max";
+/**
+ * What actually arrives on CLI stdout.
+ * SDKMessage covers the main types (stream_event, assistant, user, result, system, etc.)
+ * control_response and keep_alive are internal transport types not exported by the SDK.
+ */
+type CliStdoutMessage =
+  | SDKMessage
+  | { type: "control_response"; response: { subtype: string; request_id: string; [key: string]: unknown } }
+  | { type: "keep_alive" };
 
 export interface CreateSessionOptions {
   /** Working directory for Claude CLI */
@@ -399,9 +415,10 @@ export class RuntimeSession extends EventEmitter {
 
   /**
    * Route a parsed CLI message by type.
-   * Same message types as the old CliBridge handled.
+   * Uses official Agent SDK types (SDKMessage) for type-safe narrowing.
+   * control_response and keep_alive are transport-internal, handled separately.
    */
-  private routeMessage(msg: Record<string, unknown>): void {
+  private routeMessage(msg: CliStdoutMessage): void {
     switch (msg.type) {
       case "stream_event":
         this.handleStreamEvent(msg);
@@ -410,7 +427,7 @@ export class RuntimeSession extends EventEmitter {
       case "assistant":
         // With --include-partial-messages, stream_events arrive before this.
         // Just log for debugging — streaming already handled the UI updates.
-        this.log({ type: "assistant", blocks: ((msg.message as Record<string, unknown>)?.content as unknown[])?.length || 0 });
+        this.log({ type: "assistant", blocks: msg.message.content.length });
         break;
 
       case "user":
@@ -422,19 +439,19 @@ export class RuntimeSession extends EventEmitter {
         break;
 
       case "control_response":
-        this.handleControlResponse(msg);
+        console.log(`[Session ${this.id.slice(0, 8)}] control_response: ${msg.response.subtype}`);
         break;
 
       case "system":
         console.log(`[Session ${this.id.slice(0, 8)}] system: ${JSON.stringify(msg).substring(0, 200)}`);
-        this.log({ ...msg, logged_as: "system" });
+        this.log({ ...(msg as Record<string, unknown>), logged_as: "system" });
         break;
 
       case "keep_alive":
         break;
 
       default:
-        this.log({ type: "unknown_message", messageType: msg.type, raw: msg });
+        this.log({ type: "unknown_message", messageType: (msg as SDKMessage).type, raw: msg as Record<string, unknown> });
         break;
     }
   }
@@ -444,8 +461,8 @@ export class RuntimeSession extends EventEmitter {
    * CLI sends:  { type: "stream_event", event: { type: "content_block_delta", ... } }
    * We emit:    { type: "content_block_delta", ... }
    */
-  private handleStreamEvent(msg: Record<string, unknown>): void {
-    const event = msg.event as StreamEvent | undefined;
+  private handleStreamEvent(msg: SDKPartialAssistantMessage): void {
+    const event = msg.event as unknown as StreamEvent;
     if (!event) return;
 
     this.trackEventState(event);
@@ -458,12 +475,9 @@ export class RuntimeSession extends EventEmitter {
    * After Claude calls tools, the CLI executes them and sends results
    * back as a user message containing tool_result content blocks.
    */
-  private handleUserMessage(msg: Record<string, unknown>): void {
-    const message = msg.message as Record<string, unknown> | undefined;
-    if (!message) return;
-
-    const content = message.content as Array<Record<string, unknown>> | undefined;
-    if (!content) return;
+  private handleUserMessage(msg: SDKUserMessage): void {
+    const content = msg.message.content;
+    if (!content || typeof content === "string") return;
 
     const toolResults = content.filter((c) => c.type === "tool_result");
     if (toolResults.length > 0) {
@@ -483,9 +497,10 @@ export class RuntimeSession extends EventEmitter {
 
   /**
    * result — query completion with usage/cost data.
+   * SDKResultMessage is a discriminated union: SDKResultSuccess | SDKResultError
    */
-  private handleResultMessage(msg: Record<string, unknown>): void {
-    const stopReason = (msg.stop_reason as string) || (msg.subtype as string) || "end_turn";
+  private handleResultMessage(msg: SDKResultMessage): void {
+    const stopReason = msg.stop_reason || msg.subtype || "end_turn";
 
     this.emit("sse", {
       type: "turn_stop",
@@ -497,16 +512,7 @@ export class RuntimeSession extends EventEmitter {
       cost_usd: msg.total_cost_usd,
     });
 
-    this.log({ ...msg, logged_as: "result" });
-  }
-
-  /**
-   * control_response — confirmation of control requests we sent.
-   */
-  private handleControlResponse(msg: Record<string, unknown>): void {
-    const response = msg.response as Record<string, unknown> | undefined;
-    if (!response) return;
-    console.log(`[Session ${this.id.slice(0, 8)}] control_response: ${response.subtype}`);
+    this.log({ ...(msg as unknown as Record<string, unknown>), logged_as: "result" });
   }
 
   // ── Stdin Writing ─────────────────────────────────────────
@@ -515,13 +521,14 @@ export class RuntimeSession extends EventEmitter {
    * Write an NDJSON message to the CLI's stdin.
    */
   private sendToStdin(message: string): void {
-    if (!this.proc?.stdin) {
+    const stdin = this.proc?.stdin;
+    if (!stdin || typeof stdin === "number") {
       console.warn(`[Session ${this.id.slice(0, 8)}] Cannot write to stdin: no process`);
       return;
     }
 
     try {
-      this.proc.stdin.write(message + "\n");
+      stdin.write(message + "\n");
     } catch (error) {
       console.error(`[Session ${this.id.slice(0, 8)}] Failed to write to stdin:`, error);
     }

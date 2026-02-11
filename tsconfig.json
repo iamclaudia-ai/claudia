@@ -12,7 +12,6 @@
     "baseUrl": ".",
     "paths": {
       "@claudia/shared": ["./packages/shared/src/index.ts"],
-      "@claudia/sdk": ["./packages/sdk/src/index.ts"],
       "@claudia/gateway": ["./packages/gateway/src/index.ts"],
       "@claudia/ui": ["./packages/ui/src/index.ts"],
       "@claudia/*": ["./packages/*/src/index.ts", "./clients/*/src/index.ts", "./extensions/*/src/index.ts"]

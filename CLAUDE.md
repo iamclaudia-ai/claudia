@@ -50,7 +50,7 @@ Every feature — including the web chat UI — is an extension with routes and 
 - **Language**: TypeScript (strict)
 - **Server**: Bun.serve (HTTP + WebSocket on single port)
 - **Database**: SQLite (workspaces + sessions)
-- **Session Management**: Claude Code CLI via `@claudia/sdk`
+- **Session Management**: Claude Code CLI via stdio pipes (official Agent SDK protocol)
 - **Client-side Router**: Hand-rolled pushState router (~75 lines, zero deps)
 - **TTS**: ElevenLabs API (streaming)
 - **Network**: Tailscale for secure remote access
@@ -61,7 +61,7 @@ Every feature — including the web chat UI — is an extension with routes and 
 claudia/
 ├── packages/
 │   ├── gateway/          # Core server — single port serves everything
-│   ├── sdk/              # claudia-sdk — Claude Code CLI wrapper
+│   ├── runtime/          # Session runtime — manages CLI processes via stdio
 │   ├── shared/           # Shared types and config utilities
 │   └── ui/               # Shared React components + router
 ├── clients/
@@ -90,14 +90,15 @@ Key files:
 - `src/parse-session.ts` — JSONL parser with paginated history (load-all-then-slice)
 - `src/db/` — SQLite schema and models for workspaces + sessions
 
-### SDK (`packages/sdk`)
+### Runtime (`packages/runtime`)
 
-The `claudia-sdk` — a wrapper around Claude Code CLI that:
-- Spawns Claude Code with `--input-format stream-json`
-- Uses an HTTP proxy to intercept Anthropic API calls
-- Captures raw SSE streaming events
-- Supports thinking mode, session resume, interrupts
-- EventEmitter-based interface
+Persistent service (port 30087) that manages Claude CLI processes:
+- Spawns CLI with `--input-format stream-json --output-format stream-json --include-partial-messages`
+- Communicates via stdin/stdout NDJSON pipes — no WebSocket or HTTP proxy
+- Uses official Agent SDK types (`SDKMessage`, `SDKPartialAssistantMessage`, etc.) for type-safe message routing
+- Thinking via `control_request` with `set_max_thinking_tokens` on stdin
+- Graceful interrupt via `control_request` with `subtype: "interrupt"` — process stays alive
+- Survives gateway restarts — keeps Claude processes running
 
 ### UI (`packages/ui`)
 

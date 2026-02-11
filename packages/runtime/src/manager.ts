@@ -19,11 +19,9 @@ import {
   type ResumeSessionOptions,
   type StreamEvent,
 } from "./session";
-import type { ClaudiaConfig } from "@claudia/shared";
+import type { ClaudiaConfig, ThinkingEffort } from "@claudia/shared";
 
 // ── Types ────────────────────────────────────────────────────
-
-export type ThinkingEffort = "low" | "medium" | "high" | "max";
 
 export interface SessionCreateParams {
   /** Claude Code session UUID (if pre-assigned by gateway) */
