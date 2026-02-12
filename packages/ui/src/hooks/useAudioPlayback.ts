@@ -146,13 +146,23 @@ export function useAudioPlayback(
       if (event === "voice.audio_chunk") {
         const streamId = data.streamId as string | undefined;
         const audio = data.audio as string | undefined;
+        const format = data.format as string | undefined;
         if (!audio) return;
         if (activeStreamIdRef.current && streamId && streamId !== activeStreamIdRef.current) return;
 
         const ctx = ensureAudioContext();
-        const pcmArrayBuffer = base64ToArrayBuffer(audio);
-        const buffer = pcm16ToAudioBuffer(ctx, pcmArrayBuffer, 24000);
-        scheduleBuffer(buffer);
+        const arrayBuffer = base64ToArrayBuffer(audio);
+
+        if (format === "wav") {
+          void ctx.decodeAudioData(arrayBuffer.slice(0)).then((buffer) => {
+            scheduleBuffer(buffer);
+          }).catch((err) => {
+            console.warn("[AudioPlayback] Failed to decode WAV chunk:", err);
+          });
+        } else {
+          const buffer = pcm16ToAudioBuffer(ctx, arrayBuffer, 24000);
+          scheduleBuffer(buffer);
+        }
         return;
       }
 

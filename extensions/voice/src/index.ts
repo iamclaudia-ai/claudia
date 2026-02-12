@@ -19,7 +19,7 @@ import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { CartesiaStream } from './cartesia-stream';
 import { SentenceChunker } from './sentence-chunker';
-import { saveAudio, getAudioPath } from './audio-store';
+import { saveAudio, getAudioPath, pcmToWav } from './audio-store';
 
 // ============================================================================
 // File Logging (tail -f ~/.claudia/logs/voice.log)
@@ -257,14 +257,17 @@ export function createVoiceExtension(config: VoiceConfig = {}): ClaudiaExtension
         onAudioChunk: ({ audio }) => {
           if (abortRequested || currentStreamId !== streamId) return;
 
+          const pcmChunk = Buffer.from(audio, 'base64');
+          const wavChunk = pcmToWav(pcmChunk, 24000, 1);
           const index = streamChunkIndex++;
           ctx?.emit('voice.audio_chunk', {
-            audio,
+            audio: wavChunk.toString('base64'),
+            format: 'wav',
             index,
             streamId,
             sessionId,
           });
-          currentAudioChunks.push(Buffer.from(audio, 'base64'));
+          currentAudioChunks.push(pcmChunk);
         },
         onError: (error) => {
           streamHadError = true;

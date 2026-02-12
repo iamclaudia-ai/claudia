@@ -12,7 +12,7 @@ import { existsSync, mkdirSync } from 'node:fs';
 const AUDIO_DIR = join(homedir(), '.claudia', 'audio');
 
 /** Convert raw PCM data to WAV format */
-function pcmToWav(pcmData: Buffer, sampleRate: number = 24000, channels: number = 1): Buffer {
+export function pcmToWav(pcmData: Buffer, sampleRate: number = 24000, channels: number = 1): Buffer {
   const bitDepth = 16;
   const byteRate = sampleRate * channels * bitDepth / 8;
   const blockAlign = channels * bitDepth / 8;
