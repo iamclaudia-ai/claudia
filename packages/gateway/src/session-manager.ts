@@ -72,6 +72,18 @@ export class SessionManager {
     this.routeToSource = options.routeToSource;
   }
 
+  private getRuntimeSessionDefaults(): {
+    model?: string;
+    thinking?: boolean;
+    effort?: string;
+  } {
+    return {
+      model: this.config.session.model || undefined,
+      thinking: this.config.session.thinking,
+      effort: this.config.session.effort,
+    };
+  }
+
   // ── Runtime Connection ──────────────────────────────────────
 
   /**
@@ -381,6 +393,7 @@ export class SessionManager {
       await this.runtimeRequest("session.resume", {
         sessionId: record.ccSessionId,
         cwd,
+        ...this.getRuntimeSessionDefaults(),
       });
 
       this.activeRuntimeSessionId = record.ccSessionId;
@@ -404,6 +417,7 @@ export class SessionManager {
         await this.runtimeRequest("session.resume", {
           sessionId: record.ccSessionId,
           cwd: this.currentWorkspace.cwd,
+          ...this.getRuntimeSessionDefaults(),
         });
 
         this.activeRuntimeSessionId = record.ccSessionId;
@@ -507,6 +521,7 @@ export class SessionManager {
     await this.runtimeRequest("session.resume", {
       sessionId: record.ccSessionId,
       cwd: workspace.cwd,
+      ...this.getRuntimeSessionDefaults(),
     });
 
     this.activeRuntimeSessionId = record.ccSessionId;

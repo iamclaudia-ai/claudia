@@ -17,6 +17,8 @@ class GatewayClient: NSObject, @unchecked Sendable {
 
     // Working directory for voice mode sessions
     private let cwd: String
+    private var activeSessionRecordId: String?
+    private var activeCcSessionId: String?
 
     // Callbacks — set by AppState
     var onConnected: (() -> Void)?
@@ -25,6 +27,7 @@ class GatewayClient: NSObject, @unchecked Sendable {
     var onAudioChunk: ((_ audio: Data, _ index: Int, _ streamId: String) -> Void)?
     var onStreamEnd: ((_ streamId: String) -> Void)?
     var onError: ((String) -> Void)?
+    var onSessionResolved: ((_ message: String) -> Void)?
 
     init(url: String, cwd: String = "/Users/michael/claudia/chat") {
         self.gatewayURL = URL(string: url)!
@@ -70,21 +73,106 @@ class GatewayClient: NSObject, @unchecked Sendable {
                    let workspace = dict["workspace"] as? [String: Any],
                    let workspaceId = workspace["id"] as? String {
                     print("[Gateway] Workspace ready: \(workspaceId)")
-                    // 2. Create a session in this workspace
-                    self.sendRequest(method: "session.create", params: ["workspaceId": workspaceId]) { [weak self] result in
-                        guard let self = self else { return }
-                        switch result {
-                        case .success:
-                            print("[Gateway] Session created")
-                            // 3. Subscribe to events
-                            self.sendRequest(method: "subscribe", params: ["events": ["session.*", "voice.*"]]) { _ in
-                                print("[Gateway] Subscribed to events")
-                                DispatchQueue.main.async { self.onConnected?() }
-                            }
-                        case .failure(let error):
-                            print("[Gateway] Session create failed: \(error)")
-                            DispatchQueue.main.async { self.onError?("Session create failed: \(error.localizedDescription)") }
+                    let activeSessionId = workspace["activeSessionId"] as? String
+
+                    func subscribeForSession(from payload: Any, action: String) {
+                        var streamEvents = ["session.*", "voice.*"]
+                        var resolvedMessage = "[\(action)] session unknown"
+
+                        if let dict = payload as? [String: Any],
+                           let session = dict["session"] as? [String: Any],
+                           let sessionRecordId = session["id"] as? String,
+                           let ccSessionId = session["ccSessionId"] as? String {
+                            self.activeSessionRecordId = sessionRecordId
+                            self.activeCcSessionId = ccSessionId
+                            streamEvents.append("stream.\(ccSessionId).*")
+                            resolvedMessage = "[\(action)] session=\(sessionRecordId) cc=\(ccSessionId)"
+                            print("[Gateway] \(resolvedMessage)")
                         }
+
+                        self.sendRequest(method: "subscribe", params: ["events": streamEvents]) { _ in
+                            print("[Gateway] Subscribed to events")
+                            DispatchQueue.main.async { self.onSessionResolved?(resolvedMessage) }
+                            DispatchQueue.main.async { self.onConnected?() }
+                        }
+                    }
+
+                    func createSession() {
+                        self.sendRequest(method: "session.create", params: ["workspaceId": workspaceId]) { [weak self] result in
+                            guard let self = self else { return }
+                            switch result {
+                            case .success(let payload):
+                                print("[Gateway] Session created")
+                                subscribeForSession(from: payload, action: "Created session")
+                            case .failure(let error):
+                                print("[Gateway] Session create failed: \(error)")
+                                DispatchQueue.main.async { self.onError?("Session create failed: \(error.localizedDescription)") }
+                            }
+                        }
+                    }
+
+                    func switchToMostRecentSession() {
+                        self.sendRequest(method: "session.list", params: ["workspaceId": workspaceId]) { result in
+                            switch result {
+                            case .success(let payload):
+                                guard let dict = payload as? [String: Any],
+                                      let sessions = dict["sessions"] as? [[String: Any]],
+                                      !sessions.isEmpty else {
+                                    createSession()
+                                    return
+                                }
+
+                                let selected = sessions
+                                    .sorted { a, b in
+                                        let aStatus = a["status"] as? String ?? ""
+                                        let bStatus = b["status"] as? String ?? ""
+                                        if aStatus != bStatus {
+                                            return aStatus == "active"
+                                        }
+                                        let aCreated = a["createdAt"] as? String ?? ""
+                                        let bCreated = b["createdAt"] as? String ?? ""
+                                        return aCreated > bCreated
+                                    }
+                                    .first
+
+                                guard let targetSessionId = selected?["id"] as? String else {
+                                    createSession()
+                                    return
+                                }
+
+                                print("[Gateway] Fallback reuse session: \(targetSessionId)")
+                                self.sendRequest(method: "session.switch", params: ["sessionId": targetSessionId]) { switchResult in
+                                    switch switchResult {
+                                    case .success(let switchPayload):
+                                        print("[Gateway] Switched to fallback session")
+                                        subscribeForSession(from: switchPayload, action: "Switched fallback session")
+                                    case .failure(let switchError):
+                                        print("[Gateway] Fallback switch failed (\(switchError)) - creating new session")
+                                        createSession()
+                                    }
+                                }
+                            case .failure(let error):
+                                print("[Gateway] Session list failed (\(error)) - creating new session")
+                                createSession()
+                            }
+                        }
+                    }
+
+                    // 2. Reuse workspace's active session if available; otherwise create one.
+                    if let existingSessionId = activeSessionId {
+                        print("[Gateway] Reusing active workspace session: \(existingSessionId)")
+                        self.sendRequest(method: "session.switch", params: ["sessionId": existingSessionId]) { result in
+                            switch result {
+                            case .success(let payload):
+                                print("[Gateway] Switched to existing session")
+                                subscribeForSession(from: payload, action: "Switched session")
+                            case .failure(let error):
+                                print("[Gateway] Session switch failed (\(error)) - trying session.list fallback")
+                                switchToMostRecentSession()
+                            }
+                        }
+                    } else {
+                        switchToMostRecentSession()
                     }
                 } else {
                     print("[Gateway] Unexpected workspace response")
@@ -98,10 +186,13 @@ class GatewayClient: NSObject, @unchecked Sendable {
     }
 
     func sendPrompt(_ content: String) {
-        let params: [String: Any] = [
+        var params: [String: Any] = [
             "content": content,
             "speakResponse": true
         ]
+        if let sessionRecordId = activeSessionRecordId {
+            params["sessionId"] = sessionRecordId
+        }
         sendRequest(method: "session.prompt", params: params) { [weak self] result in
             if case .failure(let error) = result {
                 self?.onError?(error.localizedDescription)

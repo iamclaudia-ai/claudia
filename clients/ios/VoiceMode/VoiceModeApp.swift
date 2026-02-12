@@ -12,6 +12,7 @@ class AppState {
     var voiceState: VoiceState = .idle
     var isConnected = false
     var statusText = "Connecting..."
+    var sessionDebugText = ""
 
     let gateway: GatewayClient
     let speechRecognizer = SpeechRecognizer()
@@ -34,6 +35,11 @@ class AppState {
             self.statusText = "Connected"
             // Auto-start listening when connected
             self.startListening()
+        }
+
+        gateway.onSessionResolved = { [weak self] message in
+            print("[App] Session: \(message)")
+            self?.sessionDebugText = message
         }
 
         gateway.onDisconnected = { [weak self] in

@@ -2,101 +2,157 @@ import Foundation
 import AVFoundation
 import Combine
 
-/// Queue-based streaming audio player
+/// Streaming audio player backed by AVAudioEngine for gapless chunk playback.
 ///
-/// Receives MP3 chunks from the gateway, decodes them, and plays
-/// sequentially. Each chunk is a valid MP3 segment from ElevenLabs.
-class StreamingAudioPlayer: NSObject, ObservableObject, AVAudioPlayerDelegate {
-    private var audioQueue: [(Data, Int)] = []  // (audioData, index)
-    private var currentPlayer: AVAudioPlayer?
-    @Published var isPlaying = false
+/// Each incoming chunk is a small WAV payload. We parse it to PCM and schedule
+/// buffers on AVAudioPlayerNode so playback remains continuous.
+class StreamingAudioPlayer: NSObject, ObservableObject {
+    private let engine = AVAudioEngine()
+    private let playerNode = AVAudioPlayerNode()
+    private let playerFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32,
+                                             sampleRate: 24000,
+                                             channels: 1,
+                                             interleaved: false)!
 
+    private var streamEnded = false
+    private var scheduledBuffers = 0
+
+    @Published var isPlaying = false
     var onStreamFinished: (() -> Void)?
+
+    override init() {
+        super.init()
+        setupEngine()
+    }
 
     /// Enqueue an audio chunk for playback
     func enqueue(audio: Data, index: Int) {
-        audioQueue.append((audio, index))
-        print("[Audio] Enqueued chunk #\(index) (\(audio.count) bytes), queue size: \(audioQueue.count)")
+        DispatchQueue.main.async {
+            guard let buffer = self.wavDataToPCMBuffer(audio) else {
+                print("[Audio] Failed to parse WAV chunk #\(index)")
+                return
+            }
 
-        // Start playing if not already
-        if currentPlayer == nil {
-            playNext()
+            self.ensureEngineRunning()
+            self.scheduledBuffers += 1
+            self.playerNode.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { [weak self] _ in
+                DispatchQueue.main.async {
+                    guard let self = self else { return }
+                    self.scheduledBuffers = max(0, self.scheduledBuffers - 1)
+                    if self.streamEnded && self.scheduledBuffers == 0 {
+                        self.finishStream()
+                    }
+                }
+            }
+
+            if !self.playerNode.isPlaying {
+                self.playerNode.play()
+            }
+
+            self.isPlaying = true
+            print("[Audio] Scheduled chunk #\(index) (\(audio.count) bytes), pending: \(self.scheduledBuffers)")
         }
     }
 
-    /// Stop playback and clear queue
+    /// Stop playback and clear pending buffers
     func stop() {
-        audioQueue.removeAll()
-        currentPlayer?.stop()
-        currentPlayer = nil
-        isPlaying = false
-        print("[Audio] Stopped, queue cleared")
+        DispatchQueue.main.async {
+            self.streamEnded = false
+            self.scheduledBuffers = 0
+            self.playerNode.stop()
+            self.playerNode.reset()
+            if self.engine.isRunning {
+                self.engine.stop()
+            }
+            self.isPlaying = false
+            print("[Audio] Stopped, buffers cleared")
+        }
     }
 
-    /// Signal that the stream is complete — when queue drains, notify
-    private var streamEnded = false
-
+    /// Signal that stream is complete — finish once scheduled buffers drain
     func markStreamEnd() {
-        streamEnded = true
-        // If queue is already empty and nothing playing, notify now
-        if audioQueue.isEmpty && currentPlayer == nil {
-            finishStream()
+        DispatchQueue.main.async {
+            self.streamEnded = true
+            if self.scheduledBuffers == 0 {
+                self.finishStream()
+            }
         }
     }
 
     func reset() {
         stop()
-        streamEnded = false
+        DispatchQueue.main.async {
+            self.streamEnded = false
+        }
     }
 
     // MARK: - Private
 
-    private func playNext() {
-        guard !audioQueue.isEmpty else {
-            currentPlayer = nil
-            isPlaying = false
-            if streamEnded {
-                finishStream()
-            }
+    private func setupEngine() {
+        engine.attach(playerNode)
+        engine.connect(playerNode, to: engine.mainMixerNode, format: playerFormat)
+    }
+
+    private func ensureEngineRunning() {
+        if engine.isRunning {
             return
         }
 
-        let (data, index) = audioQueue.removeFirst()
-
         do {
-            let player = try AVAudioPlayer(data: data)
-            player.delegate = self
-            player.prepareToPlay()
-            player.play()
-            currentPlayer = player
-            isPlaying = true
-            print("[Audio] Playing chunk #\(index)")
+            try engine.start()
         } catch {
-            print("[Audio] Failed to play chunk #\(index): \(error)")
-            // Skip failed chunk and try next
-            playNext()
+            print("[Audio] Engine start failed: \(error)")
         }
     }
 
     private func finishStream() {
         streamEnded = false
-        isPlaying = false
+        self.isPlaying = false
+        self.onStreamFinished?()
         print("[Audio] Stream finished")
-        onStreamFinished?()
     }
 
-    // MARK: - AVAudioPlayerDelegate
+    /// Parse WAV (PCM s16le mono) into AVAudioPCMBuffer.
+    private func wavDataToPCMBuffer(_ data: Data) -> AVAudioPCMBuffer? {
+        guard data.count > 44 else { return nil }
 
-    nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        DispatchQueue.main.async {
-            self.playNext()
+        let bytes = [UInt8](data)
+        guard String(bytes: bytes[0...3], encoding: .ascii) == "RIFF",
+              String(bytes: bytes[8...11], encoding: .ascii) == "WAVE" else {
+            return nil
         }
-    }
 
-    nonisolated func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
-        print("[Audio] Decode error: \(error?.localizedDescription ?? "unknown")")
-        DispatchQueue.main.async {
-            self.playNext()
+        let channels = Int(UInt16(bytes[22]) | (UInt16(bytes[23]) << 8))
+        let sampleRate = UInt32(bytes[24]) |
+                         (UInt32(bytes[25]) << 8) |
+                         (UInt32(bytes[26]) << 16) |
+                         (UInt32(bytes[27]) << 24)
+        let bitsPerSample = Int(UInt16(bytes[34]) | (UInt16(bytes[35]) << 8))
+        guard channels == 1, bitsPerSample == 16, sampleRate == 24000 else { return nil }
+
+        let dataSize = Int(UInt32(bytes[40]) |
+                           (UInt32(bytes[41]) << 8) |
+                           (UInt32(bytes[42]) << 16) |
+                           (UInt32(bytes[43]) << 24))
+        guard dataSize > 0, data.count >= 44 + dataSize else { return nil }
+
+        let frameCount = dataSize / 2
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: playerFormat,
+                                            frameCapacity: AVAudioFrameCount(frameCount)) else {
+            return nil
         }
+
+        buffer.frameLength = AVAudioFrameCount(frameCount)
+        guard let channelData = buffer.floatChannelData?[0] else { return nil }
+
+        let pcm = data.subdata(in: 44..<(44 + dataSize))
+        pcm.withUnsafeBytes { rawBuf in
+            guard let int16Ptr = rawBuf.bindMemory(to: Int16.self).baseAddress else { return }
+            for i in 0..<frameCount {
+                channelData[i] = Float(int16Ptr[i]) / 32768.0
+            }
+        }
+
+        return buffer
     }
 }

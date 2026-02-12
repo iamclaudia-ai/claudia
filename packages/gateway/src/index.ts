@@ -469,8 +469,32 @@ function broadcastEvent(
 ): void {
   const event: Event = { type: "event", event: eventName, payload };
   const data = JSON.stringify(event);
+  const payloadObj =
+    payload && typeof payload === "object"
+      ? (payload as Record<string, unknown>)
+      : null;
+  const payloadSessionId =
+    typeof payloadObj?.sessionId === "string"
+      ? (payloadObj.sessionId as string)
+      : null;
+  const isScopedVoiceEvent =
+    eventName.startsWith("voice.") && payloadSessionId !== null;
+  const requiredStreamPattern = payloadSessionId
+    ? `stream.${payloadSessionId}.*`
+    : null;
 
   for (const [ws, state] of clients) {
+    // Route session-scoped voice streams only to clients subscribed to that session stream.
+    if (isScopedVoiceEvent) {
+      const hasGlobal = state.subscriptions.has("*");
+      const hasSessionStream =
+        requiredStreamPattern !== null &&
+        state.subscriptions.has(requiredStreamPattern);
+      if (!hasGlobal && !hasSessionStream) {
+        continue;
+      }
+    }
+
     // Check if client is subscribed to this event
     const isSubscribed = Array.from(state.subscriptions).some((pattern) => {
       if (pattern === "*") return true;

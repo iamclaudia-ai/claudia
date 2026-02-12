@@ -86,6 +86,15 @@ struct VoiceModeView: View {
                     .fontWeight(.medium)
                     .foregroundColor(.white)
 
+                if !appState.sessionDebugText.isEmpty {
+                    Text(appState.sessionDebugText)
+                        .font(.caption2)
+                        .foregroundColor(.gray)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 24)
+                        .lineLimit(2)
+                }
+
                 // Current transcript (while listening)
                 if appState.voiceState == .listening && !appState.speechRecognizer.currentTranscript.isEmpty {
                     Text(appState.speechRecognizer.currentTranscript)
