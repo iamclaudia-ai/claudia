@@ -25,14 +25,17 @@ Root scripts:
 - `test`: broad test runner.
 - `test:unit`, `test:integration`, `test:smoke`, `test:e2e`: focused quality gates.
 - `typecheck`: full repo typecheck via root `tsconfig.json`.
+- `typecheck:fast`: fast local typecheck via TypeScript native preview (`tsgo`-style).
 - `typecheck:all`: per-workspace typecheck scripts.
-- `precommit`: `typecheck` + `lint-staged`.
+- `precommit`: `typecheck:fast` + `lint-staged`.
+- `prepush`: `typecheck` + `test:unit`.
 
 ## Current Notes
 
 - Core packages/extensions/clients expose `build`/`test`/`typecheck` consistently.
 - iOS and menubar clients keep explicit `typecheck` no-op scripts because they are non-TS (Xcode/Swift).
-- Husky pre-commit hook runs root `typecheck` and then `lint-staged`.
+- Husky pre-commit hook runs `typecheck:fast` and then `lint-staged`.
+- Husky pre-push hook runs canonical `typecheck` and `test:unit`.
 
 ## Suggested Next Cleanup
 
