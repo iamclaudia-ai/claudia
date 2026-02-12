@@ -97,8 +97,8 @@ extensions.setEmitCallback(async (type, payload, source) => {
       sessionManager.currentResponseText = "";
 
       // Send prompt through session manager with explicit session targeting/config.
-      if (!req.sessionId || !req.model || req.thinking === undefined) {
-        console.warn("[Gateway] Ignoring prompt_request with missing required params: sessionId/model/thinking");
+      if (!req.sessionId || !req.model || req.thinking === undefined || !req.effort) {
+        console.warn("[Gateway] Ignoring prompt_request with missing required params: sessionId/model/thinking/effort");
         return;
       }
       await sessionManager.prompt(req.content as string | unknown[], req.sessionId, {
@@ -223,16 +223,16 @@ async function handleWorkspaceMethod(
         const workspaceId = req.params?.workspaceId as string;
         const model = req.params?.model as string;
         const thinking = req.params?.thinking as boolean | undefined;
+        const effort = req.params?.effort as string | undefined;
         if (!workspaceId) {
           sendError(ws, req.id, "Missing workspaceId parameter");
           return;
         }
-        if (!model || thinking === undefined) {
-          sendError(ws, req.id, "Missing required params: model and thinking");
+        if (!model || thinking === undefined || !effort) {
+          sendError(ws, req.id, "Missing required params: model, thinking, and effort");
           return;
         }
         const title = req.params?.title as string | undefined;
-        const effort = req.params?.effort as string | undefined;
         const systemPrompt = req.params?.systemPrompt as string | undefined;
         const result = await sessionManager.createNewSession(workspaceId, title, {
           model,
@@ -301,6 +301,7 @@ async function handleSessionMethod(
         const targetSessionId = req.params?.sessionId as string;
         const model = req.params?.model as string;
         const thinking = req.params?.thinking as boolean | undefined;
+        const effort = req.params?.effort as string | undefined;
         if (!content) {
           sendError(ws, req.id, "Missing content parameter");
           return;
@@ -309,8 +310,8 @@ async function handleSessionMethod(
           sendError(ws, req.id, "Missing sessionId parameter");
           return;
         }
-        if (!model || thinking === undefined) {
-          sendError(ws, req.id, "Missing required params: model and thinking");
+        if (!model || thinking === undefined || !effort) {
+          sendError(ws, req.id, "Missing required params: model, thinking, and effort");
           return;
         }
 
@@ -324,7 +325,7 @@ async function handleSessionMethod(
         const ccSessionId = await sessionManager.prompt(content, targetSessionId, {
           model,
           thinking,
-          effort: req.params?.effort as string | undefined,
+          effort,
         });
         sendResponse(ws, req.id, {
           status: "ok",
@@ -390,15 +391,6 @@ async function handleSessionMethod(
         return;
       }
 
-      case "create": {
-        sendError(
-          ws,
-          req.id,
-          "session.create is deprecated; use workspace.createSession with workspaceId/model/thinking",
-        );
-        return;
-      }
-
       case "switch": {
         const sessionId = req.params?.sessionId as string;
         if (!sessionId) {
@@ -414,14 +406,15 @@ async function handleSessionMethod(
         const workspaceId = req.params?.workspaceId as string;
         const model = req.params?.model as string;
         const thinking = req.params?.thinking as boolean | undefined;
-        if (!workspaceId || !model || thinking === undefined) {
-          sendError(ws, req.id, "Missing required params: workspaceId/model/thinking");
+        const effort = req.params?.effort as string | undefined;
+        if (!workspaceId || !model || thinking === undefined || !effort) {
+          sendError(ws, req.id, "Missing required params: workspaceId/model/thinking/effort");
           return;
         }
         await sessionManager.createNewSession(workspaceId, undefined, {
           model,
           thinking,
-          effort: req.params?.effort as string | undefined,
+          effort,
           systemPrompt: req.params?.systemPrompt as string | undefined,
         });
         sendResponse(ws, req.id, { status: "reset" });

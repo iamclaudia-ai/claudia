@@ -31,6 +31,8 @@ Health: `GET /health`
 | `workspace.list` | none | none | returns all workspaces |
 | `workspace.get` | `workspaceId` | none | error if missing/not found |
 | `workspace.getOrCreate` | `cwd` | `name` | if `name` missing, uses `basename(cwd)` |
+| `workspace.listSessions` | `workspaceId` | none | returns sessions for only that workspace |
+| `workspace.createSession` | `workspaceId`, `model`, `thinking`, `effort` | `title`, `systemPrompt` | archives current active session in workspace, then creates new runtime session |
 
 Refs: `packages/gateway/src/index.ts`, `packages/gateway/src/db/models/workspace.ts`.
 
@@ -39,15 +41,14 @@ Refs: `packages/gateway/src/index.ts`, `packages/gateway/src/db/models/workspace
 | Method | Required params | Optional params | Default/fallback behavior |
 |---|---|---|---|
 | `session.info` | none | none | returns active runtime + current record info |
-| `session.config` | none | `thinking`, `effort` | ignored if a session is already active |
-| `session.prompt` | `content` | `sessionId`, `speakResponse`, `source`, `thinking` | if `sessionId` missing, targets current/active workspace session; `speakResponse` defaults false; `source` defaults null |
-| `session.interrupt` | none | none | interrupts current active runtime session |
+| `session.config` | none | none | deprecated; returns error directing callers to explicit params on create/prompt |
+| `session.prompt` | `sessionId`, `content`, `model`, `thinking`, `effort` | `speakResponse`, `source` | no active-session fallback |
+| `session.interrupt` | `sessionId` | none | interrupts that specific session |
 | `session.get` | `sessionId` | none | error if missing/not found |
-| `session.history` | none | `sessionId`, `limit`, `offset` | if no `sessionId`, uses current session; if no `limit`, returns full parsed history; `offset` defaults `0` |
-| `session.list` | none | `workspaceId` | if missing, uses current workspace |
-| `session.create` | none | `workspaceId`, `title` | if `workspaceId` missing, uses current workspace; archives previous active session |
+| `session.history` | `sessionId` | `limit`, `offset` | if no `limit`, returns full parsed history; `offset` defaults `0` |
+| `session.list` | none | none | deprecated; returns error directing callers to `workspace.listSessions` |
 | `session.switch` | `sessionId` | none | closes current runtime session, resumes target |
-| `session.reset` | none | none | archives active + creates a new session for current workspace |
+| `session.reset` | `workspaceId`, `model`, `thinking`, `effort` | `systemPrompt` | creates a new session via explicit workspace+runtime params |
 
 Refs: `packages/gateway/src/index.ts`, `packages/gateway/src/session-manager.ts`.
 
@@ -195,10 +196,10 @@ Ref: `clients/vscode/package.json`, `clients/vscode/src/extension.ts`.
 
 Client currently calls:
 - `workspace.getOrCreate` (always with explicit `cwd`)
-- `session.switch` / `session.list` / `session.create` for reuse flow
+- `session.switch` / `workspace.listSessions` / `workspace.createSession` for reuse flow
 - `subscribe` with `["session.*", "voice.*", "stream.{ccSessionId}.*"]`
-- `session.prompt` with `content`, `speakResponse: true`, and `sessionId` when known
-- `session.interrupt`, `voice.stop`
+- `session.prompt` with explicit `sessionId`, `model`, `thinking`, `effort`, `content`, and `speakResponse: true`
+- `session.interrupt` with explicit `sessionId`, plus `voice.stop`
 
 Default app `cwd`: `/Users/michael/claudia/chat`
 
@@ -208,7 +209,8 @@ Ref: `clients/ios/VoiceMode/GatewayClient.swift`.
 
 Client currently calls:
 - `subscribe` with `["session.*", "voice.*"]`
-- `session.prompt` with required `content`, optional `speakResponse` (set true by default in app helper)
+- `workspace.getOrCreate` then `workspace.createSession` if needed
+- `session.prompt` with explicit `sessionId`, `model`, `thinking`, `effort`, and `content` (plus optional `speakResponse`)
 - `voice.speak`
 
 Default gateway URL:
@@ -226,19 +228,15 @@ Public hook options:
 
 Ref: `packages/ui/src/hooks/useGateway.ts`.
 
-## 7. Optional-Parameter Hotspots To Make Explicit
+## 7. Remaining Optional Hotspots
 
-These are the current high-impact optionals that can silently change behavior:
+Most high-impact gateway/session optionals were removed. Remaining meaningful optionals:
 
-1. `session.prompt.sessionId` (gateway): optional today, falls back to active/current session.
-2. `session.create.workspaceId` (gateway): optional today, falls back to `currentWorkspace`.
-3. `session.list.workspaceId` (gateway): optional today, falls back to `currentWorkspace`.
-4. `session.history.limit` (gateway): optional today, missing means full-history parse.
-5. `session.history.sessionId` (gateway): optional today, falls back to current session.
-6. `session.resume.model/thinking/effort` (runtime boundary): optional today, can fall back to runtime defaults.
-7. `workspace.getOrCreate.name` (gateway): optional today, uses `basename(cwd)`.
-8. `imessage.chats.limit` (extension): optional today, defaults to `20`.
-9. Voice extension config fields (api/model/voice/speed/emotions): optional today, fallback to baked defaults/env.
+1. `session.history.limit` (gateway): missing means full-history parse.
+2. `workspace.getOrCreate.name` (gateway): missing means `basename(cwd)`.
+3. Runtime boundary (`session.create` / `session.resume`) still supports optional model/thinking/effort at runtime API layer, though gateway now sends them explicitly.
+4. `imessage.chats.limit` (extension): defaults to `20`.
+5. Voice extension config fields (api/model/voice/speed/emotions): fallback to baked defaults/env.
 
 ## 8. Drift Note
 

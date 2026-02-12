@@ -364,7 +364,7 @@ export class SessionManager {
    */
   async initSession(
     sessionRecordId: string,
-    runtimeConfig: { model: string; thinking: boolean; effort?: string },
+    runtimeConfig: { model: string; thinking: boolean; effort: string },
   ): Promise<string> {
     const record = sessionModel.getSession(this.db, sessionRecordId);
     if (!record) throw new Error(`Session not found: ${sessionRecordId}`);
@@ -409,7 +409,7 @@ export class SessionManager {
   async createNewSession(
     workspaceId: string,
     title: string | undefined,
-    runtimeConfig: { model: string; thinking: boolean; effort?: string; systemPrompt?: string | null },
+    runtimeConfig: { model: string; thinking: boolean; effort: string; systemPrompt?: string | null },
   ): Promise<{
     session: SessionRecord;
     previousSessionId?: string;
@@ -441,7 +441,7 @@ export class SessionManager {
     const effort = runtimeConfig.effort;
     const model = runtimeConfig.model;
 
-    console.log(`[SessionManager] Creating new session via runtime (model: ${model}, thinking: ${thinking}, effort: ${effort || "default"}, cwd: ${workspace.cwd})...`);
+    console.log(`[SessionManager] Creating new session via runtime (model: ${model}, thinking: ${thinking}, effort: ${effort}, cwd: ${workspace.cwd})...`);
 
     const result = await this.runtimeRequest("session.create", {
       cwd: workspace.cwd,
@@ -562,7 +562,7 @@ export class SessionManager {
   async prompt(
     content: string | unknown[],
     sessionRecordId: string,
-    runtimeConfig: { model: string; thinking: boolean; effort?: string },
+    runtimeConfig: { model: string; thinking: boolean; effort: string },
   ): Promise<string> {
     const ccSessionId = await this.initSession(sessionRecordId, runtimeConfig);
 
