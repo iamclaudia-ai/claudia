@@ -10,7 +10,7 @@
 import type { ServerWebSocket } from "bun";
 import type {
   Request,
-  Response,
+  Response as GatewayResponse,
   Event,
   Message,
   GatewayEvent,
@@ -643,7 +643,7 @@ function sendResponse(
   id: string,
   payload: unknown,
 ): void {
-  const response: Response = { type: "res", id, ok: true, payload };
+  const response: GatewayResponse = { type: "res", id, ok: true, payload };
   ws.send(JSON.stringify(response));
 }
 
@@ -655,7 +655,7 @@ function sendError(
   id: string,
   error: string,
 ): void {
-  const response: Response = { type: "res", id, ok: false, error };
+  const response: GatewayResponse = { type: "res", id, ok: false, error };
   ws.send(JSON.stringify(response));
 }
 
@@ -717,7 +717,7 @@ const server = Bun.serve<ClientState>({
   port: PORT,
   reusePort: true,
   // Custom fetch handler for WebSocket upgrades
-  async fetch(req, server) {
+  fetch(req, server) {
     const url = new URL(req.url);
 
     // WebSocket upgrade — only on /ws
@@ -730,14 +730,14 @@ const server = Bun.serve<ClientState>({
         },
       });
 
-      if (upgraded) return undefined;
+      if (upgraded) return undefined as unknown as globalThis.Response;
       return new globalThis.Response("WebSocket upgrade failed", {
         status: 400,
       });
     }
 
     // Fall through to routes
-    return null;
+    return null as unknown as globalThis.Response;
   },
   routes: {
     // Health check endpoint

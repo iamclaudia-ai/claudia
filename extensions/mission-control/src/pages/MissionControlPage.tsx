@@ -301,14 +301,14 @@ export function MissionControlPage() {
       );
 
       // Step 2: Filter for health-check capable extensions
-      const healthExtensions = extensions.filter((ext) =>
-        ext.methods.some((m) => m.endsWith(".health-check")),
+      const healthExtensions = extensions.filter((ext: ExtensionInfo) =>
+        ext.methods.some((m: string) => m.endsWith(".health-check")),
       );
 
       // Step 3: Call each health-check in parallel
       const results = await Promise.allSettled(
-        healthExtensions.map(async (ext) => {
-          const healthMethod = ext.methods.find((m) =>
+        healthExtensions.map(async (ext: ExtensionInfo) => {
+          const healthMethod = ext.methods.find((m: string) =>
             m.endsWith(".health-check"),
           )!;
           const health = await request<HealthCheckResponse>(healthMethod);
@@ -316,7 +316,7 @@ export function MissionControlPage() {
         }),
       );
 
-      const healthData = results.map((result, i) => {
+      const healthData = results.map((result: PromiseSettledResult<ExtensionHealth>, i: number) => {
         if (result.status === "fulfilled") {
           return result.value;
         }
@@ -385,7 +385,7 @@ export function MissionControlPage() {
         <div className="flex items-center justify-between max-w-5xl mx-auto">
           <div className="flex items-center gap-3">
             <Link
-              href="/"
+              to="/"
               className="text-zinc-500 hover:text-zinc-300 transition-colors"
             >
               &larr;
@@ -424,7 +424,7 @@ export function MissionControlPage() {
           </div>
         ) : (
           <div className="space-y-4">
-            {healthData.map((data) => (
+            {healthData.map((data: ExtensionHealth) => (
               <HealthCard
                 key={data.extension.id}
                 data={data}

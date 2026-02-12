@@ -1,14 +1,7 @@
 {
+  "extends": "./tsconfig.base.json",
   "compilerOptions": {
-    "target": "ES2022",
     "module": "ESNext",
-    "moduleResolution": "bundler",
-    "esModuleInterop": true,
-    "jsx": "react-jsx",
-    "strict": true,
-    "skipLibCheck": true,
-    "noEmit": true,
-    "types": ["bun-types"],
     "baseUrl": ".",
     "paths": {
       "@claudia/shared": ["./packages/shared/src/index.ts"],

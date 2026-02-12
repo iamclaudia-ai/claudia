@@ -416,13 +416,13 @@ async function main() {
 
       switch (name) {
         case 'memory_remember':
-          result = await handleRemember(args as RememberParams);
+          result = await handleRemember((args ?? {}) as unknown as RememberParams);
           break;
         case 'memory_recall':
-          result = await handleRecall(args as RecallParams);
+          result = await handleRecall((args ?? {}) as unknown as RecallParams);
           break;
         case 'memory_read':
-          result = await handleRead(args as ReadParams);
+          result = await handleRead((args ?? {}) as unknown as ReadParams);
           break;
         case 'memory_list':
           result = await handleList(args as ListParams);

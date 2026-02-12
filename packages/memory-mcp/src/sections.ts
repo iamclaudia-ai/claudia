@@ -47,7 +47,9 @@ export class SectionRegistry {
     const stmt = this.db!.prepare(`
       SELECT DISTINCT section_title FROM sections ORDER BY section_title
     `);
-    return stmt.all().map((row: Record<string, unknown>) => row.section_title as string);
+    return stmt
+      .all()
+      .map((row) => (row as { section_title: string }).section_title);
   }
 
   /**

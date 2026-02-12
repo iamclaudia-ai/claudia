@@ -52,11 +52,14 @@ export class CartesiaStream {
     const url = 'wss://api.cartesia.ai/tts/websocket';
 
     this.log('INFO', `Connecting to ${url}`);
-    this.ws = new WebSocket(url, {
+    const WebSocketWithHeaders = WebSocket as unknown as {
+      new (u: string, opts: { headers: Record<string, string> }): WebSocket;
+    };
+    this.ws = new WebSocketWithHeaders(url, {
       headers: {
         'Cartesia-Version': '2024-06-30',
         'X-API-Key': this.options.apiKey,
-      }
+      },
     });
 
     return new Promise<void>((resolve, reject) => {

@@ -59,12 +59,15 @@ export function ToolHeader({ toolName, label }: ToolHeaderProps) {
 export function MonoText({
   children,
   className = "",
+  title,
 }: {
   children: ReactNode;
   className?: string;
+  title?: string;
 }) {
   return (
     <code
+      title={title}
       className={`font-mono text-sm tracking-tight text-neutral-800 ${className}`}
     >
       {children}
