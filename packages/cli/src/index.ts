@@ -27,6 +27,9 @@ interface Message {
 }
 
 interface JsonSchema {
+  $ref?: string;
+  $defs?: Record<string, JsonSchema>;
+  definitions?: Record<string, JsonSchema>;
   type?: string;
   description?: string;
   properties?: Record<string, JsonSchema>;
@@ -35,6 +38,7 @@ interface JsonSchema {
   anyOf?: JsonSchema[];
   allOf?: JsonSchema[];
   enum?: unknown[];
+  items?: JsonSchema | JsonSchema[];
 }
 
 interface MethodCatalogEntry {
@@ -104,32 +108,105 @@ function parseCliParams(rawArgs: string[]): Record<string, unknown> {
   return params;
 }
 
-function schemaType(schema?: JsonSchema): string {
-  if (!schema) return "unknown";
-  if (schema.type) return schema.type;
-  if (schema.anyOf?.length) {
-    return schema.anyOf.map((s) => schemaType(s)).join("|");
+function resolveRef(root: JsonSchema, ref: string): JsonSchema | undefined {
+  if (!ref.startsWith("#/")) return undefined;
+  const segments = ref.slice(2).split("/").map((s) => s.replace(/~1/g, "/").replace(/~0/g, "~"));
+  let current: unknown = root;
+  for (const segment of segments) {
+    if (!current || typeof current !== "object" || !(segment in (current as Record<string, unknown>))) {
+      return undefined;
+    }
+    current = (current as Record<string, unknown>)[segment];
   }
-  if (schema.allOf?.length) {
-    return schema.allOf.map((s) => schemaType(s)).join("&");
+  return current as JsonSchema;
+}
+
+function resolveSchema(schema: JsonSchema | undefined, root: JsonSchema | undefined, depth = 0): JsonSchema | undefined {
+  if (!schema) return undefined;
+  if (!root) return schema;
+  if (!schema.$ref || depth > 20) return schema;
+
+  const referenced = resolveRef(root, schema.$ref);
+  if (!referenced) return schema;
+
+  const resolvedRef = resolveSchema(referenced, root, depth + 1) ?? referenced;
+  const { $ref: _unusedRef, ...inlineOverrides } = schema;
+  return { ...resolvedRef, ...inlineOverrides };
+}
+
+function schemaType(schema?: JsonSchema, root?: JsonSchema): string {
+  const resolved = resolveSchema(schema, root ?? schema) ?? schema;
+  if (!resolved) return "unknown";
+  if (resolved.type) return resolved.type;
+  if (resolved.anyOf?.length) {
+    return resolved.anyOf.map((s) => schemaType(s, root ?? resolved)).join("|");
+  }
+  if (resolved.allOf?.length) {
+    return resolved.allOf.map((s) => schemaType(s, root ?? resolved)).join("&");
   }
   return "unknown";
 }
 
-function validateParamsAgainstSchema(method: string, params: Record<string, unknown>, schema?: JsonSchema): void {
-  if (!schema || schema.type !== "object") return;
+function matchesSchemaType(value: unknown, schema: JsonSchema, root: JsonSchema): boolean {
+  const resolved = resolveSchema(schema, root) ?? schema;
+  if (resolved.anyOf?.length) return resolved.anyOf.some((s) => matchesSchemaType(value, s, root));
+  if (resolved.allOf?.length) return resolved.allOf.every((s) => matchesSchemaType(value, s, root));
+  if (resolved.enum && !resolved.enum.includes(value)) return false;
 
-  const required = schema.required ?? [];
+  switch (resolved.type) {
+    case undefined:
+      return true;
+    case "string":
+      return typeof value === "string";
+    case "number":
+      return typeof value === "number" && Number.isFinite(value);
+    case "integer":
+      return typeof value === "number" && Number.isInteger(value);
+    case "boolean":
+      return typeof value === "boolean";
+    case "null":
+      return value === null;
+    case "array": {
+      if (!Array.isArray(value)) return false;
+      if (!resolved.items) return true;
+      if (Array.isArray(resolved.items)) return true;
+      return value.every((v) => matchesSchemaType(v, resolved.items as JsonSchema, root));
+    }
+    case "object":
+      return value !== null && typeof value === "object" && !Array.isArray(value);
+    default:
+      return true;
+  }
+}
+
+function validateParamsAgainstSchema(method: string, params: Record<string, unknown>, schema?: JsonSchema): void {
+  if (!schema) return;
+  const root = schema;
+  const resolvedSchema = resolveSchema(schema, root) ?? schema;
+  if (resolvedSchema.type !== "object") return;
+
+  const required = resolvedSchema.required ?? [];
   const missing = required.filter((k) => !(k in params));
   if (missing.length > 0) {
     throw new Error(`Missing required params for ${method}: ${missing.join(", ")}`);
   }
 
-  if (schema.additionalProperties === false && schema.properties) {
-    const allowed = new Set(Object.keys(schema.properties));
+  const properties = resolvedSchema.properties ?? {};
+  if (resolvedSchema.additionalProperties === false) {
+    const allowed = new Set(Object.keys(properties));
     const unknown = Object.keys(params).filter((k) => !allowed.has(k));
     if (unknown.length > 0) {
       throw new Error(`Unknown params for ${method}: ${unknown.join(", ")}`);
+    }
+  }
+
+  for (const [key, value] of Object.entries(params)) {
+    const propSchema = properties[key];
+    if (!propSchema) continue;
+    if (!matchesSchemaType(value, propSchema, root)) {
+      const expectedType = schemaType(propSchema, root);
+      const actualType = value === null ? "null" : Array.isArray(value) ? "array" : typeof value;
+      throw new Error(`Invalid type for ${method}.${key}: expected ${expectedType}, got ${actualType}`);
     }
   }
 }
@@ -137,7 +214,8 @@ function validateParamsAgainstSchema(method: string, params: Record<string, unkn
 function printMethodHelp(entry: MethodCatalogEntry): void {
   console.log(`\n${entry.method}`);
   if (entry.description) console.log(`  ${entry.description}`);
-  const schema = entry.inputSchema;
+  const rootSchema = entry.inputSchema;
+  const schema = resolveSchema(rootSchema, rootSchema) ?? rootSchema;
   if (!schema || schema.type !== "object") {
     console.log("  No input schema available.");
     return;
@@ -153,8 +231,9 @@ function printMethodHelp(entry: MethodCatalogEntry): void {
   console.log("  Parameters:");
   for (const [name, prop] of props) {
     const req = required.has(name) ? "required" : "optional";
-    const type = schemaType(prop);
-    const desc = prop.description ? ` - ${prop.description}` : "";
+    const resolvedProp = resolveSchema(prop, rootSchema) ?? prop;
+    const type = schemaType(resolvedProp, rootSchema);
+    const desc = resolvedProp.description ? ` - ${resolvedProp.description}` : "";
     console.log(`    --${name} <${type}> (${req})${desc}`);
   }
 }
