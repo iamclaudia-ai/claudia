@@ -1,3 +1,5 @@
+import type { ZodTypeAny } from "zod";
+
 /**
  * Core types for Claudia
  */
@@ -149,12 +151,12 @@ export interface ExtensionContext {
  * Extension interface - all extensions must implement this
  */
 export interface ClaudiaExtension {
+  /** Extension method definitions (inputSchema required for validation + discovery) */
+  methods: ExtensionMethodDefinition[];
   /** Unique extension ID (e.g., "voice", "memory") */
   id: string;
   /** Human-readable name */
   name: string;
-  /** Methods this extension handles (e.g., ["voice.speak", "voice.stop"]) */
-  methods: string[];
   /** Events this extension emits (e.g., ["voice.speaking", "voice.done"]) */
   events: string[];
   /** Source prefixes this extension handles for routing (e.g., ["imessage", "slack"]) */
@@ -170,6 +172,17 @@ export interface ClaudiaExtension {
   handleSourceResponse?(source: string, event: GatewayEvent): Promise<void>;
   /** Health check */
   health(): { ok: boolean; details?: Record<string, unknown> };
+}
+
+export interface ExtensionMethodDefinition {
+  /** Fully-qualified method name (e.g., "voice.speak") */
+  name: string;
+  /** Short human-readable description for CLI/help output */
+  description: string;
+  /** Required request schema used by gateway as a pre-dispatch bouncer */
+  inputSchema: ZodTypeAny;
+  /** Optional output schema (future use) */
+  outputSchema?: ZodTypeAny;
 }
 
 // ============================================================================

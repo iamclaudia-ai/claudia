@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@claudia/shared": "workspace:*",
-    "@claudia/ui": "workspace:*"
+    "@claudia/ui": "workspace:*",
+    "zod": "^3.25.76"
   }
 }

@@ -16,7 +16,9 @@
     "@claudia/voice": "workspace:*",
     "@claudia/ext-chat": "workspace:*",
     "@claudia/ext-imessage": "workspace:*",
-    "@claudia/ext-mission-control": "workspace:*"
+    "@claudia/ext-mission-control": "workspace:*",
+    "zod": "^3.25.76",
+    "zod-to-json-schema": "^3.24.6"
   },
   "devDependencies": {
     "@tailwindcss/typography": "^0.5.19",

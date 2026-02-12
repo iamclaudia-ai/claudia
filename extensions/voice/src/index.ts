@@ -17,6 +17,7 @@ import type { ClaudiaExtension, ExtensionContext, GatewayEvent, HealthCheckRespo
 import { existsSync, mkdirSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
+import { z } from "zod";
 import { CartesiaStream } from './cartesia-stream';
 import { SentenceChunker } from './sentence-chunker';
 import { saveAudio, getAudioPath, pcmToWav } from './audio-store';
@@ -496,7 +497,38 @@ export function createVoiceExtension(config: VoiceConfig = {}): ClaudiaExtension
   return {
     id: 'voice',
     name: 'Voice (TTS)',
-    methods: ['voice.speak', 'voice.stop', 'voice.status', 'voice.replay', 'voice.health-check'],
+    methods: [
+      {
+        name: "voice.speak",
+        description: "Synthesize text to speech and emit a voice.audio event",
+        inputSchema: z.object({
+          text: z.string().min(1),
+        }),
+      },
+      {
+        name: "voice.stop",
+        description: "Stop active streaming TTS playback for the current stream",
+        inputSchema: z.object({}),
+      },
+      {
+        name: "voice.status",
+        description: "Get current voice extension status and active stream state",
+        inputSchema: z.object({}),
+      },
+      {
+        name: "voice.replay",
+        description: "Replay previously saved response audio by session and stream id",
+        inputSchema: z.object({
+          sessionId: z.string().min(1),
+          streamId: z.string().min(1),
+        }),
+      },
+      {
+        name: "voice.health-check",
+        description: "Return standardized health-check payload for Mission Control",
+        inputSchema: z.object({}),
+      },
+    ],
     events: [
       'voice.speaking', 'voice.done', 'voice.audio', 'voice.error', // batch compat
       'voice.stream_start', 'voice.audio_chunk', 'voice.stream_end', // streaming

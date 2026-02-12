@@ -12,6 +12,7 @@ import type {
   HealthItem,
 } from "@claudia/shared";
 import { loadConfig } from "@claudia/shared";
+import { z } from "zod";
 
 interface RuntimeSessionInfo {
   id: string;
@@ -57,9 +58,23 @@ export function createChatExtension(): ClaudiaExtension {
     id: "chat",
     name: "Chat Sessions",
     methods: [
-      "chat.health-check",
-      "chat.kill-session",
-      "chat.kill-all-sessions",
+      {
+        name: "chat.health-check",
+        description: "Return chat/runtime health status for Mission Control",
+        inputSchema: z.object({}),
+      },
+      {
+        name: "chat.kill-session",
+        description: "Kill a specific runtime Claude process by session id",
+        inputSchema: z.object({
+          sessionId: z.string().min(1),
+        }),
+      },
+      {
+        name: "chat.kill-all-sessions",
+        description: "Kill all active runtime Claude processes",
+        inputSchema: z.object({}),
+      },
     ],
     events: [],
 

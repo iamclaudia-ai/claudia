@@ -1,21 +1,22 @@
 #!/usr/bin/env bun
 /**
- * Claudia CLI - Simple one-shot client for testing
+ * Claudia CLI - Gateway client
  *
  * Usage:
  *   claudia "Hello, how are you?"
- *   claudia -p "What's 2+2?"
- *   claudia speak "Hello darling!"      # TTS via voice extension
- *   echo "Hello" | claudia
+ *   claudia workspace list
+ *   claudia session prompt --sessionId ses_123 --content "Hello" --model claude-opus-4-6 --thinking true --effort medium
+ *   claudia voice speak --text "Hello"
+ *   claudia methods
  */
 
-const GATEWAY_URL = process.env.CLAUDIA_GATEWAY_URL || 'ws://localhost:30086/ws';
+const GATEWAY_URL = process.env.CLAUDIA_GATEWAY_URL || "ws://localhost:30086/ws";
 const MODEL = process.env.CLAUDIA_MODEL || "claude-opus-4-6";
 const THINKING = process.env.CLAUDIA_THINKING ? process.env.CLAUDIA_THINKING === "true" : true;
 const EFFORT = process.env.CLAUDIA_THINKING_EFFORT || "medium";
 
 interface Message {
-  type: 'req' | 'res' | 'event';
+  type: "req" | "res" | "event";
   id?: string;
   method?: string;
   params?: Record<string, unknown>;
@@ -25,34 +26,280 @@ interface Message {
   event?: string;
 }
 
-/**
- * Generate a simple request ID
- */
+interface JsonSchema {
+  type?: string;
+  description?: string;
+  properties?: Record<string, JsonSchema>;
+  required?: string[];
+  additionalProperties?: boolean;
+  anyOf?: JsonSchema[];
+  allOf?: JsonSchema[];
+  enum?: unknown[];
+}
+
+interface MethodCatalogEntry {
+  method: string;
+  source: "gateway" | "extension";
+  extensionId?: string;
+  extensionName?: string;
+  description?: string;
+  inputSchema?: JsonSchema;
+}
+
 function generateId(): string {
   return Math.random().toString(36).slice(2, 10);
 }
 
-/**
- * Speak text using voice extension
- */
+function coerceValue(value: string): unknown {
+  if (value === "true") return true;
+  if (value === "false") return false;
+  if (value === "null") return null;
+
+  if (/^-?\d+(\.\d+)?$/.test(value)) {
+    const num = Number(value);
+    if (Number.isFinite(num)) return num;
+  }
+
+  if ((value.startsWith("{") && value.endsWith("}")) || (value.startsWith("[") && value.endsWith("]"))) {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return value;
+    }
+  }
+
+  return value;
+}
+
+function parseCliParams(rawArgs: string[]): Record<string, unknown> {
+  const params: Record<string, unknown> = {};
+
+  for (let i = 0; i < rawArgs.length; i += 1) {
+    const token = rawArgs[i];
+    if (!token.startsWith("--")) {
+      throw new Error(`Unexpected positional argument: ${token}. Use --name value.`);
+    }
+
+    const flag = token.slice(2);
+    if (!flag) throw new Error("Invalid flag: --");
+
+    const eqIdx = flag.indexOf("=");
+    if (eqIdx >= 0) {
+      const key = flag.slice(0, eqIdx);
+      const raw = flag.slice(eqIdx + 1);
+      params[key] = coerceValue(raw);
+      continue;
+    }
+
+    const next = rawArgs[i + 1];
+    if (!next || next.startsWith("--")) {
+      params[flag] = true;
+      continue;
+    }
+
+    params[flag] = coerceValue(next);
+    i += 1;
+  }
+
+  return params;
+}
+
+function schemaType(schema?: JsonSchema): string {
+  if (!schema) return "unknown";
+  if (schema.type) return schema.type;
+  if (schema.anyOf?.length) {
+    return schema.anyOf.map((s) => schemaType(s)).join("|");
+  }
+  if (schema.allOf?.length) {
+    return schema.allOf.map((s) => schemaType(s)).join("&");
+  }
+  return "unknown";
+}
+
+function validateParamsAgainstSchema(method: string, params: Record<string, unknown>, schema?: JsonSchema): void {
+  if (!schema || schema.type !== "object") return;
+
+  const required = schema.required ?? [];
+  const missing = required.filter((k) => !(k in params));
+  if (missing.length > 0) {
+    throw new Error(`Missing required params for ${method}: ${missing.join(", ")}`);
+  }
+
+  if (schema.additionalProperties === false && schema.properties) {
+    const allowed = new Set(Object.keys(schema.properties));
+    const unknown = Object.keys(params).filter((k) => !allowed.has(k));
+    if (unknown.length > 0) {
+      throw new Error(`Unknown params for ${method}: ${unknown.join(", ")}`);
+    }
+  }
+}
+
+function printMethodHelp(entry: MethodCatalogEntry): void {
+  console.log(`\n${entry.method}`);
+  if (entry.description) console.log(`  ${entry.description}`);
+  const schema = entry.inputSchema;
+  if (!schema || schema.type !== "object") {
+    console.log("  No input schema available.");
+    return;
+  }
+
+  const required = new Set(schema.required ?? []);
+  const props = schema.properties ? Object.entries(schema.properties) : [];
+  if (props.length === 0) {
+    console.log("  No parameters.");
+    return;
+  }
+
+  console.log("  Parameters:");
+  for (const [name, prop] of props) {
+    const req = required.has(name) ? "required" : "optional";
+    const type = schemaType(prop);
+    const desc = prop.description ? ` - ${prop.description}` : "";
+    console.log(`    --${name} <${type}> (${req})${desc}`);
+  }
+}
+
+function printMethodList(methods: MethodCatalogEntry[]): void {
+  console.log("Available methods:\n");
+  const sorted = [...methods].sort((a, b) => a.method.localeCompare(b.method));
+  for (const m of sorted) {
+    const src = m.source === "extension" ? `extension:${m.extensionId ?? "unknown"}` : "gateway";
+    console.log(`  ${m.method}  [${src}]`);
+  }
+  console.log("\nUsage:");
+  console.log("  claudia <namespace> <action> --param value");
+  console.log("  claudia <namespace> <action> --help");
+  console.log("  claudia methods");
+}
+
+async function fetchMethodCatalog(): Promise<MethodCatalogEntry[]> {
+  const ws = new WebSocket(GATEWAY_URL);
+
+  return new Promise((resolve, reject) => {
+    const reqId = generateId();
+
+    ws.onopen = () => {
+      const msg: Message = { type: "req", id: reqId, method: "method.list", params: {} };
+      ws.send(JSON.stringify(msg));
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const msg: Message = JSON.parse(event.data as string);
+        if (msg.type !== "res" || msg.id !== reqId) return;
+
+        if (!msg.ok) {
+          ws.close();
+          reject(new Error(msg.error || "method.list failed"));
+          return;
+        }
+
+        const payload = (msg.payload || {}) as { methods?: MethodCatalogEntry[] };
+        ws.close();
+        resolve(payload.methods ?? []);
+      } catch (err) {
+        ws.close();
+        reject(err);
+      }
+    };
+
+    ws.onerror = (error) => {
+      reject(error);
+    };
+  });
+}
+
+async function invokeMethod(method: string, params: Record<string, unknown>): Promise<void> {
+  const ws = new WebSocket(GATEWAY_URL);
+
+  return new Promise((resolve, reject) => {
+    const reqId = generateId();
+    const streamPrompt = method === "session.prompt";
+    let gotFinalStreamEvent = false;
+    let gotResponse = false;
+
+    ws.onopen = () => {
+      if (streamPrompt) {
+        const subMsg: Message = {
+          type: "req",
+          id: generateId(),
+          method: "subscribe",
+          params: { events: ["session.*"] },
+        };
+        ws.send(JSON.stringify(subMsg));
+      }
+
+      const req: Message = { type: "req", id: reqId, method, params };
+      ws.send(JSON.stringify(req));
+    };
+
+    ws.onmessage = (event) => {
+      const msg: Message = JSON.parse(event.data as string);
+
+      if (msg.type === "res" && msg.id === reqId) {
+        gotResponse = true;
+        if (!msg.ok) {
+          ws.close();
+          reject(new Error(msg.error || `Request failed: ${method}`));
+          return;
+        }
+
+        if (!streamPrompt) {
+          if (msg.payload !== undefined) {
+            console.log(JSON.stringify(msg.payload, null, 2));
+          }
+          ws.close();
+          resolve();
+        }
+        return;
+      }
+
+      if (!streamPrompt || msg.type !== "event") return;
+
+      const payload = (msg.payload || {}) as Record<string, unknown>;
+      if (msg.event === "session.content_block_delta") {
+        const delta = payload.delta as { type?: string; text?: string } | undefined;
+        if (delta?.type === "text_delta" && delta.text) {
+          process.stdout.write(delta.text);
+        }
+      }
+
+      if (msg.event === "session.message_stop") {
+        gotFinalStreamEvent = true;
+        process.stdout.write("\n");
+        ws.close();
+        resolve();
+      }
+    };
+
+    ws.onerror = (error) => {
+      reject(error);
+    };
+
+    ws.onclose = () => {
+      if (streamPrompt && gotResponse && !gotFinalStreamEvent) {
+        resolve();
+      }
+    };
+  });
+}
+
 async function speak(text: string): Promise<void> {
   const ws = new WebSocket(GATEWAY_URL);
 
   return new Promise((resolve, reject) => {
     ws.onopen = () => {
-      // Subscribe to voice events
       ws.send(JSON.stringify({
-        type: 'req',
+        type: "req",
         id: generateId(),
-        method: 'subscribe',
-        params: { events: ['voice.*'] },
+        method: "subscribe",
+        params: { events: ["voice.*"] },
       }));
 
-      // Send speak request
       ws.send(JSON.stringify({
-        type: 'req',
+        type: "req",
         id: generateId(),
-        method: 'voice.speak',
+        method: "voice.speak",
         params: { text },
       }));
     };
@@ -60,95 +307,56 @@ async function speak(text: string): Promise<void> {
     ws.onmessage = async (event) => {
       const msg: Message = JSON.parse(event.data as string);
 
-      if (msg.type === 'res' && !msg.ok) {
-        console.error('Error:', msg.error);
+      if (msg.type === "res" && !msg.ok) {
         ws.close();
         reject(new Error(msg.error));
         return;
       }
 
-      if (msg.type === 'event') {
-        if (msg.event === 'voice.speaking') {
-          console.log('Speaking...');
-        } else if (msg.event === 'voice.audio') {
-          // Play the audio!
-          const payload = msg.payload as { format: string; data: string };
-          const audioBuffer = Buffer.from(payload.data, 'base64');
-          const tempFile = `/tmp/claudia-speech-${Date.now()}.mp3`;
-          await Bun.write(tempFile, audioBuffer);
+      if (msg.type !== "event") return;
 
-          // Play with afplay (macOS)
-          const proc = Bun.spawn(['afplay', tempFile], {
-            stdout: 'ignore',
-            stderr: 'ignore',
-          });
-          await proc.exited;
+      if (msg.event === "voice.audio") {
+        const payload = msg.payload as { format: string; data: string };
+        const audioBuffer = Buffer.from(payload.data, "base64");
+        const ext = payload.format === "wav" ? "wav" : payload.format || "bin";
+        const tempFile = `/tmp/claudia-speech-${Date.now()}.${ext}`;
+        await Bun.write(tempFile, audioBuffer);
 
-          // Clean up
-          await Bun.file(tempFile).exists() && Bun.spawn(['rm', tempFile]);
-        } else if (msg.event === 'voice.done') {
-          console.log('Done.');
-          ws.close();
-          resolve();
-        } else if (msg.event === 'voice.error') {
-          const payload = msg.payload as { error: string };
-          console.error('Voice error:', payload.error);
-          ws.close();
-          reject(new Error(payload.error));
-        }
+        const proc = Bun.spawn(["afplay", tempFile], { stdout: "ignore", stderr: "ignore" });
+        await proc.exited;
+        await Bun.file(tempFile).exists() && Bun.spawn(["rm", tempFile]);
+      } else if (msg.event === "voice.done") {
+        ws.close();
+        resolve();
+      } else if (msg.event === "voice.error") {
+        const payload = msg.payload as { error: string };
+        ws.close();
+        reject(new Error(payload.error));
       }
     };
 
-    ws.onerror = (error) => {
-      console.error('WebSocket error:', error);
-      reject(error);
-    };
+    ws.onerror = (error) => reject(error);
   });
 }
 
-/**
- * Main CLI function
- */
-async function main(): Promise<void> {
-  // Get args
-  const args = process.argv.slice(2);
-
-  // Check for speak command
-  if (args[0] === 'speak') {
-    const text = args.slice(1).join(' ');
-    if (!text) {
-      console.error('Usage: claudia speak "text to speak"');
-      process.exit(1);
-    }
-    await speak(text);
-    return;
-  }
-
-  // Get prompt from args or stdin
-  let prompt = args.join(' ');
-
-  // Handle -p flag (just ignore it, for compatibility with claude -p)
-  if (prompt.startsWith('-p ')) {
+async function promptCompat(args: string[]): Promise<void> {
+  let prompt = args.join(" ");
+  if (prompt.startsWith("-p ")) {
     prompt = prompt.slice(3);
   }
 
-  // If no args, try to read from stdin
   if (!prompt) {
     const stdin = await Bun.stdin.text();
     prompt = stdin.trim();
   }
 
   if (!prompt) {
-    console.error('Usage: claudia "your message here"');
-    console.error('       claudia speak "text to speak"');
-    console.error('       echo "your message" | claudia');
+    console.error("Usage: claudia \"your message here\"");
     process.exit(1);
   }
 
-  // Connect to gateway
   const ws = new WebSocket(GATEWAY_URL);
-
-  let responseText = '';
+  let responseText = "";
   let isComplete = false;
   let sessionRecordId: string | null = null;
   const pendingMethods = new Map<string, string>();
@@ -161,7 +369,7 @@ async function main(): Promise<void> {
   };
 
   ws.onopen = () => {
-    sendRequest("subscribe", { events: ['session.*'] });
+    sendRequest("subscribe", { events: ["session.*"] });
     sendRequest("workspace.getOrCreate", { cwd: process.cwd() });
   };
 
@@ -178,6 +386,7 @@ async function main(): Promise<void> {
         if (!workspace) return;
         if (workspace.activeSessionId) {
           sessionRecordId = workspace.activeSessionId;
+          console.error(`[session] Reusing ${sessionRecordId}`);
         } else {
           sendRequest("workspace.createSession", {
             workspaceId: workspace.id,
@@ -193,6 +402,7 @@ async function main(): Promise<void> {
         const session = payload.session as { id: string } | undefined;
         if (session?.id) {
           sessionRecordId = session.id;
+          console.error(`[session] Created ${sessionRecordId}`);
         }
       }
 
@@ -207,77 +417,104 @@ async function main(): Promise<void> {
       }
     }
 
-    if (msg.type === 'event') {
+    if (msg.type === "event") {
       const payload = msg.payload as Record<string, unknown>;
-
-      switch (msg.event) {
-        case 'session.content_block_start': {
-          // New content block starting
-          const block = payload.content_block as { type: string } | undefined;
-          if (block?.type === 'text') {
-            // Ready for text
-          }
-          break;
+      if (msg.event === "session.content_block_delta") {
+        const delta = payload.delta as { type: string; text?: string } | undefined;
+        if (delta?.type === "text_delta" && delta.text) {
+          process.stdout.write(delta.text);
+          responseText += delta.text;
         }
-
-        case 'session.content_block_delta': {
-          // Streaming text delta
-          const delta = payload.delta as { type: string; text?: string } | undefined;
-          if (delta?.type === 'text_delta' && delta.text) {
-            process.stdout.write(delta.text);
-            responseText += delta.text;
-          }
-          break;
-        }
-
-        case 'session.message_stop': {
-          // Message complete
-          isComplete = true;
-          if (responseText && !responseText.endsWith('\n')) {
-            console.log(); // Add newline if needed
-          }
-          ws.close();
-          break;
-        }
-
-        case 'session.message_delta': {
-          // Check for stop reason
-          const delta = payload.delta as { stop_reason?: string } | undefined;
-          if (delta?.stop_reason) {
-            // Response ending
-          }
-          break;
-        }
+      } else if (msg.event === "session.message_stop") {
+        isComplete = true;
+        if (responseText && !responseText.endsWith("\n")) console.log();
+        ws.close();
       }
-    } else if (msg.type === 'res' && !msg.ok) {
-      console.error('Error:', msg.error);
+    } else if (msg.type === "res" && !msg.ok) {
+      console.error("Error:", msg.error);
       ws.close();
       process.exit(1);
     }
   };
 
   ws.onerror = (error) => {
-    console.error('WebSocket error:', error);
+    console.error("WebSocket error:", error);
     process.exit(1);
   };
 
   ws.onclose = () => {
     if (!isComplete && !responseText) {
-      console.error('Connection closed before response');
+      console.error("Connection closed before response");
       process.exit(1);
     }
     process.exit(0);
   };
 
-  // Handle Ctrl+C
-  process.on('SIGINT', () => {
-    console.log('\nInterrupted');
+  process.on("SIGINT", () => {
+    console.log("\nInterrupted");
     ws.close();
     process.exit(0);
   });
 }
 
+async function main(): Promise<void> {
+  const args = process.argv.slice(2);
+
+  if (args[0] === "speak") {
+    const text = args.slice(1).join(" ");
+    if (!text) {
+      console.error("Usage: claudia speak \"text to speak\"");
+      process.exit(1);
+    }
+    await speak(text);
+    return;
+  }
+
+  const methods = await fetchMethodCatalog();
+  const methodMap = new Map(methods.map((m) => [m.method, m] as const));
+
+  if (args.length === 0) {
+    await promptCompat(args);
+    return;
+  }
+
+  if (args[0] === "methods" || args[0] === "help" || args[0] === "--help") {
+    printMethodList(methods);
+    return;
+  }
+
+  let resolvedMethod: string | null = null;
+  let paramArgs: string[] = [];
+
+  if (args[0].includes(".") && methodMap.has(args[0])) {
+    resolvedMethod = args[0];
+    paramArgs = args.slice(1);
+  } else if (args.length >= 2) {
+    const candidate = `${args[0]}.${args[1]}`;
+    if (methodMap.has(candidate)) {
+      resolvedMethod = candidate;
+      paramArgs = args.slice(2);
+    }
+  }
+
+  if (!resolvedMethod) {
+    await promptCompat(args);
+    return;
+  }
+
+  const methodDef = methodMap.get(resolvedMethod)!;
+
+  if (paramArgs.includes("--help")) {
+    printMethodHelp(methodDef);
+    return;
+  }
+
+  const params = parseCliParams(paramArgs);
+  validateParamsAgainstSchema(resolvedMethod, params, methodDef.inputSchema);
+  await invokeMethod(resolvedMethod, params);
+}
+
 main().catch((err) => {
-  console.error('Error:', err);
+  console.error("Error:", err instanceof Error ? err.message : err);
   process.exit(1);
 });

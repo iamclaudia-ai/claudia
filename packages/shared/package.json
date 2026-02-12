@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "json5": "2.2.3",
-    "typeid-js": "^1.2.0"
+    "typeid-js": "^1.2.0",
+    "zod": "^3.25.76"
   }
 }

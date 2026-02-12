@@ -23,6 +23,8 @@ import { ExtensionManager } from "./extensions";
 import { getDb, closeDb } from "./db/index";
 import { SessionManager } from "./session-manager";
 import { homedir } from "node:os";
+import { z, type ZodTypeAny } from "zod";
+import { zodToJsonSchema } from "zod-to-json-schema";
 
 // Web UI — served as SPA fallback for all non-WS routes
 import index from "./web/index.html";
@@ -113,6 +115,131 @@ extensions.setEmitCallback(async (type, payload, source) => {
 // Generate unique IDs
 const generateId = () => crypto.randomUUID();
 
+type GatewayMethodDefinition = {
+  method: string;
+  description: string;
+  inputSchema: ZodTypeAny;
+};
+
+const BUILTIN_METHODS: GatewayMethodDefinition[] = [
+  {
+    method: "workspace.list",
+    description: "List all workspaces",
+    inputSchema: z.object({}),
+  },
+  {
+    method: "workspace.get",
+    description: "Get one workspace by id",
+    inputSchema: z.object({ workspaceId: z.string().min(1) }),
+  },
+  {
+    method: "workspace.getOrCreate",
+    description: "Get or create a workspace for an explicit cwd",
+    inputSchema: z.object({
+      cwd: z.string().min(1),
+      name: z.string().optional(),
+    }),
+  },
+  {
+    method: "workspace.listSessions",
+    description: "List sessions for a specific workspace",
+    inputSchema: z.object({ workspaceId: z.string().min(1) }),
+  },
+  {
+    method: "workspace.createSession",
+    description: "Create a new session for a workspace with explicit runtime config",
+    inputSchema: z.object({
+      workspaceId: z.string().min(1),
+      model: z.string().min(1),
+      thinking: z.boolean(),
+      effort: z.string().min(1),
+      title: z.string().optional(),
+      systemPrompt: z.string().optional(),
+    }),
+  },
+  {
+    method: "session.info",
+    description: "Get current runtime/session info",
+    inputSchema: z.object({}),
+  },
+  {
+    method: "session.prompt",
+    description: "Send prompt to explicit session with explicit runtime config",
+    inputSchema: z.object({
+      sessionId: z.string().min(1),
+      content: z.union([z.string(), z.array(z.unknown())]),
+      model: z.string().min(1),
+      thinking: z.boolean(),
+      effort: z.string().min(1),
+      speakResponse: z.boolean().optional(),
+      source: z.string().optional(),
+    }),
+  },
+  {
+    method: "session.interrupt",
+    description: "Interrupt a specific session",
+    inputSchema: z.object({ sessionId: z.string().min(1) }),
+  },
+  {
+    method: "session.get",
+    description: "Get one session record by id",
+    inputSchema: z.object({ sessionId: z.string().min(1) }),
+  },
+  {
+    method: "session.history",
+    description: "Get history for a specific session",
+    inputSchema: z.object({
+      sessionId: z.string().min(1),
+      limit: z.number().int().positive().optional(),
+      offset: z.number().int().min(0).optional(),
+    }),
+  },
+  {
+    method: "session.switch",
+    description: "Switch runtime to an explicit session id",
+    inputSchema: z.object({ sessionId: z.string().min(1) }),
+  },
+  {
+    method: "session.reset",
+    description: "Create a replacement session for a workspace with explicit runtime config",
+    inputSchema: z.object({
+      workspaceId: z.string().min(1),
+      model: z.string().min(1),
+      thinking: z.boolean(),
+      effort: z.string().min(1),
+      systemPrompt: z.string().optional(),
+    }),
+  },
+  {
+    method: "extension.list",
+    description: "List loaded extensions and their methods",
+    inputSchema: z.object({}),
+  },
+  {
+    method: "method.list",
+    description: "List gateway and extension methods with schemas",
+    inputSchema: z.object({}),
+  },
+  {
+    method: "subscribe",
+    description: "Subscribe to events",
+    inputSchema: z.object({
+      events: z.array(z.string()).optional(),
+    }),
+  },
+  {
+    method: "unsubscribe",
+    description: "Unsubscribe from events",
+    inputSchema: z.object({
+      events: z.array(z.string()).optional(),
+    }),
+  },
+];
+
+const BUILTIN_METHODS_BY_NAME = new Map(
+  BUILTIN_METHODS.map((m) => [m.method, m] as const),
+);
+
 /**
  * Handle incoming WebSocket messages
  */
@@ -133,6 +260,17 @@ function handleMessage(ws: ServerWebSocket<ClientState>, data: string): void {
  * Route requests to handlers
  */
 function handleRequest(ws: ServerWebSocket<ClientState>, req: Request): void {
+  const methodDef = BUILTIN_METHODS_BY_NAME.get(req.method);
+  if (methodDef) {
+    const parsed = methodDef.inputSchema.safeParse(req.params ?? {});
+    if (!parsed.success) {
+      const issues = parsed.error.issues.map((i) => `${i.path.join(".") || "params"}: ${i.message}`);
+      sendError(ws, req.id, `Invalid params for ${req.method}: ${issues.join("; ")}`);
+      return;
+    }
+    req.params = parsed.data as Record<string, unknown>;
+  }
+
   const [namespace, action] = req.method.split(".");
 
   switch (namespace) {
@@ -144,6 +282,9 @@ function handleRequest(ws: ServerWebSocket<ClientState>, req: Request): void {
       break;
     case "extension":
       handleExtensionBuiltin(ws, req, action);
+      break;
+    case "method":
+      handleMethodBuiltin(ws, req, action);
       break;
     case "subscribe":
       handleSubscribe(ws, req);
@@ -158,6 +299,38 @@ function handleRequest(ws: ServerWebSocket<ClientState>, req: Request): void {
       } else {
         sendError(ws, req.id, `Unknown method: ${req.method}`);
       }
+  }
+}
+
+function handleMethodBuiltin(
+  ws: ServerWebSocket<ClientState>,
+  req: Request,
+  action: string,
+): void {
+  switch (action) {
+    case "list": {
+      const builtin = BUILTIN_METHODS.map((m) => ({
+        method: m.method,
+        source: "gateway",
+        description: m.description,
+        inputSchema: zodToJsonSchema(m.inputSchema, m.method),
+      }));
+      const extensionMethods = extensions.getMethodDefinitions().map((m) => ({
+        method: m.method.name,
+        source: "extension",
+        extensionId: m.extensionId,
+        extensionName: m.extensionName,
+        description: m.method.description,
+        inputSchema: zodToJsonSchema(m.method.inputSchema, m.method.name),
+        outputSchema: m.method.outputSchema
+          ? zodToJsonSchema(m.method.outputSchema, `${m.method.name}.output`)
+          : undefined,
+      }));
+      sendResponse(ws, req.id, { methods: [...builtin, ...extensionMethods] });
+      break;
+    }
+    default:
+      sendError(ws, req.id, `Unknown method action: ${action}`);
   }
 }
 

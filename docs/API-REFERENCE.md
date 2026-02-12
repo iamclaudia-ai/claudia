@@ -55,10 +55,13 @@ Refs: `packages/gateway/src/index.ts`, `packages/gateway/src/session-manager.ts`
 | Method | Required params | Optional params | Default/fallback behavior |
 |---|---|---|---|
 | `extension.list` | none | none | returns loaded extension metadata |
+| `method.list` | none | none | returns gateway + extension method catalog including JSON Schemas |
 | `subscribe` | none | `events` | `events` defaults to `[]` |
 | `unsubscribe` | none | `events` | `events` defaults to `[]` |
 
 Any other namespaced method (example `voice.speak`) is routed to extension handlers.
+
+Gateway now validates extension method params against each extension method's required `inputSchema` before dispatching to `handleMethod`.
 
 ### 2.4 Event routing notes
 
@@ -89,6 +92,9 @@ Refs: `packages/runtime/src/index.ts`, `packages/runtime/src/manager.ts`, `packa
 ## 4. Extension APIs (`extensions/*`)
 
 These are called through gateway using `extensionId.method`.
+
+Extension contract now requires method metadata with an `inputSchema` for every method.
+At runtime, methods are discovered and exposed to clients via `method.list` with JSON Schema payloads.
 
 ### 4.1 Voice extension (`extensions/voice`)
 

@@ -5,7 +5,12 @@
  * Supports source-based routing for responses (e.g., "imessage/+1555..." -> iMessage extension)
  */
 
-import type { ClaudiaExtension, ExtensionContext, GatewayEvent } from '@claudia/shared';
+import type {
+  ClaudiaExtension,
+  ExtensionContext,
+  ExtensionMethodDefinition,
+  GatewayEvent,
+} from "@claudia/shared";
 
 type EventHandler = (event: GatewayEvent) => void | Promise<void>;
 
@@ -85,11 +90,18 @@ export class ExtensionManager {
       throw new Error(`No extension found for method: ${method}`);
     }
 
-    if (!extension.methods.includes(method)) {
+    const methodDef = extension.methods.find((m) => m.name === method);
+    if (!methodDef) {
       throw new Error(`Extension ${extensionId} does not handle method: ${method}`);
     }
 
-    return extension.handleMethod(method, params);
+    const parsed = methodDef.inputSchema.safeParse(params ?? {});
+    if (!parsed.success) {
+      const issues = parsed.error.issues.map((i) => `${i.path.join(".") || "params"}: ${i.message}`);
+      throw new Error(`Invalid params for ${method}: ${issues.join("; ")}`);
+    }
+
+    return extension.handleMethod(method, parsed.data as Record<string, unknown>);
   }
 
   /**
@@ -159,7 +171,7 @@ export class ExtensionManager {
   hasMethod(method: string): boolean {
     const [extensionId] = method.split('.');
     const extension = this.extensions.get(extensionId);
-    return extension?.methods.includes(method) ?? false;
+    return extension?.methods.some((m) => m.name === method) ?? false;
   }
 
   /**
@@ -176,8 +188,32 @@ export class ExtensionManager {
     return Array.from(this.extensions.values()).map((ext) => ({
       id: ext.id,
       name: ext.name,
-      methods: ext.methods,
+      methods: ext.methods.map((m) => m.name),
     }));
+  }
+
+  getMethodDefinitions(): Array<{
+    extensionId: string;
+    extensionName: string;
+    method: ExtensionMethodDefinition;
+  }> {
+    const methods: Array<{
+      extensionId: string;
+      extensionName: string;
+      method: ExtensionMethodDefinition;
+    }> = [];
+
+    for (const extension of this.extensions.values()) {
+      for (const method of extension.methods) {
+        methods.push({
+          extensionId: extension.id,
+          extensionName: extension.name,
+          method,
+        });
+      }
+    }
+
+    return methods;
   }
 
   /**

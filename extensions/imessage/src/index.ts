@@ -13,6 +13,7 @@
 
 import type { ClaudiaExtension, ExtensionContext, GatewayEvent, HealthCheckResponse } from '@claudia/shared';
 import { ImsgRpcClient, type ImsgMessage, type ImsgAttachment } from './imsg-client';
+import { z } from "zod";
 
 // ============================================================================
 // Content Block Types (Claude API format)
@@ -296,7 +297,36 @@ export function createIMessageExtension(config: IMessageConfig = {}): ClaudiaExt
   return {
     id: 'imessage',
     name: 'iMessage',
-    methods: ['imessage.send', 'imessage.status', 'imessage.chats', 'imessage.health-check'],
+    methods: [
+      {
+        name: "imessage.send",
+        description: "Send a text message through iMessage by chatId or recipient handle",
+        inputSchema: z.object({
+          text: z.string().min(1),
+          chatId: z.number().optional(),
+          to: z.string().min(1).optional(),
+        }).refine((v) => v.chatId !== undefined || v.to !== undefined, {
+          message: "Either chatId or to is required",
+        }),
+      },
+      {
+        name: "imessage.status",
+        description: "Return iMessage extension runtime status",
+        inputSchema: z.object({}),
+      },
+      {
+        name: "imessage.chats",
+        description: "List recent iMessage chats",
+        inputSchema: z.object({
+          limit: z.number().int().positive().max(200).optional(),
+        }),
+      },
+      {
+        name: "imessage.health-check",
+        description: "Return standardized health-check payload for Mission Control",
+        inputSchema: z.object({}),
+      },
+    ],
     events: ['imessage.message', 'imessage.sent', 'imessage.error', 'imessage.prompt_request'],
     sourceRoutes: ['imessage'], // Handle all "imessage/*" sources
 
