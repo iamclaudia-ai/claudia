@@ -171,3 +171,62 @@ export interface ClaudiaExtension {
   /** Health check */
   health(): { ok: boolean; details?: Record<string, unknown> };
 }
+
+// ============================================================================
+// Health Check Contract (for Mission Control)
+// ============================================================================
+
+/**
+ * Standardized health check response returned by extensions that
+ * implement a `{id}.health-check` method. Mission Control discovers
+ * these extensions and renders their status generically.
+ */
+export interface HealthCheckResponse {
+  ok: boolean;
+  /** Overall status: "healthy", "degraded", "error", "disconnected" */
+  status: string;
+  /** Display name: "Chat Sessions", "Voice (ElevenLabs)" */
+  label: string;
+  /** Key stats to display */
+  metrics?: HealthMetric[];
+  /** Callable actions (kill, restart, etc.) */
+  actions?: HealthAction[];
+  /** Managed resources (sessions, connections, etc.) */
+  items?: HealthItem[];
+}
+
+export interface HealthMetric {
+  label: string;
+  value: string | number;
+}
+
+export interface HealthAction {
+  /** WebSocket method to call: "chat.kill-session" */
+  method: string;
+  /** Button label: "Kill Session" */
+  label: string;
+  /** Confirmation prompt (shows dialog if set) */
+  confirm?: string;
+  /** Parameters the UI needs to resolve and pass */
+  params: ActionParam[];
+  /** "item" = per-row button, "global" = card-level button */
+  scope?: "item" | "global";
+}
+
+export interface ActionParam {
+  /** Parameter name: "sessionId" */
+  name: string;
+  /** Where to get the value: "item.id" auto-fills from row, "input" prompts user */
+  source: "item.id" | "input";
+}
+
+export interface HealthItem {
+  /** Resource identifier (e.g., session ID) */
+  id: string;
+  /** Display label: "~/Projects/claudia" */
+  label: string;
+  /** Status for colored indicator */
+  status: "healthy" | "stale" | "dead" | "inactive";
+  /** Extra columns: { model: "sonnet-4", lastActivity: "2m ago" } */
+  details?: Record<string, string>;
+}

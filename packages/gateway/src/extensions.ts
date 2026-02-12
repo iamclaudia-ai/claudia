@@ -170,6 +170,17 @@ export class ExtensionManager {
   }
 
   /**
+   * Get extension list for discovery (used by Mission Control)
+   */
+  getExtensionList(): Array<{ id: string; name: string; methods: string[] }> {
+    return Array.from(this.extensions.values()).map((ext) => ({
+      id: ext.id,
+      name: ext.name,
+      methods: ext.methods,
+    }));
+  }
+
+  /**
    * Get extension health status
    */
   getHealth(): Record<string, { ok: boolean; details?: Record<string, unknown> }> {
