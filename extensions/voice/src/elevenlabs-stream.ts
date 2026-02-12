@@ -1,16 +1,15 @@
 /**
  * ElevenLabs WebSocket Streaming
  *
- * Manages a single WebSocket connection to ElevenLabs for real-time
- * text-to-speech streaming. One instance per Claude response turn.
+ * Manages a persistent WebSocket connection to ElevenLabs for real-time
+ * text-to-speech streaming. Connection stays open across multiple responses.
  *
  * Protocol:
  *   1. Connect to wss://api.elevenlabs.io/v1/text-to-speech/{voiceId}/stream-input
- *   2. Send BOS (beginning of stream) with voice settings
- *   3. Send text chunks as they arrive (must end with space)
- *   4. Send flush to force generation of remaining buffered text
- *   5. Send EOS (empty text) to signal end — wait for isFinal before closing
- *   6. Receive base64 audio chunks + isFinal signal
+ *   2. Send BOS with configuration ONCE at connection time
+ *   3. For each response: text chunks → flush → EOS (no BOS!)
+ *   4. Connection and configuration persist across multiple responses
+ *   5. Only close connection when extension stops or error occurs
  */
 
 export interface ELStreamOptions {
@@ -34,6 +33,7 @@ export class ElevenLabsStream {
   private connected = false;
   private closeResolve: (() => void) | null = null;
   private firstTextSent = false;
+  private streamActive = false;
 
   constructor(private options: ELStreamOptions) {}
 
@@ -51,8 +51,9 @@ export class ElevenLabsStream {
 
     return new Promise<void>((resolve, reject) => {
       this.ws!.onopen = () => {
-        this.log('INFO', 'WebSocket OPEN — sending BOS');
-        // Send BOS (beginning of stream) with configuration
+        this.log('INFO', 'WebSocket OPEN — sending BOS configuration');
+
+        // Send BOS (beginning of stream) with configuration - ONCE at connection time
         this.ws!.send(
           JSON.stringify({
             text: ' ',
@@ -66,6 +67,7 @@ export class ElevenLabsStream {
             xi_api_key: this.options.apiKey,
           })
         );
+
         this.connected = true;
         resolve();
       };
@@ -84,9 +86,13 @@ export class ElevenLabsStream {
 
           if (data.isFinal) {
             this.log('INFO', `Received isFinal — ${this.chunkIndex} total chunks`);
+            this.streamActive = false;
             this.options.onDone();
-            // Now we can safely close the WebSocket
-            this.cleanup();
+            // Resolve any pending endStream() promise
+            if (this.closeResolve) {
+              this.closeResolve();
+              this.closeResolve = null;
+            }
           }
 
           // Log non-audio messages (errors, alignment info, etc.)
@@ -122,10 +128,34 @@ export class ElevenLabsStream {
     });
   }
 
+  /** Start a new stream session on the existing connection */
+  startStream(): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      this.log('WARN', `startStream called but WS not open (state=${this.ws?.readyState})`);
+      return;
+    }
+
+    if (this.streamActive) {
+      this.log('WARN', 'Stream already active, call endStream() first');
+      return;
+    }
+
+    this.log('INFO', 'Starting new stream session — ready for text');
+    this.chunkIndex = 0;
+    this.streamActive = true;
+
+    // No BOS here! Connection already configured.
+    // Just mark session as active and ready to receive text.
+  }
+
   /** Send a text chunk to ElevenLabs for TTS */
   sendText(text: string): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       this.log('WARN', `sendText called but WS not open (state=${this.ws?.readyState})`);
+      return;
+    }
+    if (!this.streamActive) {
+      this.log('WARN', 'sendText called but no active stream, call startStream() first');
       return;
     }
     // EL requires text to end with a space for processing
@@ -139,40 +169,57 @@ export class ElevenLabsStream {
       this.log('WARN', `flush called but WS not open (state=${this.ws?.readyState})`);
       return;
     }
+    if (!this.streamActive) {
+      this.log('WARN', 'flush called but no active stream');
+      return;
+    }
     this.log('INFO', 'Sending flush');
     this.ws.send(JSON.stringify({ text: ' ', flush: true }));
   }
 
   /**
-   * Gracefully close the stream (send EOS, wait for isFinal).
-   * Returns a Promise that resolves when EL sends isFinal or after timeout.
+   * End the current stream session (send EOS, wait for isFinal).
+   * Connection stays open for next stream.
    */
-  close(): Promise<void> {
-    if (this.closed) return Promise.resolve();
-    this.closed = true;
+  endStream(): Promise<void> {
+    if (!this.streamActive) return Promise.resolve();
 
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      this.log('WARN', 'close() called but WS not open — cleaning up');
-      this.cleanup();
+      this.log('WARN', 'endStream() called but WS not open');
+      this.streamActive = false;
       return Promise.resolve();
     }
 
-    this.log('INFO', 'Sending EOS (empty text) — waiting for isFinal...');
+    this.log('INFO', 'Ending stream session — sending EOS, waiting for isFinal...');
     this.ws.send(JSON.stringify({ text: '' }));
 
     // Wait for isFinal message or timeout
     return new Promise<void>((resolve) => {
       this.closeResolve = resolve;
 
-      // Safety timeout: if EL never sends isFinal, force close after 10s
+      // Safety timeout: if EL never sends isFinal, force end after 10s
       setTimeout(() => {
-        if (this.ws) {
-          this.log('WARN', 'Timeout waiting for isFinal — force closing');
+        if (this.streamActive) {
+          this.log('WARN', 'Timeout waiting for isFinal — force ending stream');
+          this.streamActive = false;
           this.options.onDone();
-          this.cleanup();
+          resolve();
         }
       }, 10_000);
     });
+  }
+
+  /**
+   * Gracefully close the persistent connection.
+   * Should only be called when extension is stopping.
+   */
+  close(): Promise<void> {
+    if (this.closed) return Promise.resolve();
+    this.closed = true;
+
+    this.log('INFO', 'Closing persistent connection');
+    this.cleanup();
+    return Promise.resolve();
   }
 
   /** Hard-close the stream immediately (for voice.stop / abort) */

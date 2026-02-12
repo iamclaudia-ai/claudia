@@ -28,6 +28,43 @@ function base64ToArrayBuffer(base64: string): ArrayBuffer {
   return bytes.buffer;
 }
 
+/** Convert raw PCM data to WAV format for browser playback */
+function pcmToWav(pcmData: ArrayBuffer, sampleRate: number = 24000, channels: number = 1): ArrayBuffer {
+  const pcmBytes = new Int16Array(pcmData);
+  const length = pcmBytes.length;
+  const buffer = new ArrayBuffer(44 + length * 2);
+  const view = new DataView(buffer);
+
+  // WAV header
+  const writeString = (offset: number, str: string) => {
+    for (let i = 0; i < str.length; i++) {
+      view.setUint8(offset + i, str.charCodeAt(i));
+    }
+  };
+
+  writeString(0, 'RIFF');                                    // ChunkID
+  view.setUint32(4, 36 + length * 2, true);                 // ChunkSize
+  writeString(8, 'WAVE');                                    // Format
+  writeString(12, 'fmt ');                                   // Subchunk1ID
+  view.setUint32(16, 16, true);                              // Subchunk1Size
+  view.setUint16(20, 1, true);                               // AudioFormat (PCM)
+  view.setUint16(22, channels, true);                        // NumChannels
+  view.setUint32(24, sampleRate, true);                      // SampleRate
+  view.setUint32(28, sampleRate * channels * 2, true);       // ByteRate
+  view.setUint16(32, channels * 2, true);                    // BlockAlign
+  view.setUint16(34, 16, true);                              // BitsPerSample
+  writeString(36, 'data');                                   // Subchunk2ID
+  view.setUint32(40, length * 2, true);                      // Subchunk2Size
+
+  // Copy PCM data
+  const offset = 44;
+  for (let i = 0; i < length; i++) {
+    view.setInt16(offset + i * 2, pcmBytes[i], true);
+  }
+
+  return buffer;
+}
+
 export function useAudioPlayback(
   gateway: UseGatewayReturn,
 ): UseAudioPlaybackReturn {
@@ -54,7 +91,9 @@ export function useAudioPlayback(
 
   /** Play the next buffer in the queue */
   const playNext = useCallback(() => {
+    console.log(`[AudioPlayback] playNext() called, queue length: ${queueRef.current.length}`);
     if (queueRef.current.length === 0) {
+      console.log("[AudioPlayback] Queue empty, stopping playback");
       isPlayingRef.current = false;
       setIsPlaying(false);
       // If stream is done and queue is empty, we're fully done
@@ -77,10 +116,12 @@ export function useAudioPlayback(
     currentSourceRef.current = source;
 
     source.onended = () => {
+      console.log("[AudioPlayback] Chunk finished, playing next");
       currentSourceRef.current = null;
       playNext();
     };
 
+    console.log(`[AudioPlayback] Starting chunk: ${buffer.duration.toFixed(3)}s`);
     source.start();
   }, []);
 
@@ -122,17 +163,52 @@ export function useAudioPlayback(
         if (!audio) return;
 
         const ctx = ensureAudioContext();
-        const arrayBuffer = base64ToArrayBuffer(audio);
+        const pcmArrayBuffer = base64ToArrayBuffer(audio);
+        const pcmData = new Int16Array(pcmArrayBuffer);
 
-        ctx.decodeAudioData(arrayBuffer).then((buffer) => {
-          queueRef.current.push(buffer);
-          // Start playing if not already
-          if (!isPlayingRef.current) {
-            playNext();
+        console.log(`[AudioPlayback] Processing chunk: ${pcmData.length} samples (${pcmArrayBuffer.byteLength} bytes PCM)`);
+
+        // Create AudioBuffer directly from PCM data (no WAV conversion needed)
+        // Use AudioContext's sample rate to avoid resampling artifacts
+        const sampleRate = ctx.sampleRate;
+        const cartesiaSampleRate = 24000;
+        const channels = 1;
+        const frameCount = pcmData.length;
+
+        // If sample rates differ, we need to resample to match AudioContext
+        let finalFrameCount = frameCount;
+        let resampledData = pcmData;
+
+        if (sampleRate !== cartesiaSampleRate) {
+          // Simple resampling - not perfect but should reduce crackling
+          const resampleRatio = sampleRate / cartesiaSampleRate;
+          finalFrameCount = Math.floor(frameCount * resampleRatio);
+          resampledData = new Int16Array(finalFrameCount);
+
+          for (let i = 0; i < finalFrameCount; i++) {
+            const sourceIndex = Math.floor(i / resampleRatio);
+            resampledData[i] = pcmData[Math.min(sourceIndex, frameCount - 1)];
           }
-        }).catch((err) => {
-          console.warn("[AudioPlayback] Failed to decode audio chunk:", err);
-        });
+
+          console.log(`[AudioPlaybook] Resampled ${frameCount} samples (${cartesiaSampleRate}Hz) to ${finalFrameCount} samples (${sampleRate}Hz)`);
+        }
+
+        const audioBuffer = ctx.createBuffer(channels, finalFrameCount, sampleRate);
+
+        // Copy PCM data to AudioBuffer (convert from Int16 to Float32)
+        const channelData = audioBuffer.getChannelData(0);
+        for (let i = 0; i < finalFrameCount; i++) {
+          channelData[i] = resampledData[i] / 32768.0; // Convert 16-bit signed int to float (-1 to 1)
+        }
+
+        console.log(`[AudioPlayback] Created AudioBuffer: ${audioBuffer.duration.toFixed(3)}s (${finalFrameCount} frames @ ${sampleRate}Hz), queue length: ${queueRef.current.length + 1}`);
+        queueRef.current.push(audioBuffer);
+
+        // Start playing if not already
+        if (!isPlayingRef.current) {
+          console.log("[AudioPlayback] Starting playback");
+          playNext();
+        }
       }
 
       if (event === "voice.stream_end") {
