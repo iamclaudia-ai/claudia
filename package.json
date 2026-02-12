@@ -22,6 +22,7 @@
     "typecheck": "tsc --noEmit",
     "typecheck:all": "bun run --filter @claudia/cli typecheck && bun run --filter @claudia/gateway typecheck && bun run --filter @claudia/memory-mcp typecheck && bun run --filter @claudia/runtime typecheck && bun run --filter @claudia/shared typecheck && bun run --filter @claudia/ui typecheck && bun run --filter @claudia/ext-chat typecheck && bun run --filter @claudia/ext-imessage typecheck && bun run --filter @claudia/ext-mission-control typecheck && bun run --filter @claudia/voice typecheck && bun run --filter @claudia/ios typecheck && bun run --filter @claudia/menubar typecheck && bun run --filter claudia typecheck",
     "precommit": "bun run typecheck && bunx lint-staged",
+    "prepush": "bun run test:unit",
     "prepare": "husky",
     "lint": "oxlint .",
     "format": "bunx oxfmt --write ."
@@ -42,7 +43,11 @@
   },
   "lint-staged": {
     "*.{ts,tsx,js,jsx,mjs,cjs}": [
+      "bunx oxfmt --write",
       "oxlint"
+    ],
+    "*.{json,md,css,html,yml,yaml}": [
+      "bunx oxfmt --write"
     ]
   }
 }
