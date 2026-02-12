@@ -1,6 +1,8 @@
 # Dependencies
 node_modules/
 
+tmp/
+
 # Build output
 dist/
 *.tsbuildinfo
@@ -37,7 +39,8 @@ xcuserdata/
 DerivedData/
 *.xcodeproj/project.xcworkspace/xcuserdata/
 
-# iOS build artifacts
+# iOS/Xcode build artifacts
+clients/ios/build/
 clients/ios/ios/build/
 clients/ios/android/build/
 clients/ios/android/.gradle/

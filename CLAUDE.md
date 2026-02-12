@@ -173,6 +173,7 @@ bun run typecheck
 - **Clean and concise** — Prefer clarity over cleverness
 - **~500 LOC per file** — Split when it improves clarity
 - **Extensions are the pattern** — New features go in `extensions/`, not core
+- **Temp files in `./tmp/`** — All test files, scratch scripts, audio samples, and temporary artifacts go in the `tmp/` directory (gitignored). Never leave temp files in the project root.
 
 ## Important Notes
 
