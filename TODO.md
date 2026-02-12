@@ -9,7 +9,7 @@
 - [x] Gateway (`@claudia/gateway`) - WebSocket server on port 30086
 - [x] Session persistence via `.session-id` file (KISS approach)
 - [x] CLI client (`@claudia/cli`) - one-shot testing tool
-- [x] Web UI (`@claudia/web`) - React app with streaming support
+- [x] Web UI (gateway-hosted SPA) - React app with streaming support
   - Thinking animation (circuit brain)
   - Tool call blocks
   - Markdown rendering with syntax highlighting
