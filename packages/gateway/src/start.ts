@@ -17,6 +17,8 @@ import { getEnabledExtensions } from '@claudia/shared';
 // Import available extensions
 import { createVoiceExtension } from '@claudia/voice';
 import { createIMessageExtension } from '@claudia/ext-imessage';
+import { createChatExtension } from '@claudia/ext-chat/extension';
+import { createMissionControlExtension } from '@claudia/ext-mission-control/extension';
 
 // Extension factory registry
 type ExtensionFactory = (config: Record<string, unknown>) => ReturnType<typeof createVoiceExtension>;
@@ -29,6 +31,7 @@ const EXTENSION_FACTORIES: Record<string, ExtensionFactory> = {
       model: config.model as string,
       autoSpeak: config.autoSpeak as boolean,
       summarizeThreshold: config.summarizeThreshold as number,
+      streaming: config.streaming as boolean,
     }),
   imessage: (config) =>
     createIMessageExtension({
@@ -80,5 +83,17 @@ async function loadExtensions(): Promise<void> {
   }
 }
 
+// Always-on extensions (no config needed)
+async function loadBuiltinExtensions(): Promise<void> {
+  try {
+    await extensions.register(createChatExtension());
+    await extensions.register(createMissionControlExtension());
+  } catch (error) {
+    console.error('[Startup] Failed to load builtin extensions:', error);
+  }
+}
+
 // Load extensions on startup
-loadExtensions().catch(console.error);
+loadBuiltinExtensions()
+  .then(() => loadExtensions())
+  .catch(console.error);

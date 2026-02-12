@@ -64,6 +64,9 @@ export interface UseGatewayOptions {
 
 // ─── Return Type ─────────────────────────────────────────────
 
+/** Callback for subscribing to raw gateway events */
+export type EventListener = (event: string, payload: unknown) => void;
+
 export interface UseGatewayReturn {
   messages: Message[];
   isConnected: boolean;
@@ -90,6 +93,8 @@ export interface UseGatewayReturn {
   switchSession(sessionId: string): void;
   /** Send a raw gateway request (for listing pages) */
   sendRequest(method: string, params?: Record<string, unknown>): void;
+  /** Subscribe to raw gateway events. Returns unsubscribe function. */
+  onEvent(listener: EventListener): () => void;
   messagesContainerRef: React.RefObject<HTMLDivElement | null>;
   messagesEndRef: React.RefObject<HTMLDivElement | null>;
 }
@@ -126,6 +131,7 @@ export function useGateway(
   optionsRef.current = options;
   const subscribedSessionRef = useRef<string | null>(null);
   const ignoringHaikuMessageRef = useRef(false);
+  const eventListenersRef = useRef<Set<EventListener>>(new Set());
 
   useEffect(() => {
     isQueryingRef.current = isQuerying;
@@ -612,6 +618,15 @@ export function useGateway(
           const payload = msg.payload as Record<string, unknown>;
           handleStreamEvent(eventType, payload);
         }
+
+        // Fire raw event listeners (for voice, extensions, etc.)
+        for (const listener of eventListenersRef.current) {
+          try {
+            listener(msg.event, msg.payload);
+          } catch {
+            // Don't let listener errors break the event loop
+          }
+        }
       }
     },
     [handleStreamEvent, setMessages, sendRequest, subscribeToSession],
@@ -631,6 +646,9 @@ export function useGateway(
       // Streaming events are subscribed per-session via subscribeToSession()
       // when we learn the ccSessionId from session.get/create/switch/info
       sendRequest("session.info");
+
+      // Subscribe to voice events (global, not session-scoped)
+      sendRequest("subscribe", { events: ["voice.*"] });
 
       const opts = optionsRef.current;
 
@@ -732,12 +750,20 @@ export function useGateway(
     [sendRequest],
   );
 
+  const onEvent = useCallback(
+    (listener: EventListener): (() => void) => {
+      eventListenersRef.current.add(listener);
+      return () => { eventListenersRef.current.delete(listener); };
+    },
+    [],
+  );
+
   return {
     messages, isConnected, isQuerying, isCompacting, sessionId, sessionRecordId,
     usage, eventCount, visibleCount, totalMessages, hasMore,
     workspace, sessions, sessionConfig,
     sendPrompt, sendInterrupt, loadEarlierMessages,
-    createNewSession, switchSession, sendRequest,
+    createNewSession, switchSession, sendRequest, onEvent,
     messagesContainerRef, messagesEndRef,
   };
 }

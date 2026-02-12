@@ -5,6 +5,7 @@ import type { PlatformBridge } from "../bridge";
 import type { Attachment } from "../types";
 import { useGateway } from "../hooks/useGateway";
 import type { UseGatewayOptions } from "../hooks/useGateway";
+import { useAudioPlayback } from "../hooks/useAudioPlayback";
 import { WorkspaceProvider } from "../contexts/WorkspaceContext";
 import { Header } from "./Header";
 import { ContextBar } from "./ContextBar";
@@ -17,19 +18,22 @@ interface ClaudiaChatProps {
   bridge: PlatformBridge;
   /** Gateway options (sessionId for web, autoDiscoverCwd for VS Code) */
   gatewayOptions?: UseGatewayOptions;
+  /** Optional back navigation callback */
+  onBack?: () => void;
 }
 
-export function ClaudiaChat({ bridge, gatewayOptions }: ClaudiaChatProps) {
+export function ClaudiaChat({ bridge, gatewayOptions, onBack }: ClaudiaChatProps) {
   return (
     <BridgeContext.Provider value={bridge}>
-      <ChatInner gatewayOptions={gatewayOptions} />
+      <ChatInner gatewayOptions={gatewayOptions} onBack={onBack} />
     </BridgeContext.Provider>
   );
 }
 
-function ChatInner({ gatewayOptions }: { gatewayOptions?: UseGatewayOptions }) {
+function ChatInner({ gatewayOptions, onBack }: { gatewayOptions?: UseGatewayOptions; onBack?: () => void }) {
   const bridge = useBridge();
   const gateway = useGateway(bridge.gatewayUrl, gatewayOptions);
+  const audio = useAudioPlayback(gateway);
 
   const [input, setInput] = useState(() => bridge.loadDraft());
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -82,6 +86,7 @@ function ChatInner({ gatewayOptions }: { gatewayOptions?: UseGatewayOptions }) {
           sessionConfig={gateway.sessionConfig}
           onCreateSession={gateway.createNewSession}
           onSwitchSession={gateway.switchSession}
+          onBack={onBack}
         />
 
         {bridge.showContextBar && <ContextBar context={editorContext} />}
@@ -97,6 +102,21 @@ function ChatInner({ gatewayOptions }: { gatewayOptions?: UseGatewayOptions }) {
           messagesEndRef={gateway.messagesEndRef}
           onSendMessage={handleToolMessage}
         />
+
+        {/* Audio speaking indicator */}
+        {audio.isPlaying && (
+          <button
+            onClick={audio.stop}
+            className="fixed bottom-40 left-8 z-50 flex items-center gap-2 px-4 py-2 bg-purple-500/90 backdrop-blur-sm text-white rounded-full shadow-lg hover:bg-purple-600 transition-colors text-sm"
+          >
+            <span className="flex gap-0.5">
+              <span className="w-1 h-3 bg-white rounded-full animate-pulse" />
+              <span className="w-1 h-4 bg-white rounded-full animate-pulse [animation-delay:150ms]" />
+              <span className="w-1 h-2 bg-white rounded-full animate-pulse [animation-delay:300ms]" />
+            </span>
+            Speaking...
+          </button>
+        )}
 
         {/* Compaction indicator — shown instead of thinking indicator during compaction */}
         {gateway.isCompacting ? (
