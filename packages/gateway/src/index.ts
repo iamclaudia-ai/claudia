@@ -130,6 +130,9 @@ function handleRequest(ws: ServerWebSocket<ClientState>, req: Request): void {
     case "workspace":
       handleWorkspaceMethod(ws, req, action);
       break;
+    case "extension":
+      handleExtensionBuiltin(ws, req, action);
+      break;
     case "subscribe":
       handleSubscribe(ws, req);
       break;
@@ -200,6 +203,24 @@ async function handleWorkspaceMethod(
     const errorMessage =
       error instanceof Error ? error.message : "Unknown error";
     sendError(ws, req.id, errorMessage);
+  }
+}
+
+/**
+ * Handle extension discovery methods (built-in, not routed to extensions)
+ */
+function handleExtensionBuiltin(
+  ws: ServerWebSocket<ClientState>,
+  req: Request,
+  action: string,
+): void {
+  switch (action) {
+    case "list": {
+      sendResponse(ws, req.id, { extensions: extensions.getExtensionList() });
+      break;
+    }
+    default:
+      sendError(ws, req.id, `Unknown extension action: ${action}`);
   }
 }
 
@@ -467,18 +488,10 @@ function broadcastEvent(
   }
 }
 
-// HMR cleanup — dispose managers when module reloads during development
-if (import.meta.hot) {
-  import.meta.hot.dispose(() => {
-    console.log("[HMR] Disposing managers...");
-    sessionManager.close();
-    closeDb();
-  });
-}
-
 // Combined HTTP + WebSocket server (single port, like claudia-code)
 const server = Bun.serve<ClientState>({
   port: PORT,
+  reusePort: true,
   // Custom fetch handler for WebSocket upgrades
   async fetch(req, server) {
     const url = new URL(req.url);
@@ -564,13 +577,31 @@ console.log(`
 ╚═══════════════════════════════════════════════════════════╝
 `);
 
-// Graceful shutdown
-process.on("SIGINT", async () => {
-  console.log("\nShutting down...");
-  await sessionManager.close();
-  closeDb();
-  server.stop();
+// Graceful shutdown — handle all termination signals
+async function shutdown(signal: string) {
+  console.log(`\n[Gateway] ${signal} received, shutting down...`);
+  try {
+    server.stop();
+    await sessionManager.close();
+    closeDb();
+  } catch (e) {
+    console.error("[Gateway] Error during shutdown:", e);
+  }
   process.exit(0);
-});
+}
+
+process.on("SIGINT", () => shutdown("SIGINT"));
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGHUP", () => shutdown("SIGHUP"));
+
+// HMR cleanup — dispose managers when module reloads during development
+if (import.meta.hot) {
+  import.meta.hot.dispose(async () => {
+    console.log("[HMR] Disposing managers...");
+    server.stop();
+    await sessionManager.close();
+    closeDb();
+  });
+}
 
 export { server, broadcastEvent, extensions, sessionManager };
