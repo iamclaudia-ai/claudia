@@ -18,6 +18,10 @@
     "lint": "oxlint .",
     "format": "oxfmt --write ."
   },
+  "dependencies": {
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3"
+  },
   "devDependencies": {
     "@types/bun": "latest",
     "bun-types": "1.3.6",

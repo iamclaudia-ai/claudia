@@ -4,7 +4,7 @@ import "@claudia/ui/styles";
 
 // Extension routes — each extension declares its own pages
 import { chatRoutes } from "@claudia/ext-chat/routes";
-// import { voiceRoutes } from "@claudia/voice/routes";  // future
+import { missionControlRoutes } from "@claudia/ext-mission-control/routes";
 
 // Migrate hash routes → clean URLs (one-time for old bookmarks)
 if (window.location.hash.startsWith("#/")) {
@@ -22,8 +22,8 @@ if (import.meta.env.DEV) {
 
 // Merge all routes — core chat first, extensions append
 const allRoutes = [
+  ...missionControlRoutes,
   ...chatRoutes,
-  // ...voiceRoutes,
 ];
 
 createRoot(document.getElementById("root")!).render(

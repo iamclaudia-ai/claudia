@@ -86,7 +86,7 @@ export function SessionList({
 
   const formatSessionName = (s: SessionInfo) => {
     if (s.title) return s.title;
-    return `Session ${s.id.slice(4, 12)}`;
+    return `Session ${s.id.slice(4)}`;
   };
 
   const formatTime = (dateStr: string) => {

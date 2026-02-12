@@ -11,6 +11,8 @@ interface HeaderProps {
   sessionConfig: SessionConfigInfo | null;
   onCreateSession: () => void;
   onSwitchSession: (sessionId: string) => void;
+  /** Optional back navigation (web client uses this to go to session list) */
+  onBack?: () => void;
 }
 
 export function Header({
@@ -22,6 +24,7 @@ export function Header({
   sessionConfig,
   onCreateSession,
   onSwitchSession,
+  onBack,
 }: HeaderProps) {
   const bridge = useBridge();
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -47,8 +50,7 @@ export function Header({
   // Format session display name
   const formatSessionName = (s: SessionInfo) => {
     if (s.title) return s.title;
-    // Show truncated ID + relative time
-    return `Session ${s.id.slice(4, 12)}`;
+    return `Session ${s.id.slice(4)}`;
   };
 
   // Format relative time
@@ -68,7 +70,18 @@ export function Header({
   return (
     <header className="p-4 border-b border-gray-200">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold">💙 Claudia</h1>
+        <div className="flex items-center gap-2">
+          {onBack && (
+            <button
+              onClick={onBack}
+              className="text-gray-400 hover:text-gray-200 transition-colors"
+              title="Back to sessions"
+            >
+              ←
+            </button>
+          )}
+          <h1 className="text-xl font-semibold">💙 Claudia</h1>
+        </div>
         <div className="flex items-center gap-2 text-sm">
           {bridge.openTerminal && (
             <button

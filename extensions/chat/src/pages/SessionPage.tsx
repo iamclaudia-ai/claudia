@@ -1,4 +1,4 @@
-import { ClaudiaChat } from "@claudia/ui";
+import { ClaudiaChat, navigate } from "@claudia/ui";
 import { bridge } from "../app";
 
 export function SessionPage({ sessionId }: { sessionId: string }) {
@@ -6,6 +6,7 @@ export function SessionPage({ sessionId }: { sessionId: string }) {
     <ClaudiaChat
       bridge={bridge}
       gatewayOptions={{ sessionId }}
+      onBack={() => navigate("/")}
     />
   );
 }

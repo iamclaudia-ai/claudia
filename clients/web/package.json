@@ -13,8 +13,7 @@
   },
   "dependencies": {
     "@claudia/ext-chat": "workspace:*",
-    "@claudia/ui": "workspace:*",
-    "react": "^19.2.3",
-    "react-dom": "^19.2.3"
+    "@claudia/ext-mission-control": "workspace:*",
+    "@claudia/ui": "workspace:*"
   }
 }
