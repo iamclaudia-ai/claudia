@@ -665,7 +665,7 @@ function sendError(
 function broadcastEvent(
   eventName: string,
   payload: unknown,
-  source?: string,
+  _source?: string,
 ): void {
   const event: Event = { type: "event", event: eventName, payload };
   const data = JSON.stringify(event);

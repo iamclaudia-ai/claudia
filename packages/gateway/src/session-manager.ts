@@ -12,9 +12,9 @@
 
 import type { Database } from "bun:sqlite";
 import type { Workspace, SessionRecord, GatewayEvent, ClaudiaConfig } from "@claudia/shared";
-import type { Request, Response, Event, Message } from "@claudia/shared";
+import type { Request, Event, Message } from "@claudia/shared";
 import { existsSync, readFileSync, readdirSync, unlinkSync, statSync } from "node:fs";
-import { join, basename } from "node:path";
+import { join } from "node:path";
 import { homedir } from "node:os";
 
 import * as workspaceModel from "./db/models/workspace";
@@ -131,7 +131,7 @@ export class SessionManager {
       this.runtimeWs = null;
 
       // Reject pending requests
-      for (const [id, pending] of this.pendingRequests) {
+      for (const [_id, pending] of this.pendingRequests) {
         clearTimeout(pending.timer);
         pending.reject(new Error("Runtime disconnected"));
       }

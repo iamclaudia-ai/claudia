@@ -3,7 +3,7 @@
  */
 
 import { readdir, readFile, writeFile, mkdir, stat } from 'node:fs/promises';
-import { join, dirname, basename, relative } from 'node:path';
+import { join, dirname, relative } from 'node:path';
 import { homedir } from 'node:os';
 import { spawn } from 'bun';
 import matter from 'gray-matter';
@@ -175,7 +175,7 @@ export async function listMemoryFiles(category?: MemoryCategory): Promise<string
           files.push(getRelativePath(fullPath));
         }
       }
-    } catch (err) {
+    } catch {
       // Directory might not exist
     }
   }

@@ -43,7 +43,7 @@ export default function AskUserQuestionTool({
   name,
   parsedInput,
   result,
-  isLoading,
+  isLoading: _isLoading,
   onSendMessage,
 }: ToolProps) {
   const questions = (parsedInput?.questions as Question[]) || [];
@@ -102,7 +102,7 @@ export default function AskUserQuestionTool({
     }
   }, [onSendMessage, questions, selectedAnswers]);
 
-  const handleCustomResponse = useCallback((qIdx: number) => {
+  const handleCustomResponse = useCallback(() => {
     if (!onSendMessage) return;
     const text = prompt("Enter your response:");
     if (text) {
@@ -207,7 +207,7 @@ export default function AskUserQuestionTool({
               {/* "Other" option */}
               {!isDisabled && onSendMessage && (
                 <button
-                  onClick={() => handleCustomResponse(qIdx)}
+                  onClick={() => handleCustomResponse()}
                   className="w-full text-left rounded-md border border-dashed border-neutral-300 px-3 py-2 text-sm text-neutral-500 hover:border-neutral-400 hover:text-neutral-600 transition-colors cursor-pointer"
                 >
                   Other...

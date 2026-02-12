@@ -12,7 +12,7 @@ export default function ExitPlanModeTool({
   name,
   parsedInput,
   result,
-  isLoading,
+  isLoading: _isLoading,
   onSendMessage,
 }: ToolProps) {
   const config = getToolBadgeConfig(name);

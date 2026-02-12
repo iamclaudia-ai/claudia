@@ -104,7 +104,7 @@ export class ElevenLabsStream {
         }
       };
 
-      this.ws!.onerror = (event) => {
+      this.ws!.onerror = () => {
         this.log('ERROR', `WebSocket error (connected=${this.connected})`);
         const err = new Error('ElevenLabs WebSocket error');
         if (!this.connected) {

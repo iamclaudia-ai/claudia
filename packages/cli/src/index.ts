@@ -479,7 +479,9 @@ async function speak(text: string): Promise<void> {
 
         const proc = Bun.spawn(["afplay", tempFile], { stdout: "ignore", stderr: "ignore" });
         await proc.exited;
-        await Bun.file(tempFile).exists() && Bun.spawn(["rm", tempFile]);
+        if (await Bun.file(tempFile).exists()) {
+          Bun.spawn(["rm", tempFile]);
+        }
       } else if (msg.event === "voice.done") {
         ws.close();
         resolve();

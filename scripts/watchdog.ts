@@ -107,7 +107,7 @@ async function checkHealth(service: ManagedService): Promise<boolean> {
 
 async function getStatus(): Promise<Record<string, unknown>> {
   const status: Record<string, unknown> = {};
-  for (const [id, service] of Object.entries(services)) {
+  for (const [_id, service] of Object.entries(services)) {
     const tmuxAlive = await tmuxSessionExists(service.tmuxSession);
     const healthy = tmuxAlive ? await checkHealth(service) : false;
     status[id] = {
@@ -123,7 +123,7 @@ async function getStatus(): Promise<Record<string, unknown>> {
 // ── Health Monitor ────────────────────────────────────────
 
 async function monitorServices(): Promise<void> {
-  for (const [id, service] of Object.entries(services)) {
+  for (const [_id, service] of Object.entries(services)) {
     const exists = await tmuxSessionExists(service.tmuxSession);
     if (!exists) {
       const timeSinceRestart = Date.now() - service.lastRestart;
@@ -189,7 +189,7 @@ console.log(`
 `);
 
 // Start services that aren't already running
-for (const [id, service] of Object.entries(services)) {
+for (const [_id, service] of Object.entries(services)) {
   const exists = await tmuxSessionExists(service.tmuxSession);
   if (!exists) {
     await startService(service);

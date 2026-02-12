@@ -3,7 +3,7 @@ import { CollapsibleTool } from "./CollapsibleTool";
 import { FilePath, ToolHeader } from "./utils";
 import { getToolLabel } from "./toolConfig";
 
-export default function WriteTool({ name, parsedInput, result, isLoading }: ToolProps) {
+export default function WriteTool({ name, parsedInput, result: _result, isLoading }: ToolProps) {
   const label = getToolLabel(name, parsedInput);
   const filePath = parsedInput?.file_path as string | undefined;
   const content = parsedInput?.content as string | undefined;

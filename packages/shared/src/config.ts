@@ -9,7 +9,7 @@
  */
 
 import { readFileSync, existsSync } from 'node:fs';
-import { resolve, join } from 'node:path';
+import { join } from 'node:path';
 import { homedir } from 'node:os';
 import JSON5 from 'json5';
 

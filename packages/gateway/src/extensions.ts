@@ -72,7 +72,7 @@ export class ExtensionManager {
     this.extensions.delete(extensionId);
 
     // Remove all handlers for this extension
-    for (const [pattern, handlers] of this.eventHandlers) {
+    for (const [_pattern, _handlers] of this.eventHandlers) {
       // Note: We'd need to track which handlers belong to which extension
       // For now, this is a simplified version
     }

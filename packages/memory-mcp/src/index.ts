@@ -19,8 +19,6 @@ import {
 
 import { getSectionRegistry } from './sections.js';
 import {
-  resolvePath,
-  getRelativePath,
   fileExists,
   parseMemoryFile,
   getFileSections,
@@ -29,7 +27,6 @@ import {
   createMemoryFile,
   readMemory,
   getRecentMemories,
-  getMemoryRoot,
 } from './storage.js';
 import type { RememberParams, RecallParams, ReadParams, ListParams, MemoryCategory } from './types.js';
 import { syncMemoryFiles } from './sync.js';

@@ -9,10 +9,9 @@ interface TodoItem {
   status?: string;
 }
 
-export default function TodoWriteTool({ name, parsedInput, result, isLoading }: ToolProps) {
+export default function TodoWriteTool({ name, parsedInput, result: _result, isLoading }: ToolProps) {
   const label = getToolLabel(name, parsedInput);
   const todos = (parsedInput?.todos as TodoItem[] | undefined) || [];
-  const completedCount = todos.filter((t) => t.status === "completed").length;
 
   const collapsedContent = <ToolHeader toolName={name} label={label} />;
 

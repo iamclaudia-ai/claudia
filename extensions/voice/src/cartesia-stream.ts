@@ -105,12 +105,12 @@ export class CartesiaStream {
           if (!['chunk', 'done'].includes(data.type)) {
             this.log('INFO', `WS message: ${JSON.stringify(data).substring(0, 400)}`);
           }
-        } catch (err) {
+        } catch {
           this.log('WARN', `Failed to parse WS message: ${String(event.data).substring(0, 100)}`);
         }
       };
 
-      this.ws!.onerror = (event) => {
+      this.ws!.onerror = () => {
         this.log('ERROR', `WebSocket error (connected=${this.connected})`);
         const err = new Error('Cartesia WebSocket error');
         if (!this.connected) {

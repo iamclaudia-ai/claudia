@@ -370,7 +370,7 @@ export class ImsgRpcClient extends EventEmitter {
     let parsed: ImsgRpcResponse<unknown>;
     try {
       parsed = JSON.parse(line);
-    } catch (err) {
+    } catch {
       this.log?.error?.(`imsg rpc: failed to parse: ${line}`);
       return;
     }
