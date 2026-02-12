@@ -25,7 +25,7 @@ import { SessionManager } from "./session-manager";
 import { homedir } from "node:os";
 
 // Web UI — served as SPA fallback for all non-WS routes
-import index from "../../../clients/web/index.html";
+import index from "./web/index.html";
 
 // Load configuration (claudia.json or env var fallback)
 const config = loadConfig();
@@ -287,15 +287,6 @@ async function handleSessionMethod(
         break;
       }
 
-      case "config": {
-        sendError(
-          ws,
-          req.id,
-          "session.config is deprecated; pass explicit model/thinking on workspace.createSession and session.prompt",
-        );
-        break;
-      }
-
       case "prompt": {
         const content = req.params?.content as string | unknown[];
         const targetSessionId = req.params?.sessionId as string;
@@ -380,15 +371,6 @@ async function handleSessionMethod(
         // Include offset in response so client can distinguish initial vs load-more
         sendResponse(ws, req.id, { ...result, offset: offset || 0 });
         break;
-      }
-
-      case "list": {
-        sendError(
-          ws,
-          req.id,
-          "session.list is deprecated; use workspace.listSessions with workspaceId",
-        );
-        return;
       }
 
       case "switch": {

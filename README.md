@@ -93,7 +93,7 @@ export const chatRoutes: Route[] = [
 ];
 ```
 
-The web shell (`clients/web/`) just collects routes from all extensions and renders a `<Router>`.
+The web shell (`packages/gateway/src/web/`) just collects routes from all extensions and renders a `<Router>`.
 
 ### Session Management
 
@@ -174,7 +174,7 @@ export const myRoutes: Route[] = [
 ];
 ```
 
-Import in `clients/web/src/index.tsx` and add to `allRoutes`.
+Import in `packages/gateway/src/web/index.tsx` and add to `allRoutes`.
 
 ## Configuration
 

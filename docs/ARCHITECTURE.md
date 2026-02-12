@@ -100,7 +100,7 @@ The gateway runs as a single Bun.serve instance handling HTTP, WebSocket, and st
 └──────────────────────────────────────────────────────────────┘
 ```
 
-The SPA (`clients/web/index.html`) is imported directly by the gateway via Bun's HTML import. Bun handles bundling, CSS (Tailwind via `bun-plugin-tailwind`), and asset serving automatically.
+The SPA (`packages/gateway/src/web/index.html`) is imported directly by the gateway via Bun's HTML import. Bun handles bundling, CSS (Tailwind via `bun-plugin-tailwind`), and asset serving automatically.
 
 ### WebSocket Protocol
 
@@ -387,7 +387,7 @@ extensions/<name>/src/
 
 Routes use the `/ext/<name>` prefix convention (except chat which owns `/`).
 
-The web shell (`clients/web/src/index.tsx`) imports routes from all extensions and feeds them to the `Router` component from `packages/ui`.
+The web shell (`packages/gateway/src/web/index.tsx`) imports routes from all extensions and feeds them to the `Router` component from `packages/ui`.
 
 ### Source Routing
 
@@ -455,9 +455,9 @@ packages/
       contexts/
         WorkspaceContext.tsx # CWD context for path stripping
 
-clients/web/
+packages/gateway/src/web/
   index.html              # SPA shell (imported by gateway)
-  src/index.tsx           # Route collector (~30 lines)
+  index.tsx               # Route collector (~30 lines)
 
 extensions/
   chat/src/               # Web chat pages

@@ -41,12 +41,10 @@ Refs: `packages/gateway/src/index.ts`, `packages/gateway/src/db/models/workspace
 | Method | Required params | Optional params | Default/fallback behavior |
 |---|---|---|---|
 | `session.info` | none | none | returns active runtime + current record info |
-| `session.config` | none | none | deprecated; returns error directing callers to explicit params on create/prompt |
 | `session.prompt` | `sessionId`, `content`, `model`, `thinking`, `effort` | `speakResponse`, `source` | no active-session fallback |
 | `session.interrupt` | `sessionId` | none | interrupts that specific session |
 | `session.get` | `sessionId` | none | error if missing/not found |
 | `session.history` | `sessionId` | `limit`, `offset` | if no `limit`, returns full parsed history; `offset` defaults `0` |
-| `session.list` | none | none | deprecated; returns error directing callers to `workspace.listSessions` |
 | `session.switch` | `sessionId` | none | closes current runtime session, resumes target |
 | `session.reset` | `workspaceId`, `model`, `thinking`, `effort` | `systemPrompt` | creates a new session via explicit workspace+runtime params |
 
