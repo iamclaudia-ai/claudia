@@ -14,7 +14,7 @@
     "cli": "bun run packages/cli/src/index.ts",
     "build": "bun run --filter '*' build",
     "test": "bun test",
-    "test:unit": "bun test packages/cli/src/index.test.ts packages/gateway/src/extensions.test.ts",
+    "test:unit": "bun test packages/cli/src/index.test.ts packages/gateway/src/extensions.test.ts extensions/mission-control/src/index.test.ts",
     "test:integration": "bun test packages/gateway/src/extensions.integration.test.ts",
     "test:smoke": "bun run scripts/smoke.ts",
     "test:e2e": "bun run scripts/e2e-smoke.ts",

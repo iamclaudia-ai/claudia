@@ -5,7 +5,12 @@
  * that discovers and renders health data from other extensions.
  */
 
-import type { ClaudiaExtension, ExtensionContext } from "@claudia/shared";
+import { z } from "zod";
+import type {
+  ClaudiaExtension,
+  ExtensionContext,
+  HealthCheckResponse,
+} from "@claudia/shared";
 
 export function createMissionControlExtension(): ClaudiaExtension {
   let ctx: ExtensionContext | null = null;
@@ -13,7 +18,14 @@ export function createMissionControlExtension(): ClaudiaExtension {
   return {
     id: "mission-control",
     name: "Mission Control",
-    methods: [],
+    methods: [
+      {
+        name: "mission-control.health-check",
+        description:
+          "Return standardized health-check payload for Mission Control extension",
+        inputSchema: z.object({}),
+      },
+    ],
     events: [],
 
     async start(context: ExtensionContext) {
@@ -25,8 +37,20 @@ export function createMissionControlExtension(): ClaudiaExtension {
       ctx = null;
     },
 
-    async handleMethod() {
-      return {};
+    async handleMethod(method: string) {
+      if (method === "mission-control.health-check") {
+        const response: HealthCheckResponse = {
+          ok: true,
+          status: "healthy",
+          label: "Mission Control",
+          metrics: [
+            { label: "Server Extension", value: "loaded" },
+            { label: "UI Route", value: "/mission-control" },
+          ],
+        };
+        return response;
+      }
+      throw new Error(`Unknown method: ${method}`);
     },
 
     health() {

@@ -156,9 +156,11 @@ Ref: `extensions/chat/src/extension.ts`.
 
 ### 4.4 Mission Control extension (`extensions/mission-control`)
 
-Methods: none  
+Methods:
+- `mission-control.health-check`: no params
+
 Events: none  
-Server-side extension exists mainly to support UI route/pages.
+Server-side extension exists mainly to support UI route/pages and health metadata.
 
 Ref: `extensions/mission-control/src/index.ts`.
 
