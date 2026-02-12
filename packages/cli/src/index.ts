@@ -238,6 +238,81 @@ function printMethodHelp(entry: MethodCatalogEntry): void {
   }
 }
 
+function exampleValueForSchema(schema: JsonSchema | undefined, root: JsonSchema | undefined): string {
+  const resolved = resolveSchema(schema, root) ?? schema;
+  if (!resolved) return "\"value\"";
+
+  if (resolved.enum && resolved.enum.length > 0) {
+    return JSON.stringify(resolved.enum[0]);
+  }
+
+  if (resolved.anyOf && resolved.anyOf.length > 0) {
+    return exampleValueForSchema(resolved.anyOf[0], root);
+  }
+  if (resolved.allOf && resolved.allOf.length > 0) {
+    return exampleValueForSchema(resolved.allOf[0], root);
+  }
+
+  switch (resolved.type) {
+    case "string":
+      return "\"value\"";
+    case "number":
+      return "1.23";
+    case "integer":
+      return "1";
+    case "boolean":
+      return "true";
+    case "null":
+      return "null";
+    case "array":
+      if (Array.isArray(resolved.items) || !resolved.items) return "'[]'";
+      return `'[${exampleValueForSchema(resolved.items, root)}]'`;
+    case "object":
+      return "'{}'";
+    default:
+      return "\"value\"";
+  }
+}
+
+function printMethodExamples(entry: MethodCatalogEntry): void {
+  console.log(`\n${entry.method} examples`);
+  const rootSchema = entry.inputSchema;
+  const schema = resolveSchema(rootSchema, rootSchema) ?? rootSchema;
+  if (!schema || schema.type !== "object") {
+    console.log(`  claudia ${entry.method}`);
+    return;
+  }
+
+  const props = schema.properties ? Object.entries(schema.properties) : [];
+  const required = new Set(schema.required ?? []);
+  const [namespace, action] = entry.method.split(".");
+  if (!namespace || !action) {
+    console.log(`  claudia ${entry.method}`);
+    return;
+  }
+
+  const requiredFlags = props
+    .filter(([name]) => required.has(name))
+    .map(([name, prop]) => `--${name} ${exampleValueForSchema(prop, rootSchema)}`);
+
+  const optionalFlags = props
+    .filter(([name]) => !required.has(name))
+    .map(([name, prop]) => `--${name} ${exampleValueForSchema(prop, rootSchema)}`);
+
+  if (requiredFlags.length === 0 && optionalFlags.length === 0) {
+    console.log(`  claudia ${namespace} ${action}`);
+    return;
+  }
+
+  const requiredCmd = `claudia ${namespace} ${action} ${requiredFlags.join(" ")}`.trim();
+  console.log(`  ${requiredCmd}`);
+
+  if (optionalFlags.length > 0) {
+    const mixed = `${requiredCmd} ${optionalFlags.slice(0, Math.min(2, optionalFlags.length)).join(" ")}`.trim();
+    console.log(`  ${mixed}`);
+  }
+}
+
 function printMethodList(methods: MethodCatalogEntry[]): void {
   console.log("Available methods:\n");
   const sorted = [...methods].sort((a, b) => a.method.localeCompare(b.method));
@@ -248,6 +323,7 @@ function printMethodList(methods: MethodCatalogEntry[]): void {
   console.log("\nUsage:");
   console.log("  claudia <namespace> <action> --param value");
   console.log("  claudia <namespace> <action> --help");
+  console.log("  claudia <namespace> <action> --examples");
   console.log("  claudia methods");
 }
 
@@ -585,6 +661,10 @@ async function main(): Promise<void> {
 
   if (paramArgs.includes("--help")) {
     printMethodHelp(methodDef);
+    return;
+  }
+  if (paramArgs.includes("--examples")) {
+    printMethodExamples(methodDef);
     return;
   }
 
