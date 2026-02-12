@@ -33,6 +33,7 @@ export class ElevenLabsStream {
   private closed = false;
   private connected = false;
   private closeResolve: (() => void) | null = null;
+  private firstTextSent = false;
 
   constructor(private options: ELStreamOptions) {}
 
