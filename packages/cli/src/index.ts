@@ -26,7 +26,7 @@ interface Message {
   event?: string;
 }
 
-interface JsonSchema {
+export interface JsonSchema {
   $ref?: string;
   $defs?: Record<string, JsonSchema>;
   definitions?: Record<string, JsonSchema>;
@@ -41,7 +41,7 @@ interface JsonSchema {
   items?: JsonSchema | JsonSchema[];
 }
 
-interface MethodCatalogEntry {
+export interface MethodCatalogEntry {
   method: string;
   source: "gateway" | "extension";
   extensionId?: string;
@@ -54,7 +54,7 @@ function generateId(): string {
   return Math.random().toString(36).slice(2, 10);
 }
 
-function coerceValue(value: string): unknown {
+export function coerceValue(value: string): unknown {
   if (value === "true") return true;
   if (value === "false") return false;
   if (value === "null") return null;
@@ -75,7 +75,7 @@ function coerceValue(value: string): unknown {
   return value;
 }
 
-function parseCliParams(rawArgs: string[]): Record<string, unknown> {
+export function parseCliParams(rawArgs: string[]): Record<string, unknown> {
   const params: Record<string, unknown> = {};
 
   for (let i = 0; i < rawArgs.length; i += 1) {
@@ -108,7 +108,7 @@ function parseCliParams(rawArgs: string[]): Record<string, unknown> {
   return params;
 }
 
-function resolveRef(root: JsonSchema, ref: string): JsonSchema | undefined {
+export function resolveRef(root: JsonSchema, ref: string): JsonSchema | undefined {
   if (!ref.startsWith("#/")) return undefined;
   const segments = ref.slice(2).split("/").map((s) => s.replace(/~1/g, "/").replace(/~0/g, "~"));
   let current: unknown = root;
@@ -121,7 +121,7 @@ function resolveRef(root: JsonSchema, ref: string): JsonSchema | undefined {
   return current as JsonSchema;
 }
 
-function resolveSchema(schema: JsonSchema | undefined, root: JsonSchema | undefined, depth = 0): JsonSchema | undefined {
+export function resolveSchema(schema: JsonSchema | undefined, root: JsonSchema | undefined, depth = 0): JsonSchema | undefined {
   if (!schema) return undefined;
   if (!root) return schema;
   if (!schema.$ref || depth > 20) return schema;
@@ -134,7 +134,7 @@ function resolveSchema(schema: JsonSchema | undefined, root: JsonSchema | undefi
   return { ...resolvedRef, ...inlineOverrides };
 }
 
-function schemaType(schema?: JsonSchema, root?: JsonSchema): string {
+export function schemaType(schema?: JsonSchema, root?: JsonSchema): string {
   const resolved = resolveSchema(schema, root ?? schema) ?? schema;
   if (!resolved) return "unknown";
   if (resolved.type) return resolved.type;
@@ -147,7 +147,7 @@ function schemaType(schema?: JsonSchema, root?: JsonSchema): string {
   return "unknown";
 }
 
-function matchesSchemaType(value: unknown, schema: JsonSchema, root: JsonSchema): boolean {
+export function matchesSchemaType(value: unknown, schema: JsonSchema, root: JsonSchema): boolean {
   const resolved = resolveSchema(schema, root) ?? schema;
   if (resolved.anyOf?.length) return resolved.anyOf.some((s) => matchesSchemaType(value, s, root));
   if (resolved.allOf?.length) return resolved.allOf.every((s) => matchesSchemaType(value, s, root));
@@ -179,7 +179,7 @@ function matchesSchemaType(value: unknown, schema: JsonSchema, root: JsonSchema)
   }
 }
 
-function validateParamsAgainstSchema(method: string, params: Record<string, unknown>, schema?: JsonSchema): void {
+export function validateParamsAgainstSchema(method: string, params: Record<string, unknown>, schema?: JsonSchema): void {
   if (!schema) return;
   const root = schema;
   const resolvedSchema = resolveSchema(schema, root) ?? schema;
@@ -211,7 +211,7 @@ function validateParamsAgainstSchema(method: string, params: Record<string, unkn
   }
 }
 
-function printMethodHelp(entry: MethodCatalogEntry): void {
+export function printMethodHelp(entry: MethodCatalogEntry): void {
   console.log(`\n${entry.method}`);
   if (entry.description) console.log(`  ${entry.description}`);
   const rootSchema = entry.inputSchema;
@@ -238,7 +238,7 @@ function printMethodHelp(entry: MethodCatalogEntry): void {
   }
 }
 
-function exampleValueForSchema(schema: JsonSchema | undefined, root: JsonSchema | undefined): string {
+export function exampleValueForSchema(schema: JsonSchema | undefined, root: JsonSchema | undefined): string {
   const resolved = resolveSchema(schema, root) ?? schema;
   if (!resolved) return "\"value\"";
 
@@ -274,7 +274,7 @@ function exampleValueForSchema(schema: JsonSchema | undefined, root: JsonSchema 
   }
 }
 
-function printMethodExamples(entry: MethodCatalogEntry): void {
+export function printMethodExamples(entry: MethodCatalogEntry): void {
   console.log(`\n${entry.method} examples`);
   const rootSchema = entry.inputSchema;
   const schema = resolveSchema(rootSchema, rootSchema) ?? rootSchema;
@@ -313,7 +313,7 @@ function printMethodExamples(entry: MethodCatalogEntry): void {
   }
 }
 
-function printMethodList(methods: MethodCatalogEntry[]): void {
+export function printMethodList(methods: MethodCatalogEntry[]): void {
   console.log("Available methods:\n");
   const sorted = [...methods].sort((a, b) => a.method.localeCompare(b.method));
   for (const m of sorted) {
@@ -673,7 +673,9 @@ async function main(): Promise<void> {
   await invokeMethod(resolvedMethod, params);
 }
 
-main().catch((err) => {
-  console.error("Error:", err instanceof Error ? err.message : err);
-  process.exit(1);
-});
+if (import.meta.main) {
+  main().catch((err) => {
+    console.error("Error:", err instanceof Error ? err.message : err);
+    process.exit(1);
+  });
+}
