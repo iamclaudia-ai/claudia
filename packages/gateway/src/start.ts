@@ -11,17 +11,19 @@
  *   3. Environment variables (backward compatibility)
  */
 
-import { extensions } from './index';
-import { getEnabledExtensions } from '@claudia/shared';
+import { extensions } from "./index";
+import { getEnabledExtensions } from "@claudia/shared";
 
 // Import available extensions
-import { createVoiceExtension } from '@claudia/voice';
-import { createIMessageExtension } from '@claudia/ext-imessage';
-import { createChatExtension } from '@claudia/ext-chat/extension';
-import { createMissionControlExtension } from '@claudia/ext-mission-control/extension';
+import { createVoiceExtension } from "@claudia/voice";
+import { createIMessageExtension } from "@claudia/ext-imessage";
+import { createChatExtension } from "@claudia/ext-chat/extension";
+import { createMissionControlExtension } from "@claudia/ext-mission-control/extension";
 
 // Extension factory registry
-type ExtensionFactory = (config: Record<string, unknown>) => ReturnType<typeof createVoiceExtension>;
+type ExtensionFactory = (
+  config: Record<string, unknown>,
+) => ReturnType<typeof createVoiceExtension>;
 
 const EXTENSION_FACTORIES: Record<string, ExtensionFactory> = {
   voice: (config) =>
@@ -53,13 +55,11 @@ async function loadExtensions(): Promise<void> {
   const enabledExtensions = getEnabledExtensions();
 
   if (enabledExtensions.length === 0) {
-    console.log('[Startup] No extensions enabled');
+    console.log("[Startup] No extensions enabled");
     return;
   }
 
-  console.log(
-    `[Startup] Loading extensions: ${enabledExtensions.map(([id]) => id).join(', ')}`
-  );
+  console.log(`[Startup] Loading extensions: ${enabledExtensions.map(([id]) => id).join(", ")}`);
 
   for (const [id, ext] of enabledExtensions) {
     const factory = EXTENSION_FACTORIES[id];
@@ -89,7 +89,7 @@ async function loadBuiltinExtensions(): Promise<void> {
     await extensions.register(createChatExtension());
     await extensions.register(createMissionControlExtension());
   } catch (error) {
-    console.error('[Startup] Failed to load builtin extensions:', error);
+    console.error("[Startup] Failed to load builtin extensions:", error);
   }
 }
 

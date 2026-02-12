@@ -37,7 +37,11 @@ function CodeBlock({ children, className, ...props }: any) {
   const isBlock = className?.includes("language-") || className?.includes("hljs");
 
   if (!isBlock) {
-    return <code className={`${className || ""} break-all`} {...props}>{children}</code>;
+    return (
+      <code className={`${className || ""} break-all`} {...props}>
+        {children}
+      </code>
+    );
   }
 
   return (
@@ -53,13 +57,19 @@ function CodeBlock({ children, className, ...props }: any) {
           <Copy className="w-4 h-4 text-gray-300" />
         )}
       </button>
-      <code className={className} {...props}>{children}</code>
+      <code className={className} {...props}>
+        {children}
+      </code>
     </div>
   );
 }
 
 function PreBlock({ children, ...props }: any) {
-  return <pre className="overflow-x-auto" {...props}>{children}</pre>;
+  return (
+    <pre className="overflow-x-auto" {...props}>
+      {children}
+    </pre>
+  );
 }
 
 const markdownComponents = {
@@ -78,7 +88,8 @@ export const MessageContent = memo(function MessageContent({
 
   if (type === "user") {
     return (
-      <div className="prose max-w-none font-sans bg-blue-50 border-l-4 border-blue-500 rounded-r-lg px-4 py-2 overflow-hidden break-words
+      <div
+        className="prose max-w-none font-sans bg-blue-50 border-l-4 border-blue-500 rounded-r-lg px-4 py-2 overflow-hidden break-words
         prose-headings:font-bold prose-headings:text-foreground
         prose-p:text-foreground prose-p:leading-relaxed
         prose-a:text-blue-600 prose-a:no-underline hover:prose-a:underline
@@ -87,7 +98,8 @@ export const MessageContent = memo(function MessageContent({
         prose-ul:list-disc prose-ul:pl-6
         prose-ol:list-decimal prose-ol:pl-6
         prose-li:text-foreground
-      ">
+      "
+      >
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
           rehypePlugins={[rehypeHighlight, rehypeRaw]}
@@ -114,18 +126,22 @@ export const MessageContent = memo(function MessageContent({
             hasContent ? `cursor-pointer ${thinkingConfig.colors.hoverBg}` : "cursor-default"
           }`}
         >
-          <div className={`flex items-center gap-1.5 text-sm font-medium ${thinkingConfig.colors.text}`}>
+          <div
+            className={`flex items-center gap-1.5 text-sm font-medium ${thinkingConfig.colors.text}`}
+          >
             {isLoading ? (
               <Loader2 className={`size-3 animate-spin ${thinkingConfig.colors.iconColor}`} />
             ) : (
-              thinkingConfig.icon && <span className={`shrink-0 ${thinkingConfig.colors.iconColor}`}>{thinkingConfig.icon}</span>
+              thinkingConfig.icon && (
+                <span className={`shrink-0 ${thinkingConfig.colors.iconColor}`}>
+                  {thinkingConfig.icon}
+                </span>
+              )
             )}
             <span>{label}</span>
           </div>
           <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center">
-            {isLoading ? (
-              null
-            ) : hasContent ? (
+            {isLoading ? null : hasContent ? (
               isExpanded ? (
                 <ChevronUp className={`size-3 ${thinkingConfig.colors.chevron}`} />
               ) : (
@@ -137,7 +153,8 @@ export const MessageContent = memo(function MessageContent({
 
         {isExpanded && hasContent && (
           <div className="absolute left-0 top-full z-20 mt-1 w-[min(600px,80vw)] rounded-lg border border-neutral-200 bg-white p-3 shadow-lg">
-            <div className="prose prose-sm max-w-none font-serif text-neutral-500 italic overflow-hidden break-words
+            <div
+              className="prose prose-sm max-w-none font-serif text-neutral-500 italic overflow-hidden break-words
               prose-headings:font-bold prose-headings:text-neutral-500
               prose-p:text-neutral-500 prose-p:leading-relaxed
               prose-a:text-blue-600 prose-a:no-underline hover:prose-a:underline
@@ -146,7 +163,8 @@ export const MessageContent = memo(function MessageContent({
               prose-ul:list-disc prose-ul:pl-6
               prose-ol:list-decimal prose-ol:pl-6
               prose-li:text-neutral-500
-            ">
+            "
+            >
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 rehypePlugins={[rehypeHighlight, rehypeRaw]}
@@ -163,7 +181,8 @@ export const MessageContent = memo(function MessageContent({
 
   // Assistant
   return (
-    <div className="prose max-w-none font-serif overflow-hidden break-words
+    <div
+      className="prose max-w-none font-serif overflow-hidden break-words
       prose-headings:font-bold prose-headings:text-foreground
       prose-p:text-foreground prose-p:leading-relaxed
       prose-a:text-blue-600 prose-a:no-underline hover:prose-a:underline
@@ -179,7 +198,8 @@ export const MessageContent = memo(function MessageContent({
       prose-th:border prose-th:border-gray-300 prose-th:bg-gray-50 prose-th:px-4 prose-th:py-2
       prose-td:border prose-td:border-gray-300 prose-td:px-4 prose-td:py-2
       prose-img:rounded-lg prose-img:shadow-md
-    ">
+    "
+    >
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[rehypeHighlight, rehypeRaw]}

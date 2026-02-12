@@ -35,9 +35,9 @@ function toSessionRecord(row: SessionRow): SessionRecord {
 }
 
 export function listSessions(db: Database, workspaceId: string): SessionRecord[] {
-  const rows = db.query(
-    "SELECT * FROM sessions WHERE workspace_id = ? ORDER BY id DESC",
-  ).all(workspaceId) as SessionRow[];
+  const rows = db
+    .query("SELECT * FROM sessions WHERE workspace_id = ? ORDER BY id DESC")
+    .all(workspaceId) as SessionRow[];
   return rows.map(toSessionRecord);
 }
 
@@ -47,9 +47,9 @@ export function getSession(db: Database, id: string): SessionRecord | null {
 }
 
 export function getSessionByCcId(db: Database, ccSessionId: string): SessionRecord | null {
-  const row = db.query(
-    "SELECT * FROM sessions WHERE cc_session_id = ?",
-  ).get(ccSessionId) as SessionRow | null;
+  const row = db
+    .query("SELECT * FROM sessions WHERE cc_session_id = ?")
+    .get(ccSessionId) as SessionRow | null;
   return row ? toSessionRecord(row) : null;
 }
 
@@ -78,19 +78,13 @@ export function createSessionRecord(
 }
 
 export function archiveSession(db: Database, id: string): void {
-  db.query(
-    "UPDATE sessions SET status = 'archived' WHERE id = ?",
-  ).run(id);
+  db.query("UPDATE sessions SET status = 'archived' WHERE id = ?").run(id);
 }
 
 export function updateSessionActivity(db: Database, id: string): void {
-  db.query(
-    "UPDATE sessions SET last_activity = datetime('now') WHERE id = ?",
-  ).run(id);
+  db.query("UPDATE sessions SET last_activity = datetime('now') WHERE id = ?").run(id);
 }
 
 export function updateSessionTitle(db: Database, id: string, title: string): void {
-  db.query(
-    "UPDATE sessions SET title = ? WHERE id = ?",
-  ).run(title, id);
+  db.query("UPDATE sessions SET title = ? WHERE id = ?").run(title, id);
 }

@@ -17,11 +17,6 @@ if (import.meta.env.DEV) {
   document.head.appendChild(script);
 }
 
-const allRoutes = [
-  ...missionControlRoutes,
-  ...chatRoutes,
-];
+const allRoutes = [...missionControlRoutes, ...chatRoutes];
 
-createRoot(document.getElementById("root")!).render(
-  <Router routes={allRoutes} />,
-);
+createRoot(document.getElementById("root")!).render(<Router routes={allRoutes} />);

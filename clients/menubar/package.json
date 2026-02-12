@@ -3,12 +3,20 @@
   "version": "0.1.0",
   "private": true,
   "description": "macOS menubar app - 💋 Hey babe wake word activation",
+  "keywords": [
+    "macos",
+    "menubar",
+    "swiftui",
+    "tts",
+    "voice"
+  ],
+  "os": [
+    "darwin"
+  ],
   "scripts": {
     "open": "open Claudia.xcodeproj || open -a Xcode Claudia/",
     "build": "xcodebuild -project Claudia.xcodeproj -scheme Claudia -configuration Release build",
     "run": "open -a Claudia",
     "typecheck": "echo \"No TypeScript typecheck for menubar client\""
-  },
-  "keywords": ["macos", "menubar", "swiftui", "voice", "tts"],
-  "os": ["darwin"]
+  }
 }

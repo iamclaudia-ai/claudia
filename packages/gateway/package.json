@@ -12,12 +12,12 @@
     "typecheck": "tsc --noEmit -p ../../tsconfig.json"
   },
   "dependencies": {
-    "@claudia/shared": "workspace:*",
-    "@claudia/ui": "workspace:*",
-    "@claudia/voice": "workspace:*",
     "@claudia/ext-chat": "workspace:*",
     "@claudia/ext-imessage": "workspace:*",
     "@claudia/ext-mission-control": "workspace:*",
+    "@claudia/shared": "workspace:*",
+    "@claudia/ui": "workspace:*",
+    "@claudia/voice": "workspace:*",
     "zod": "^3.25.76",
     "zod-to-json-schema": "^3.24.6"
   },

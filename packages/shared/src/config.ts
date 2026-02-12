@@ -8,10 +8,10 @@
  * - Falls back to env vars if no config file
  */
 
-import { readFileSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
-import { homedir } from 'node:os';
-import JSON5 from 'json5';
+import { readFileSync, existsSync } from "node:fs";
+import { join } from "node:path";
+import { homedir } from "node:os";
+import JSON5 from "json5";
 
 // ============================================================================
 // Types
@@ -24,7 +24,7 @@ export interface GatewayConfig {
   endpoint?: string;
 }
 
-export type ThinkingEffort = 'low' | 'medium' | 'high' | 'max';
+export type ThinkingEffort = "low" | "medium" | "high" | "max";
 
 export interface SessionConfig {
   model: string;
@@ -45,7 +45,7 @@ export type ExtensionsConfig = Record<string, ExtensionConfig>;
 export interface FederationPeer {
   id: string;
   url: string;
-  role: 'primary' | 'replica';
+  role: "primary" | "replica";
 }
 
 export interface RuntimeConfig {
@@ -74,22 +74,22 @@ export interface ClaudiaConfig {
 const DEFAULT_CONFIG: ClaudiaConfig = {
   gateway: {
     port: 30086,
-    host: 'localhost',
+    host: "localhost",
   },
   runtime: {
     port: 30087,
-    host: 'localhost',
+    host: "localhost",
   },
   session: {
-    model: 'sonnet',
+    model: "sonnet",
     thinking: false,
-    effort: 'medium',
+    effort: "medium",
     systemPrompt: null,
   },
   extensions: {},
   federation: {
     enabled: false,
-    nodeId: 'default',
+    nodeId: "default",
     peers: [],
   },
 };
@@ -103,13 +103,13 @@ const DEFAULT_CONFIG: ClaudiaConfig = {
  * Supports nested objects and arrays
  */
 function interpolateEnvVars(obj: unknown): unknown {
-  if (typeof obj === 'string') {
+  if (typeof obj === "string") {
     // Match ${VAR_NAME} pattern
     return obj.replace(/\$\{([^}]+)\}/g, (_, envVar) => {
       const value = process.env[envVar];
       if (value === undefined) {
         console.warn(`[Config] Warning: Environment variable ${envVar} is not set`);
-        return '';
+        return "";
       }
       return value;
     });
@@ -119,7 +119,7 @@ function interpolateEnvVars(obj: unknown): unknown {
     return obj.map(interpolateEnvVars);
   }
 
-  if (obj !== null && typeof obj === 'object') {
+  if (obj !== null && typeof obj === "object") {
     const result: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(obj)) {
       result[key] = interpolateEnvVars(value);
@@ -154,7 +154,7 @@ export function loadConfig(configPath?: string): ClaudiaConfig {
   const paths = [
     configPath,
     process.env.CLAUDIA_CONFIG,
-    join(homedir(), '.claudia', 'claudia.json'),
+    join(homedir(), ".claudia", "claudia.json"),
   ].filter(Boolean) as string[];
 
   let rawConfig: Partial<ClaudiaConfig> = {};
@@ -163,7 +163,7 @@ export function loadConfig(configPath?: string): ClaudiaConfig {
   for (const path of paths) {
     if (existsSync(path)) {
       try {
-        const content = readFileSync(path, 'utf-8');
+        const content = readFileSync(path, "utf-8");
         rawConfig = JSON5.parse(content);
         loadedFrom = path;
         break;
@@ -176,7 +176,7 @@ export function loadConfig(configPath?: string): ClaudiaConfig {
   if (loadedFrom) {
     console.log(`[Config] Loaded from: ${loadedFrom}`);
   } else {
-    console.log('[Config] No config file found, using defaults + env vars');
+    console.log("[Config] No config file found, using defaults + env vars");
     // Build config from env vars for backward compatibility
     rawConfig = buildConfigFromEnv();
   }
@@ -203,29 +203,29 @@ export function loadConfig(configPath?: string): ClaudiaConfig {
 function buildConfigFromEnv(): Partial<ClaudiaConfig> {
   const config: Partial<ClaudiaConfig> = {
     gateway: {
-      port: parseInt(process.env.CLAUDIA_PORT || '30086'),
-      host: process.env.CLAUDIA_HOST || 'localhost',
+      port: parseInt(process.env.CLAUDIA_PORT || "30086"),
+      host: process.env.CLAUDIA_HOST || "localhost",
     },
     session: {
-      model: process.env.CLAUDIA_MODEL || 'sonnet',
-      thinking: process.env.CLAUDIA_THINKING === 'true',
-      effort: (process.env.CLAUDIA_THINKING_EFFORT || 'medium') as ThinkingEffort,
+      model: process.env.CLAUDIA_MODEL || "sonnet",
+      thinking: process.env.CLAUDIA_THINKING === "true",
+      effort: (process.env.CLAUDIA_THINKING_EFFORT || "medium") as ThinkingEffort,
       systemPrompt: process.env.CLAUDIA_SYSTEM_PROMPT || null,
     },
     extensions: {},
   };
 
   // Build extensions from CLAUDIA_EXTENSIONS env var
-  const extensionIds = process.env.CLAUDIA_EXTENSIONS?.split(',').map(s => s.trim()) || [];
+  const extensionIds = process.env.CLAUDIA_EXTENSIONS?.split(",").map((s) => s.trim()) || [];
 
   for (const id of extensionIds) {
-    if (id === 'voice') {
+    if (id === "voice") {
       config.extensions![id] = {
         enabled: true,
         config: {
-          apiKey: process.env.ELEVENLABS_API_KEY || '',
+          apiKey: process.env.ELEVENLABS_API_KEY || "",
           voiceId: process.env.ELEVENLABS_VOICE_ID,
-          autoSpeak: process.env.CLAUDIA_VOICE_AUTO_SPEAK === 'true',
+          autoSpeak: process.env.CLAUDIA_VOICE_AUTO_SPEAK === "true",
         },
       };
     } else {

@@ -108,10 +108,7 @@ export interface UseGatewayReturn {
 
 // ─── Hook ────────────────────────────────────────────────────
 
-export function useGateway(
-  gatewayUrl: string,
-  options: UseGatewayOptions = {},
-): UseGatewayReturn {
+export function useGateway(gatewayUrl: string, options: UseGatewayOptions = {}): UseGatewayReturn {
   const [messages, setMessages] = useImmer<Message[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const [isQuerying, setIsQuerying] = useState(false);
@@ -155,16 +152,13 @@ export function useGateway(
   }, [messages]);
 
   // Send a request to the gateway
-  const sendRequest = useCallback(
-    (method: string, params?: Record<string, unknown>) => {
-      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
-      const id = generateId();
-      const msg: GatewayMessage = { type: "req", id, method, params };
-      pendingRequestsRef.current.set(id, method);
-      wsRef.current.send(JSON.stringify(msg));
-    },
-    [],
-  );
+  const sendRequest = useCallback((method: string, params?: Record<string, unknown>) => {
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+    const id = generateId();
+    const msg: GatewayMessage = { type: "req", id, method, params };
+    pendingRequestsRef.current.set(id, method);
+    wsRef.current.send(JSON.stringify(msg));
+  }, []);
 
   // Subscribe to session-scoped streaming events when we learn the ccSessionId
   const subscribeToSession = useCallback(
@@ -242,9 +236,21 @@ export function useGateway(
 
       // Auto-enable thinking for streaming content events (mid-turn recovery after HMR/refresh)
       // Only after history has loaded — otherwise stale events during reconnect cause false positives
-      if (!isQueryingRef.current &&
-          historyLoadedRef.current &&
-          !["ping", "turn_start", "turn_stop", "api_warning", "api_error", "process_started", "process_ended", "session_stale", "process_died"].includes(eventType)) {
+      if (
+        !isQueryingRef.current &&
+        historyLoadedRef.current &&
+        ![
+          "ping",
+          "turn_start",
+          "turn_stop",
+          "api_warning",
+          "api_error",
+          "process_started",
+          "process_ended",
+          "session_stale",
+          "process_died",
+        ].includes(eventType)
+      ) {
         setIsQuerying(true);
         setEventCount(0);
       }
@@ -288,7 +294,9 @@ export function useGateway(
         case "content_block_start": {
           if (ignoringHaikuMessageRef.current) return;
 
-          const block = payload.content_block as { type: string; id?: string; name?: string } | undefined;
+          const block = payload.content_block as
+            | { type: string; id?: string; name?: string }
+            | undefined;
           if (!block) return;
           if (block.type === "text") addBlock({ type: "text", content: "" });
           else if (block.type === "thinking") addBlock({ type: "thinking", content: "" });
@@ -301,18 +309,27 @@ export function useGateway(
         case "content_block_delta": {
           if (ignoringHaikuMessageRef.current) return;
 
-          const delta = payload.delta as { type: string; text?: string; thinking?: string; partial_json?: string } | undefined;
+          const delta = payload.delta as
+            | { type: string; text?: string; thinking?: string; partial_json?: string }
+            | undefined;
           if (!delta) return;
           if (delta.type === "text_delta" && delta.text) appendToCurrentBlock(delta.text);
-          else if (delta.type === "thinking_delta" && delta.thinking) appendToCurrentBlock(delta.thinking);
-          else if (delta.type === "input_json_delta" && delta.partial_json) appendToCurrentBlock(delta.partial_json, "input");
+          else if (delta.type === "thinking_delta" && delta.thinking)
+            appendToCurrentBlock(delta.thinking);
+          else if (delta.type === "input_json_delta" && delta.partial_json)
+            appendToCurrentBlock(delta.partial_json, "input");
           break;
         }
 
         case "request_tool_results": {
-          const results = payload.tool_results as Array<{ tool_use_id: string; content: string; is_error?: boolean }> | undefined;
+          const results = payload.tool_results as
+            | Array<{ tool_use_id: string; content: string; is_error?: boolean }>
+            | undefined;
           for (const result of results || []) {
-            updateToolResult(result.tool_use_id, { content: result.content, is_error: result.is_error });
+            updateToolResult(result.tool_use_id, {
+              content: result.content,
+              is_error: result.is_error,
+            });
           }
           break;
         }
@@ -346,8 +363,8 @@ export function useGateway(
 
         case "compaction_end": {
           setIsCompacting(false);
-          const trigger = payload.trigger as string || "auto";
-          const preTokens = payload.pre_tokens as number || 0;
+          const trigger = (payload.trigger as string) || "auto";
+          const preTokens = (payload.pre_tokens as number) || 0;
           console.log(`[Compaction] ✓ Complete (trigger: ${trigger}, pre_tokens: ${preTokens})`);
 
           // Insert a compaction boundary marker into messages
@@ -367,20 +384,22 @@ export function useGateway(
 
         case "process_died": {
           setIsCompacting(false); // Clear stuck compaction state
-          setIsQuerying(false);   // Clear stuck querying state
-          const exitCode = payload.exitCode as number || 0;
-          const reason = payload.reason as string || "Process died";
+          setIsQuerying(false); // Clear stuck querying state
+          const exitCode = (payload.exitCode as number) || 0;
+          const reason = (payload.reason as string) || "Process died";
           console.error(`[Runtime] Process died unexpectedly (exit code: ${exitCode}): ${reason}`);
 
           // Add error message to chat
           setMessages((draft) => {
             draft.push({
               role: "assistant",
-              blocks: [{
-                type: "error",
-                message: `Claude process died unexpectedly (exit code: ${exitCode}). Please restart the session.`,
-                status: exitCode,
-              }],
+              blocks: [
+                {
+                  type: "error",
+                  message: `Claude process died unexpectedly (exit code: ${exitCode}). Please restart the session.`,
+                  status: exitCode,
+                },
+              ],
               timestamp: Date.now(),
             });
           });
@@ -388,7 +407,7 @@ export function useGateway(
         }
 
         case "session_stale": {
-          const minutes = payload.minutesSinceActivity as number || 0;
+          const minutes = (payload.minutesSinceActivity as number) || 0;
           console.warn(`[Runtime] Session appears stale (${minutes}m since last activity)`);
           break;
         }
@@ -397,7 +416,7 @@ export function useGateway(
           console.error(`[API Error] ${payload.status}: ${payload.message}`);
           const errorBlock: ErrorBlock = {
             type: "error",
-            message: payload.message as string || `API error ${payload.status}`,
+            message: (payload.message as string) || `API error ${payload.status}`,
             status: payload.status as number,
           };
           // Ensure there's an assistant message to attach to
@@ -414,10 +433,13 @@ export function useGateway(
         }
 
         case "api_warning": {
-          console.warn(`[API Retry] Attempt ${payload.attempt}/${payload.maxRetries}: ${payload.message}`);
+          console.warn(
+            `[API Retry] Attempt ${payload.attempt}/${payload.maxRetries}: ${payload.message}`,
+          );
           const warningBlock: ErrorBlock = {
             type: "error",
-            message: payload.message as string || `API retry ${payload.attempt}/${payload.maxRetries}`,
+            message:
+              (payload.message as string) || `API retry ${payload.attempt}/${payload.maxRetries}`,
             status: payload.status as number,
             isRetrying: true,
             attempt: payload.attempt as number,
@@ -487,12 +509,16 @@ export function useGateway(
                 setMessages(() => historyMessages);
                 setVisibleCount(historyMessages.length);
               }
-              console.log(`[History] Loaded ${historyMessages.length}/${total} messages (offset: ${offset}, hasMore: ${more})`);
+              console.log(
+                `[History] Loaded ${historyMessages.length}/${total} messages (offset: ${offset}, hasMore: ${more})`,
+              );
             }
             // Mark history as loaded (even if empty) so streaming auto-recovery can activate.
             // Brief delay lets any stale events from reconnect settle first.
             if (offset === 0) {
-              setTimeout(() => { historyLoadedRef.current = true; }, 100);
+              setTimeout(() => {
+                historyLoadedRef.current = true;
+              }, 100);
             }
             setTotalMessages(total);
             setHasMore(more);
@@ -504,7 +530,9 @@ export function useGateway(
             const ws = payload.workspace as WorkspaceInfo | undefined;
             if (ws) {
               setWorkspace(ws);
-              console.log(`[Workspace] ${payload.created ? "Created" : "Loaded"}: ${ws.name} (${ws.id}), cwd: ${ws.cwd}`);
+              console.log(
+                `[Workspace] ${payload.created ? "Created" : "Loaded"}: ${ws.name} (${ws.id}), cwd: ${ws.cwd}`,
+              );
               console.log(`[Workspace] activeSessionId: ${ws.activeSessionId || "none"}`);
 
               // If workspace has an active session, load its history
@@ -536,7 +564,9 @@ export function useGateway(
               setSessionId(sessionRecord.ccSessionId);
               setSessionRecordId(sessionRecord.id);
               subscribeToSession(sessionRecord.ccSessionId);
-              console.log(`[Session] Got record: ${sessionRecord.id} (cc: ${sessionRecord.ccSessionId})`);
+              console.log(
+                `[Session] Got record: ${sessionRecord.id} (cc: ${sessionRecord.ccSessionId})`,
+              );
 
               // If we don't have workspace/sessions yet, fetch them
               // (this happens in web explicit-session flow)
@@ -561,7 +591,10 @@ export function useGateway(
             const sessionList = payload.sessions as SessionInfo[] | undefined;
             if (sessionList) {
               setSessions(sessionList);
-              console.log(`[Sessions] Loaded ${sessionList.length} sessions`, sessionList.map(s => `${s.id} (cc: ${s.ccSessionId.slice(0,8)}…)`));
+              console.log(
+                `[Sessions] Loaded ${sessionList.length} sessions`,
+                sessionList.map((s) => `${s.id} (cc: ${s.ccSessionId.slice(0, 8)}…)`),
+              );
             }
           }
 
@@ -611,17 +644,23 @@ export function useGateway(
             const sessionRecord = payload.session as SessionInfo | undefined;
             if (sessionRecord) setSessionRecordId(sessionRecord.id);
             if (payload.workspaceId && payload.workspaceName) {
-              setWorkspace((prev) => prev ? {
-                ...prev,
-                id: payload.workspaceId as string,
-                name: payload.workspaceName as string,
-              } : null);
+              setWorkspace((prev) =>
+                prev
+                  ? {
+                      ...prev,
+                      id: payload.workspaceId as string,
+                      name: payload.workspaceName as string,
+                    }
+                  : null,
+              );
             }
             // Extract session config (model, thinking, etc.)
             const cfg = payload.sessionConfig as SessionConfigInfo | undefined;
             if (cfg) {
               setSessionConfig(cfg);
-              console.log(`[Config] model: ${cfg.model}, thinking: ${cfg.thinking}, effort: ${cfg.effort}`);
+              console.log(
+                `[Config] model: ${cfg.model}, thinking: ${cfg.thinking}, effort: ${cfg.effort}`,
+              );
             }
           }
         }
@@ -698,7 +737,9 @@ export function useGateway(
       handleGatewayMessage(data);
     };
 
-    return () => { ws.close(); };
+    return () => {
+      ws.close();
+    };
   }, [gatewayUrl]);
 
   // ── Actions ────────────────────────────────────────────────
@@ -708,16 +749,27 @@ export function useGateway(
       if ((!text.trim() && attachments.length === 0) || !wsRef.current) return;
 
       const blocks: ContentBlock[] = [
-        ...attachments.filter((f) => f.type === "image").map((f) => ({
-          type: "image" as const, mediaType: f.mediaType, data: f.data,
-        })),
-        ...attachments.filter((f) => f.type === "file").map((f) => ({
-          type: "file" as const, mediaType: f.mediaType, data: f.data, filename: f.filename,
-        })),
+        ...attachments
+          .filter((f) => f.type === "image")
+          .map((f) => ({
+            type: "image" as const,
+            mediaType: f.mediaType,
+            data: f.data,
+          })),
+        ...attachments
+          .filter((f) => f.type === "file")
+          .map((f) => ({
+            type: "file" as const,
+            mediaType: f.mediaType,
+            data: f.data,
+            filename: f.filename,
+          })),
         ...(text.trim() ? [{ type: "text" as const, content: text }] : []),
       ];
 
-      setMessages((draft) => { draft.push({ role: "user", blocks, timestamp: Date.now() }); });
+      setMessages((draft) => {
+        draft.push({ role: "user", blocks, timestamp: Date.now() });
+      });
 
       // Build content for the API — plain string if text-only, array of content blocks if attachments
       let content: string | unknown[];
@@ -725,14 +777,18 @@ export function useGateway(
         content = text;
       } else {
         content = [
-          ...attachments.filter((f) => f.type === "image").map((f) => ({
-            type: "image",
-            source: { type: "base64", media_type: f.mediaType, data: f.data },
-          })),
-          ...attachments.filter((f) => f.type === "file").map((f) => ({
-            type: "document",
-            source: { type: "base64", media_type: f.mediaType, data: f.data },
-          })),
+          ...attachments
+            .filter((f) => f.type === "image")
+            .map((f) => ({
+              type: "image",
+              source: { type: "base64", media_type: f.mediaType, data: f.data },
+            })),
+          ...attachments
+            .filter((f) => f.type === "file")
+            .map((f) => ({
+              type: "document",
+              source: { type: "base64", media_type: f.mediaType, data: f.data },
+            })),
           ...(text.trim() ? [{ type: "text", text }] : []),
         ];
       }
@@ -791,24 +847,42 @@ export function useGateway(
   );
 
   const switchSession = useCallback(
-    (sid: string) => { sendRequest("session.switch", { sessionId: sid }); },
+    (sid: string) => {
+      sendRequest("session.switch", { sessionId: sid });
+    },
     [sendRequest],
   );
 
-  const onEvent = useCallback(
-    (listener: EventListener): (() => void) => {
-      eventListenersRef.current.add(listener);
-      return () => { eventListenersRef.current.delete(listener); };
-    },
-    [],
-  );
+  const onEvent = useCallback((listener: EventListener): (() => void) => {
+    eventListenersRef.current.add(listener);
+    return () => {
+      eventListenersRef.current.delete(listener);
+    };
+  }, []);
 
   return {
-    messages, isConnected, isQuerying, isCompacting, sessionId, sessionRecordId,
-    usage, eventCount, visibleCount, totalMessages, hasMore,
-    workspace, sessions, sessionConfig,
-    sendPrompt, sendInterrupt, loadEarlierMessages,
-    createNewSession, switchSession, sendRequest, onEvent,
-    messagesContainerRef, messagesEndRef,
+    messages,
+    isConnected,
+    isQuerying,
+    isCompacting,
+    sessionId,
+    sessionRecordId,
+    usage,
+    eventCount,
+    visibleCount,
+    totalMessages,
+    hasMore,
+    workspace,
+    sessions,
+    sessionConfig,
+    sendPrompt,
+    sendInterrupt,
+    loadEarlierMessages,
+    createNewSession,
+    switchSession,
+    sendRequest,
+    onEvent,
+    messagesContainerRef,
+    messagesEndRef,
   };
 }

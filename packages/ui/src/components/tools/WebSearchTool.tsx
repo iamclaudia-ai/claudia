@@ -11,9 +11,7 @@ export default function WebSearchTool({ name, parsedInput, result, isLoading }: 
 
   const expandedContent = (
     <div className="space-y-1.5">
-      {query && (
-        <span className="font-mono text-sm text-neutral-600">{query}</span>
-      )}
+      {query && <span className="font-mono text-sm text-neutral-600">{query}</span>}
       {result?.content && <ResultBlock content={result.content} isError={result.is_error} />}
     </div>
   );

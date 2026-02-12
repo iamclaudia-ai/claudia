@@ -43,8 +43,9 @@ describe("cli parsing", () => {
   });
 
   it("throws on positional args", () => {
-    expect(() => parseCliParams(["oops"]))
-      .toThrow("Unexpected positional argument: oops. Use --name value.");
+    expect(() => parseCliParams(["oops"])).toThrow(
+      "Unexpected positional argument: oops. Use --name value.",
+    );
   });
 });
 
@@ -129,7 +130,9 @@ describe("schema resolution and validation", () => {
   it("builds useful example values", () => {
     expect(exampleValueForSchema({ type: "string" }, sessionPromptSchema)).toBe('"value"');
     expect(exampleValueForSchema({ type: "boolean" }, sessionPromptSchema)).toBe("true");
-    expect(exampleValueForSchema({ type: "array", items: { type: "string" } }, sessionPromptSchema)).toBe("'[\"value\"]'");
+    expect(
+      exampleValueForSchema({ type: "array", items: { type: "string" } }, sessionPromptSchema),
+    ).toBe("'[\"value\"]'");
   });
 });
 
@@ -170,7 +173,9 @@ describe("help/example output", () => {
     printMethodExamples(entry);
 
     const lines = logSpy.mock.calls.flat().map((v) => String(v));
-    expect(lines.some((l) => l.includes("claudia session prompt --sessionId \"value\" --content \"value\""))).toBe(true);
+    expect(
+      lines.some((l) => l.includes('claudia session prompt --sessionId "value" --content "value"')),
+    ).toBe(true);
 
     logSpy.mockRestore();
   });

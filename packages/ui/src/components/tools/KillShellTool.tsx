@@ -6,13 +6,11 @@ import { getToolLabel } from "./toolConfig";
 export default function KillShellTool({ name, parsedInput, result, isLoading }: ToolProps) {
   const label = getToolLabel(name, parsedInput);
 
-  const collapsedContent = (
-    <ToolHeader toolName={name} label={label} />
-  );
+  const collapsedContent = <ToolHeader toolName={name} label={label} />;
 
-  const expandedContent = result?.content
-    ? <ResultBlock content={result.content} isError={result.is_error} />
-    : null;
+  const expandedContent = result?.content ? (
+    <ResultBlock content={result.content} isError={result.is_error} />
+  ) : null;
 
   return (
     <CollapsibleTool

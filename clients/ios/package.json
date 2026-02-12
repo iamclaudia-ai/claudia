@@ -2,10 +2,10 @@
   "name": "@claudia/ios",
   "version": "0.1.0",
   "private": true,
+  "description": "React Native iOS app with CarPlay support",
   "scripts": {
     "build": "echo \"Use xcodebuild in clients/ios/VoiceMode\"",
     "test": "echo \"No Bun tests for iOS client\"",
     "typecheck": "echo \"No TypeScript typecheck for iOS client\""
-  },
-  "description": "React Native iOS app with CarPlay support"
+  }
 }

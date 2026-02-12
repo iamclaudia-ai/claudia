@@ -20,8 +20,7 @@ export function CollapsibleTool({
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
   const popoverRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
-  const hasExpandedContent =
-    expandedContent !== null && expandedContent !== undefined;
+  const hasExpandedContent = expandedContent !== null && expandedContent !== undefined;
 
   // Close on click outside
   useEffect(() => {

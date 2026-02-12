@@ -20,7 +20,11 @@ function formatTokens(tokens: number): string {
   return tokens.toLocaleString();
 }
 
-export default function CompactionBoundary({ trigger, preTokens, timestamp }: CompactionBoundaryProps) {
+export default function CompactionBoundary({
+  trigger,
+  preTokens,
+  timestamp,
+}: CompactionBoundaryProps) {
   const label = trigger === "auto" ? "Auto-compacted" : "Manually compacted";
   const timeStr = timestamp
     ? new Date(timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
@@ -34,19 +38,11 @@ export default function CompactionBoundary({ trigger, preTokens, timestamp }: Co
       {/* Center badge */}
       <div className="flex items-center gap-1.5 px-3 py-1 mx-3 rounded-full border border-purple-200/60 bg-purple-50/80 backdrop-blur-sm">
         <Scissors className="size-3 text-purple-400" />
-        <span className="text-[11px] font-medium text-purple-600">
-          {label}
-        </span>
+        <span className="text-[11px] font-medium text-purple-600">{label}</span>
         {preTokens > 0 && (
-          <span className="text-[10px] text-purple-400">
-            {formatTokens(preTokens)} tokens
-          </span>
+          <span className="text-[10px] text-purple-400">{formatTokens(preTokens)} tokens</span>
         )}
-        {timeStr && (
-          <span className="text-[10px] text-purple-300">
-            {timeStr}
-          </span>
-        )}
+        {timeStr && <span className="text-[10px] text-purple-300">{timeStr}</span>}
       </div>
 
       {/* Gradient line right */}

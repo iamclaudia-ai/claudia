@@ -85,7 +85,9 @@ export function SessionList({
       }
     };
 
-    return () => { ws.close(); };
+    return () => {
+      ws.close();
+    };
   }, [gatewayUrl, workspaceId, sendRequest]);
 
   const formatSessionName = (s: SessionInfo) => {
@@ -124,17 +126,19 @@ export function SessionList({
             className="p-1 rounded hover:bg-gray-100 transition-colors text-gray-400 hover:text-gray-600"
             title="Back to workspaces"
           >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <svg
+              className="w-5 h-5"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
               <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
             </svg>
           </button>
           <div>
-            <h1 className="text-2xl font-semibold">
-              💙 {workspace?.name || "..."}
-            </h1>
-            {workspace && (
-              <p className="text-xs text-gray-400 mt-0.5">{workspace.cwd}</p>
-            )}
+            <h1 className="text-2xl font-semibold">💙 {workspace?.name || "..."}</h1>
+            {workspace && <p className="text-xs text-gray-400 mt-0.5">{workspace.cwd}</p>}
           </div>
         </div>
         <div className="flex items-center justify-between mt-2">
@@ -153,7 +157,13 @@ export function SessionList({
               disabled={isCreating}
               className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 disabled:opacity-50 transition-colors"
             >
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <svg
+                className="w-3.5 h-3.5"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
               </svg>
               {isCreating ? "Creating..." : "New Session"}
@@ -269,9 +279,7 @@ function SessionCard({
           )}
         </div>
         <div className="flex items-center gap-3 flex-shrink-0 ml-4">
-          <span className="text-xs text-gray-400">
-            {formatTime(session.lastActivity)}
-          </span>
+          <span className="text-xs text-gray-400">{formatTime(session.lastActivity)}</span>
           <svg
             className="w-4 h-4 text-gray-300 group-hover:text-gray-400"
             fill="none"

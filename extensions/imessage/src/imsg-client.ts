@@ -5,8 +5,8 @@
  * Optimized for Bun's native subprocess handling.
  */
 
-import { spawn, type Subprocess } from 'bun';
-import { EventEmitter } from 'node:events';
+import { spawn, type Subprocess } from "bun";
+import { EventEmitter } from "node:events";
 
 // ============================================================================
 // Types
@@ -102,11 +102,11 @@ interface PendingRequest {
 export class ImsgRpcClient extends EventEmitter {
   private readonly cliPath: string;
   private readonly dbPath?: string;
-  private readonly log: ImsgClientOptions['log'];
+  private readonly log: ImsgClientOptions["log"];
   private readonly onMessage?: (message: ImsgMessage) => void;
   private readonly onError?: (error: Error) => void;
 
-  private proc: Subprocess<'pipe', 'pipe', 'pipe'> | null = null;
+  private proc: Subprocess<"pipe", "pipe", "pipe"> | null = null;
   private pending = new Map<string, PendingRequest>();
   private nextId = 1;
   private subscriptionId: number | null = null;
@@ -114,7 +114,7 @@ export class ImsgRpcClient extends EventEmitter {
 
   constructor(opts: ImsgClientOptions = {}) {
     super();
-    this.cliPath = opts.cliPath?.trim() || 'imsg';
+    this.cliPath = opts.cliPath?.trim() || "imsg";
     this.dbPath = opts.dbPath?.trim();
     this.log = opts.log || console;
     this.onMessage = opts.onMessage;
@@ -127,17 +127,17 @@ export class ImsgRpcClient extends EventEmitter {
   async start(): Promise<void> {
     if (this.proc) return;
 
-    const args = ['rpc'];
+    const args = ["rpc"];
     if (this.dbPath) {
-      args.push('--db', this.dbPath);
+      args.push("--db", this.dbPath);
     }
 
-    this.log?.info?.(`Starting: ${this.cliPath} ${args.join(' ')}`);
+    this.log?.info?.(`Starting: ${this.cliPath} ${args.join(" ")}`);
 
     this.proc = spawn([this.cliPath, ...args], {
-      stdin: 'pipe',
-      stdout: 'pipe',
-      stderr: 'pipe',
+      stdin: "pipe",
+      stdout: "pipe",
+      stderr: "pipe",
     });
 
     // Read stdout line by line using Bun's native stream
@@ -146,7 +146,7 @@ export class ImsgRpcClient extends EventEmitter {
     // Log stderr
     this.readStderr();
 
-    this.log?.info?.('imsg rpc started');
+    this.log?.info?.("imsg rpc started");
   }
 
   /**
@@ -157,7 +157,7 @@ export class ImsgRpcClient extends EventEmitter {
 
     this.stdoutReader = this.proc.stdout.getReader();
     const decoder = new TextDecoder();
-    let buffer = '';
+    let buffer = "";
 
     try {
       while (true) {
@@ -167,8 +167,8 @@ export class ImsgRpcClient extends EventEmitter {
         buffer += decoder.decode(value, { stream: true });
 
         // Process complete lines
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || ''; // Keep incomplete line in buffer
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || ""; // Keep incomplete line in buffer
 
         for (const line of lines) {
           const trimmed = line.trim();
@@ -179,7 +179,7 @@ export class ImsgRpcClient extends EventEmitter {
       }
     } catch (err) {
       // Process ended or was cancelled
-      if (String(err).includes('cancelled')) {
+      if (String(err).includes("cancelled")) {
         // Normal shutdown
       } else {
         this.log?.error?.(`stdout read error: ${err}`);
@@ -201,7 +201,7 @@ export class ImsgRpcClient extends EventEmitter {
         const { done, value } = await reader.read();
         if (done) break;
         const text = decoder.decode(value);
-        for (const line of text.split('\n')) {
+        for (const line of text.split("\n")) {
           if (line.trim()) {
             this.log?.error?.(`imsg stderr: ${line.trim()}`);
           }
@@ -250,8 +250,8 @@ export class ImsgRpcClient extends EventEmitter {
     });
 
     this.proc = null;
-    this.failAll(new Error('imsg rpc stopped'));
-    this.log?.info?.('imsg rpc stopped');
+    this.failAll(new Error("imsg rpc stopped"));
+    this.log?.info?.("imsg rpc stopped");
   }
 
   /**
@@ -260,21 +260,21 @@ export class ImsgRpcClient extends EventEmitter {
   async request<T = unknown>(
     method: string,
     params?: Record<string, unknown>,
-    opts?: { timeoutMs?: number }
+    opts?: { timeoutMs?: number },
   ): Promise<T> {
     if (!this.proc || !this.proc.stdin) {
-      throw new Error('imsg rpc not running');
+      throw new Error("imsg rpc not running");
     }
 
     const id = this.nextId++;
     const payload = {
-      jsonrpc: '2.0',
+      jsonrpc: "2.0",
       id,
       method,
       params: params ?? {},
     };
 
-    const line = JSON.stringify(payload) + '\n';
+    const line = JSON.stringify(payload) + "\n";
     const timeoutMs = opts?.timeoutMs ?? 10_000;
 
     const response = new Promise<T>((resolve, reject) => {
@@ -302,7 +302,7 @@ export class ImsgRpcClient extends EventEmitter {
    * List recent chats
    */
   async listChats(limit = 20): Promise<ImsgChat[]> {
-    const result = await this.request<{ chats: ImsgChat[] }>('chats.list', { limit });
+    const result = await this.request<{ chats: ImsgChat[] }>("chats.list", { limit });
     return result.chats;
   }
 
@@ -310,7 +310,7 @@ export class ImsgRpcClient extends EventEmitter {
    * Get message history for a chat
    */
   async getHistory(chatId: number, limit = 50, attachments = false): Promise<ImsgMessage[]> {
-    const result = await this.request<{ messages: ImsgMessage[] }>('messages.history', {
+    const result = await this.request<{ messages: ImsgMessage[] }>("messages.history", {
       chat_id: chatId,
       limit,
       attachments,
@@ -321,12 +321,14 @@ export class ImsgRpcClient extends EventEmitter {
   /**
    * Subscribe to new messages
    */
-  async subscribe(opts: {
-    chatId?: number;
-    sinceRowId?: number;
-    attachments?: boolean;
-  } = {}): Promise<number> {
-    const result = await this.request<{ subscription: number }>('watch.subscribe', {
+  async subscribe(
+    opts: {
+      chatId?: number;
+      sinceRowId?: number;
+      attachments?: boolean;
+    } = {},
+  ): Promise<number> {
+    const result = await this.request<{ subscription: number }>("watch.subscribe", {
       chat_id: opts.chatId,
       since_rowid: opts.sinceRowId,
       attachments: opts.attachments ?? false,
@@ -340,7 +342,7 @@ export class ImsgRpcClient extends EventEmitter {
    */
   async unsubscribe(): Promise<void> {
     if (this.subscriptionId === null) return;
-    await this.request('watch.unsubscribe', { subscription: this.subscriptionId });
+    await this.request("watch.unsubscribe", { subscription: this.subscriptionId });
     this.subscriptionId = null;
   }
 
@@ -352,14 +354,14 @@ export class ImsgRpcClient extends EventEmitter {
     chatId?: number;
     text?: string;
     file?: string;
-    service?: 'imessage' | 'sms' | 'auto';
+    service?: "imessage" | "sms" | "auto";
   }): Promise<void> {
-    await this.request('send', {
+    await this.request("send", {
       to: opts.to,
       chat_id: opts.chatId,
       text: opts.text,
       file: opts.file,
-      service: opts.service ?? 'auto',
+      service: opts.service ?? "auto",
     });
   }
 
@@ -385,8 +387,8 @@ export class ImsgRpcClient extends EventEmitter {
       this.pending.delete(key);
 
       if (parsed.error) {
-        const msg = parsed.error.message ?? 'imsg rpc error';
-        const details = parsed.error.data ? `: ${JSON.stringify(parsed.error.data)}` : '';
+        const msg = parsed.error.message ?? "imsg rpc error";
+        const details = parsed.error.data ? `: ${JSON.stringify(parsed.error.data)}` : "";
         pending.reject(new Error(`${msg}${details}`));
         return;
       }
@@ -405,14 +407,14 @@ export class ImsgRpcClient extends EventEmitter {
    * Handle a JSON-RPC notification
    */
   private handleNotification(method: string, params: unknown): void {
-    if (method === 'message') {
+    if (method === "message") {
       const data = params as { subscription: number; message: ImsgMessage };
-      this.emit('message', data.message);
+      this.emit("message", data.message);
       this.onMessage?.(data.message);
-    } else if (method === 'error') {
+    } else if (method === "error") {
       const data = params as { subscription: number; error: { message: string } };
-      const err = new Error(data.error?.message || 'Unknown error');
-      this.emit('error', err);
+      const err = new Error(data.error?.message || "Unknown error");
+      this.emit("error", err);
       this.onError?.(err);
     }
   }

@@ -32,11 +32,7 @@ interface MigrateOptions {
  * Apply all pending migrations
  */
 export function migrate(db: Database, options: MigrateOptions = {}): Database {
-  const {
-    force = false,
-    table = "_migrations",
-    migrationsPath,
-  } = options;
+  const { force = false, table = "_migrations", migrationsPath } = options;
 
   // Resolve migrations directory relative to gateway package root
   const location = migrationsPath || resolve(import.meta.dir, "../../migrations");
@@ -81,9 +77,7 @@ export function migrate(db: Database, options: MigrateOptions = {}): Database {
     const down = parts[1];
 
     if (!down) {
-      throw new Error(
-        `The ${migration.filename} file does not contain '-- Down' separator.`,
-      );
+      throw new Error(`The ${migration.filename} file does not contain '-- Down' separator.`);
     }
 
     migrationFiles.push({
@@ -122,9 +116,7 @@ export function migrate(db: Database, options: MigrateOptions = {}): Database {
     if (migrationNotInFiles || isForceLastMigration) {
       db.run("BEGIN");
       try {
-        const downSql = isForceLastMigration && lastMigration
-          ? lastMigration.down
-          : migration.down;
+        const downSql = isForceLastMigration && lastMigration ? lastMigration.down : migration.down;
         db.run(downSql);
         db.query(`DELETE FROM "${table}" WHERE id = ?`).run(migration.id);
         db.run("COMMIT");
@@ -167,10 +159,7 @@ export function migrate(db: Database, options: MigrateOptions = {}): Database {
 /**
  * Rollback migrations
  */
-export function rollback(
-  db: Database,
-  options: { to?: number; table?: string } = {},
-): Database {
+export function rollback(db: Database, options: { to?: number; table?: string } = {}): Database {
   const { to, table = "_migrations" } = options;
 
   const dbMigrations = db

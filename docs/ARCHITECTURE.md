@@ -128,13 +128,13 @@ Client ──req──► Gateway ──res──► Client     (request/respons
 
 Methods are namespaced. The gateway routes by prefix:
 
-| Prefix | Handler | Methods |
-|--------|---------|---------|
-| `session.*` | SessionManager | prompt, history, create, switch, list, info, interrupt, reset, get, config |
-| `workspace.*` | SessionManager | list, get, getOrCreate |
-| `subscribe` | Client state | Subscribe to event patterns |
-| `unsubscribe` | Client state | Remove subscriptions |
-| `*` | ExtensionManager | Any method registered by an extension |
+| Prefix        | Handler          | Methods                                                                    |
+| ------------- | ---------------- | -------------------------------------------------------------------------- |
+| `session.*`   | SessionManager   | prompt, history, create, switch, list, info, interrupt, reset, get, config |
+| `workspace.*` | SessionManager   | list, get, getOrCreate                                                     |
+| `subscribe`   | Client state     | Subscribe to event patterns                                                |
+| `unsubscribe` | Client state     | Remove subscriptions                                                       |
+| `*`           | ExtensionManager | Any method registered by an extension                                      |
 
 #### Event Subscriptions
 
@@ -179,23 +179,23 @@ Runtime                              CLI Process
 
 #### Stdin Messages (Runtime → CLI)
 
-| Message Type | Format | Purpose |
-|-------------|--------|---------|
-| Prompt | `{ type: "user", message: { role: "user", content: "..." } }` | Send user message to Claude |
-| Interrupt | `{ type: "control_request", request_id: "uuid", request: { subtype: "interrupt" } }` | Gracefully interrupt current response |
-| Thinking config | `{ type: "control_request", request_id: "uuid", request: { subtype: "set_max_thinking_tokens", max_thinking_tokens: N } }` | Configure thinking tokens |
+| Message Type    | Format                                                                                                                     | Purpose                               |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- |
+| Prompt          | `{ type: "user", message: { role: "user", content: "..." } }`                                                              | Send user message to Claude           |
+| Interrupt       | `{ type: "control_request", request_id: "uuid", request: { subtype: "interrupt" } }`                                       | Gracefully interrupt current response |
+| Thinking config | `{ type: "control_request", request_id: "uuid", request: { subtype: "set_max_thinking_tokens", max_thinking_tokens: N } }` | Configure thinking tokens             |
 
 #### Stdout Messages (CLI → Runtime)
 
-| CLI Message Type | Action | Description |
-|-----------------|--------|-------------|
-| `stream_event` | Unwrap inner `event`, emit as SSE | Real-time streaming deltas (text, thinking, tool use) |
-| `assistant` | Log only | Complete assistant message (streaming already handled) |
-| `user` | Extract `tool_result` blocks, emit as `request_tool_results` | Tool execution results from CLI |
-| `result` | Emit `turn_stop` with usage/cost | Agent turn completed |
-| `control_response` | Log | Confirmation of control requests we sent |
-| `system` | Log | Initialization with capabilities |
-| `keep_alive` | Ignore | Heartbeat |
+| CLI Message Type   | Action                                                       | Description                                            |
+| ------------------ | ------------------------------------------------------------ | ------------------------------------------------------ |
+| `stream_event`     | Unwrap inner `event`, emit as SSE                            | Real-time streaming deltas (text, thinking, tool use)  |
+| `assistant`        | Log only                                                     | Complete assistant message (streaming already handled) |
+| `user`             | Extract `tool_result` blocks, emit as `request_tool_results` | Tool execution results from CLI                        |
+| `result`           | Emit `turn_stop` with usage/cost                             | Agent turn completed                                   |
+| `control_response` | Log                                                          | Confirmation of control requests we sent               |
+| `system`           | Log                                                          | Initialization with capabilities                       |
+| `keep_alive`       | Ignore                                                       | Heartbeat                                              |
 
 #### Stdout Buffering
 
@@ -223,12 +223,12 @@ Session spawns CLI → sendThinkingConfig(effort) → stdin control_request
 
 Effort levels map to `max_thinking_tokens`:
 
-| Effort | Tokens |
-|--------|--------|
-| `low` | 4,000 |
-| `medium` | 8,000 |
-| `high` | 16,000 |
-| `max` | 32,000 |
+| Effort   | Tokens |
+| -------- | ------ |
+| `low`    | 4,000  |
+| `medium` | 8,000  |
+| `high`   | 16,000 |
+| `max`    | 32,000 |
 
 ### Key Pattern: stream_event Unwrapping
 
@@ -278,6 +278,7 @@ Browser → Gateway WS → Runtime WS → RuntimeSession → stdin (NDJSON)
 ```
 
 Attachments are sent as Anthropic API content blocks:
+
 - Images: `{ type: "image", source: { type: "base64", media_type, data } }`
 - Files: `{ type: "document", source: { type: "base64", media_type, data } }`
 
@@ -357,9 +358,9 @@ Extensions register methods and events, subscribe to the event bus:
 interface ClaudiaExtension {
   id: string;
   name: string;
-  methods: string[];          // RPC methods this extension handles
-  events: string[];           // Events this extension emits
-  sourceRoutes?: string[];    // Source prefixes for response routing
+  methods: string[]; // RPC methods this extension handles
+  events: string[]; // Events this extension emits
+  sourceRoutes?: string[]; // Source prefixes for response routing
   start(ctx: ExtensionContext): Promise<void>;
   stop(): Promise<void>;
   handleMethod(method: string, params: Record<string, unknown>): Promise<unknown>;
@@ -369,6 +370,7 @@ interface ClaudiaExtension {
 ```
 
 **ExtensionContext** provides:
+
 - `on(pattern, handler)` — subscribe to gateway events (wildcard support)
 - `emit(type, payload)` — emit events to the bus
 - `config` — extension configuration
@@ -470,9 +472,9 @@ extensions/
 
 ## Ports
 
-| Port | Service | Description |
-|------|---------|-------------|
-| 30086 | Gateway | HTTP + WebSocket + SPA serving |
+| Port  | Service | Description                                        |
+| ----- | ------- | -------------------------------------------------- |
+| 30086 | Gateway | HTTP + WebSocket + SPA serving                     |
 | 30087 | Runtime | Gateway WS + health check (stdio to CLI processes) |
 
 Port 30086 = SHA256("Claudia") → x7586 → 30086

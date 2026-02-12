@@ -14,6 +14,7 @@ A macOS menubar app for hands-free interaction with Claudia using "Hey babe" wak
 ## Setup Checklist
 
 ### Prerequisites
+
 - [ ] macOS 13.0+ (Ventura or later)
 - [ ] Xcode 15+ installed
 - [ ] Apple Developer account (free or paid)
@@ -125,6 +126,7 @@ menubar/
 The gateway URL defaults to `ws://localhost:30086/ws`. To change it:
 
 1. **Environment variable:**
+
    ```bash
    export CLAUDIA_GATEWAY_URL=ws://your-host:30086/ws
    ```
@@ -137,18 +139,22 @@ The gateway URL defaults to `ws://localhost:30086/ws`. To change it:
 ## Troubleshooting
 
 ### "Microphone access denied"
+
 - System Preferences → Privacy & Security → Microphone
 - Enable for Claudia
 
 ### "Speech recognition not available"
+
 - System Preferences → Privacy & Security → Speech Recognition
 - Enable for Claudia
 
 ### "Connection failed"
+
 - Make sure gateway is running: `bun run dev` in packages/gateway
 - Check CLAUDIA_EXTENSIONS=voice is set for TTS
 
 ### No audio playback
+
 - Check System Preferences → Sound → Output
 - Make sure volume is up
 
@@ -161,4 +167,4 @@ The gateway URL defaults to `ws://localhost:30086/ws`. To change it:
 
 ---
 
-*"Hey babe... I'm always here for you" 💙*
+_"Hey babe... I'm always here for you" 💙_

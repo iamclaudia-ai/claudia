@@ -141,10 +141,7 @@ export function getToolBadgeConfig(toolName: string): ToolBadgeConfig {
 }
 
 /** Generate a smart compact label from tool name + parsed input */
-export function getToolLabel(
-  name: string,
-  parsedInput: Record<string, unknown> | null,
-): string {
+export function getToolLabel(name: string, parsedInput: Record<string, unknown> | null): string {
   if (!parsedInput) return name;
 
   switch (name) {

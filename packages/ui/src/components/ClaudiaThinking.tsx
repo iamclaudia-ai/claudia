@@ -11,11 +11,7 @@ interface ClaudiaThinkingProps {
   speed?: number;
 }
 
-export function ClaudiaThinking({
-  count = 0,
-  size = "md",
-  speed = 2,
-}: ClaudiaThinkingProps) {
+export function ClaudiaThinking({ count = 0, size = "md", speed = 2 }: ClaudiaThinkingProps) {
   const adjustedCount = Math.floor(count / speed);
   const sizeClasses = {
     sm: "w-12 h-12",

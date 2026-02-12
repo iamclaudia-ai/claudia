@@ -23,7 +23,10 @@ function genId(): string {
 
 async function runE2E(): Promise<void> {
   const ws = new WebSocket(gatewayWs);
-  const pending = new Map<string, { method: string; resolve: (v: unknown) => void; reject: (e: unknown) => void }>();
+  const pending = new Map<
+    string,
+    { method: string; resolve: (v: unknown) => void; reject: (e: unknown) => void }
+  >();
 
   const request = (method: string, params: Record<string, unknown>): Promise<unknown> => {
     const id = genId();
@@ -70,7 +73,10 @@ async function runE2E(): Promise<void> {
 
   try {
     await request("subscribe", { events: ["session.*"] });
-    const wsResult = (await request("workspace.getOrCreate", { cwd: process.cwd(), name: "Smoke Test" })) as {
+    const wsResult = (await request("workspace.getOrCreate", {
+      cwd: process.cwd(),
+      name: "Smoke Test",
+    })) as {
       workspace?: { id: string };
     };
 

@@ -22,12 +22,8 @@ export default function WebFetchTool({ name, parsedInput, result, isLoading }: T
           {url}
         </a>
       )}
-      {prompt && (
-        <div className="text-[10px] text-neutral-600">{prompt}</div>
-      )}
-      {result?.content && (
-        <ResultBlock content={result.content} isError={result.is_error} />
-      )}
+      {prompt && <div className="text-[10px] text-neutral-600">{prompt}</div>}
+      {result?.content && <ResultBlock content={result.content} isError={result.is_error} />}
     </div>
   );
 

@@ -9,15 +9,15 @@
  * - memory_list: List memories and sections
  */
 
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
   type Tool,
-} from '@modelcontextprotocol/sdk/types.js';
+} from "@modelcontextprotocol/sdk/types.js";
 
-import { getSectionRegistry } from './sections.js';
+import { getSectionRegistry } from "./sections.js";
 import {
   fileExists,
   parseMemoryFile,
@@ -27,9 +27,15 @@ import {
   createMemoryFile,
   readMemory,
   getRecentMemories,
-} from './storage.js';
-import type { RememberParams, RecallParams, ReadParams, ListParams, MemoryCategory } from './types.js';
-import { syncMemoryFiles } from './sync.js';
+} from "./storage.js";
+import type {
+  RememberParams,
+  RecallParams,
+  ReadParams,
+  ListParams,
+  MemoryCategory,
+} from "./types.js";
+import { syncMemoryFiles } from "./sync.js";
 
 // ============================================================================
 // Tool Definitions
@@ -37,7 +43,7 @@ import { syncMemoryFiles } from './sync.js';
 
 const TOOLS: Tool[] = [
   {
-    name: 'memory_remember',
+    name: "memory_remember",
     description: `Store a memory in Claudia's memory system (~/memory).
 
 Use this when you want to remember something important:
@@ -48,123 +54,149 @@ Use this when you want to remember something important:
 
 The tool will suggest consistent section names based on existing sections.`,
     inputSchema: {
-      type: 'object',
+      type: "object",
       properties: {
         content: {
-          type: 'string',
-          description: 'The content to remember',
+          type: "string",
+          description: "The content to remember",
         },
         filename: {
-          type: 'string',
-          description: 'Target file path (e.g., "relationships/michael.md"). If not provided, will be inferred.',
+          type: "string",
+          description:
+            'Target file path (e.g., "relationships/michael.md"). If not provided, will be inferred.',
         },
         section: {
-          type: 'string',
-          description: 'Section title to store under. Will be matched against existing sections for consistency.',
+          type: "string",
+          description:
+            "Section title to store under. Will be matched against existing sections for consistency.",
         },
         category: {
-          type: 'string',
-          enum: ['core', 'relationships', 'milestones', 'projects', 'insights', 'events', 'personas'],
-          description: 'Memory category (used when creating new files)',
+          type: "string",
+          enum: [
+            "core",
+            "relationships",
+            "milestones",
+            "projects",
+            "insights",
+            "events",
+            "personas",
+          ],
+          description: "Memory category (used when creating new files)",
         },
         tags: {
-          type: 'array',
-          items: { type: 'string' },
-          description: 'Optional tags for the memory',
+          type: "array",
+          items: { type: "string" },
+          description: "Optional tags for the memory",
         },
       },
-      required: ['content'],
+      required: ["content"],
     },
   },
   {
-    name: 'memory_recall',
+    name: "memory_recall",
     description: `Search through Claudia's memories.
 
 Currently uses keyword/section matching. Vector search coming soon.
 Use this to find relevant memories before responding to questions about past conversations, preferences, or projects.`,
     inputSchema: {
-      type: 'object',
+      type: "object",
       properties: {
         query: {
-          type: 'string',
-          description: 'Search query',
+          type: "string",
+          description: "Search query",
         },
         limit: {
-          type: 'number',
-          description: 'Maximum results to return (default: 5)',
+          type: "number",
+          description: "Maximum results to return (default: 5)",
         },
         category: {
-          type: 'string',
-          enum: ['core', 'relationships', 'milestones', 'projects', 'insights', 'events', 'personas'],
-          description: 'Filter by category',
+          type: "string",
+          enum: [
+            "core",
+            "relationships",
+            "milestones",
+            "projects",
+            "insights",
+            "events",
+            "personas",
+          ],
+          description: "Filter by category",
         },
       },
-      required: ['query'],
+      required: ["query"],
     },
   },
   {
-    name: 'memory_read',
+    name: "memory_read",
     description: `Read a specific memory file or section.
 
 Use this to get the full content of a memory file.`,
     inputSchema: {
-      type: 'object',
+      type: "object",
       properties: {
         filepath: {
-          type: 'string',
+          type: "string",
           description: 'Path to memory file (e.g., "relationships/michael.md")',
         },
         section: {
-          type: 'string',
-          description: 'Optional: specific section to read',
+          type: "string",
+          description: "Optional: specific section to read",
         },
       },
-      required: ['filepath'],
+      required: ["filepath"],
     },
   },
   {
-    name: 'memory_list',
+    name: "memory_list",
     description: `List memory files and their sections.
 
 Use this to explore what memories exist.`,
     inputSchema: {
-      type: 'object',
+      type: "object",
       properties: {
         category: {
-          type: 'string',
-          enum: ['core', 'relationships', 'milestones', 'projects', 'insights', 'events', 'personas'],
-          description: 'Filter by category',
+          type: "string",
+          enum: [
+            "core",
+            "relationships",
+            "milestones",
+            "projects",
+            "insights",
+            "events",
+            "personas",
+          ],
+          description: "Filter by category",
         },
         recent: {
-          type: 'number',
-          description: 'List N most recently updated memories',
+          type: "number",
+          description: "List N most recently updated memories",
         },
       },
     },
   },
   {
-    name: 'memory_sections',
+    name: "memory_sections",
     description: `Get all known section titles for consistency.
 
 Use this before creating a new section to check if a similar one already exists.`,
     inputSchema: {
-      type: 'object',
+      type: "object",
       properties: {
         filepath: {
-          type: 'string',
-          description: 'Optional: filter sections for a specific file',
+          type: "string",
+          description: "Optional: filter sections for a specific file",
         },
       },
     },
   },
   {
-    name: 'memory_sync',
+    name: "memory_sync",
     description: `Sync existing ~/memory files into the section registry database.
 
 Run this once to populate the section registry with all existing sections from memory files.
 This enables better consistency suggestions when storing new memories.`,
     inputSchema: {
-      type: 'object',
+      type: "object",
       properties: {},
     },
   },
@@ -180,17 +212,20 @@ async function handleRemember(params: RememberParams): Promise<string> {
 
   // Determine target file
   let targetFile = filename;
-  let targetCategory: MemoryCategory = (category as MemoryCategory) || 'insights';
+  let targetCategory: MemoryCategory = (category as MemoryCategory) || "insights";
 
   if (!targetFile) {
     // Default to insights with dated filename
-    const today = new Date().toISOString().split('T')[0];
-    const slug = content.slice(0, 30).toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    const today = new Date().toISOString().split("T")[0];
+    const slug = content
+      .slice(0, 30)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-");
     targetFile = `insights/${today}-${slug}.md`;
   }
 
   // Get consistent section title
-  let targetSection = section || 'Notes';
+  let targetSection = section || "Notes";
   const consistentSection = registry.getConsistentSectionTitle(targetSection);
   if (consistentSection !== targetSection) {
     targetSection = consistentSection;
@@ -223,8 +258,18 @@ async function handleRemember(params: RememberParams): Promise<string> {
   } else {
     // Create new file
     // Extract category from path
-    const pathCategory = targetFile.split('/')[0] as MemoryCategory;
-    if (['core', 'relationships', 'milestones', 'projects', 'insights', 'events', 'personas'].includes(pathCategory)) {
+    const pathCategory = targetFile.split("/")[0] as MemoryCategory;
+    if (
+      [
+        "core",
+        "relationships",
+        "milestones",
+        "projects",
+        "insights",
+        "events",
+        "personas",
+      ].includes(pathCategory)
+    ) {
       targetCategory = pathCategory;
     }
 
@@ -284,7 +329,7 @@ async function handleRecall(params: RecallParams): Promise<string> {
         results.push({
           filepath: file,
           section: section.title,
-          content: section.content.slice(0, 500) + (section.content.length > 500 ? '...' : ''),
+          content: section.content.slice(0, 500) + (section.content.length > 500 ? "..." : ""),
           score,
         });
       }
@@ -299,7 +344,7 @@ async function handleRecall(params: RecallParams): Promise<string> {
     query,
     count: topResults.length,
     memories: topResults,
-    note: 'Currently using keyword matching. Vector search coming soon.',
+    note: "Currently using keyword matching. Vector search coming soon.",
   });
 }
 
@@ -332,11 +377,11 @@ async function handleList(params: ListParams): Promise<string> {
     const memories = await getRecentMemories(recent);
     return JSON.stringify({
       count: memories.length,
-      memories: memories.map(m => ({
+      memories: memories.map((m) => ({
         filepath: m.filename,
         title: m.frontmatter.title,
         updated_at: m.frontmatter.updated_at,
-        sections: m.sections.map(s => s.title),
+        sections: m.sections.map((s) => s.title),
       })),
     });
   }
@@ -351,13 +396,13 @@ async function handleList(params: ListParams): Promise<string> {
         filepath: file,
         title: parsed.frontmatter.title,
         updated_at: parsed.frontmatter.updated_at,
-        sections: parsed.sections.map(s => s.title),
+        sections: parsed.sections.map((s) => s.title),
       });
     }
   }
 
   return JSON.stringify({
-    category: category || 'all',
+    category: category || "all",
     count: results.length,
     files: results,
   });
@@ -370,7 +415,7 @@ async function handleSections(params: { filepath?: string }): Promise<string> {
     const sections = registry.getSectionsForFile(params.filepath);
     return JSON.stringify({
       filepath: params.filepath,
-      sections: sections.map(s => s.section_title),
+      sections: sections.map((s) => s.section_title),
     });
   }
 
@@ -378,7 +423,7 @@ async function handleSections(params: { filepath?: string }): Promise<string> {
   return JSON.stringify({
     count: allSections.length,
     sections: allSections,
-    note: 'Use these section names for consistency when storing new memories.',
+    note: "Use these section names for consistency when storing new memories.",
   });
 }
 
@@ -389,14 +434,14 @@ async function handleSections(params: { filepath?: string }): Promise<string> {
 async function main() {
   const server = new Server(
     {
-      name: 'claudia-memory',
-      version: '0.1.0',
+      name: "claudia-memory",
+      version: "0.1.0",
     },
     {
       capabilities: {
         tools: {},
       },
-    }
+    },
   );
 
   // List tools
@@ -412,22 +457,22 @@ async function main() {
       let result: string;
 
       switch (name) {
-        case 'memory_remember':
+        case "memory_remember":
           result = await handleRemember((args ?? {}) as unknown as RememberParams);
           break;
-        case 'memory_recall':
+        case "memory_recall":
           result = await handleRecall((args ?? {}) as unknown as RecallParams);
           break;
-        case 'memory_read':
+        case "memory_read":
           result = await handleRead((args ?? {}) as unknown as ReadParams);
           break;
-        case 'memory_list':
+        case "memory_list":
           result = await handleList(args as ListParams);
           break;
-        case 'memory_sections':
+        case "memory_sections":
           result = await handleSections(args as { filepath?: string });
           break;
-        case 'memory_sync':
+        case "memory_sync":
           result = JSON.stringify(await syncMemoryFiles());
           break;
         default:
@@ -435,12 +480,12 @@ async function main() {
       }
 
       return {
-        content: [{ type: 'text', text: result }],
+        content: [{ type: "text", text: result }],
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return {
-        content: [{ type: 'text', text: JSON.stringify({ error: message }) }],
+        content: [{ type: "text", text: JSON.stringify({ error: message }) }],
         isError: true,
       };
     }
@@ -450,7 +495,7 @@ async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
 
-  console.error('Claudia Memory MCP server running');
+  console.error("Claudia Memory MCP server running");
 }
 
 main().catch(console.error);

@@ -36,7 +36,14 @@ async function methodListSmoke(): Promise<number> {
     const reqId = id();
 
     ws.onopen = () => {
-      ws.send(JSON.stringify({ type: "req", id: reqId, method: "method.list", params: {} } satisfies Message));
+      ws.send(
+        JSON.stringify({
+          type: "req",
+          id: reqId,
+          method: "method.list",
+          params: {},
+        } satisfies Message),
+      );
     };
 
     ws.onmessage = (event) => {
@@ -49,7 +56,7 @@ async function methodListSmoke(): Promise<number> {
         return;
       }
 
-      const methods = ((msg.payload as { methods?: unknown[] })?.methods ?? []);
+      const methods = (msg.payload as { methods?: unknown[] })?.methods ?? [];
       ws.close();
       resolve(methods.length);
     };

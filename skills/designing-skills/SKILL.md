@@ -23,8 +23,8 @@ skills/
 
 ```yaml
 ---
-name: skill-name              # lowercase-with-hyphens
-description: "..."            # What it does AND when to use it - MUST be quoted
+name: skill-name # lowercase-with-hyphens
+description: "..." # What it does AND when to use it - MUST be quoted
 ---
 ```
 
@@ -50,6 +50,7 @@ description: "MUST be used when you need to browse the web. Efficient browser au
 ```
 
 **Why it works:**
+
 - Starts with "MUST be used when..." (strong trigger)
 - Lists capabilities (navigation, forms, screenshots, scraping)
 - Includes many trigger phrases users might say
@@ -66,6 +67,7 @@ description: "MUST be used when you need to transcribe audio files to text. Loca
 If an agent doesn't invoke your skill, it's almost always because **the description didn't match how the user phrased their request**.
 
 Test against multiple phrasings:
+
 - "transcribe this audio" ✓
 - "convert this to text" ✓
 - "what does this recording say" ✓
@@ -74,6 +76,7 @@ Test against multiple phrasings:
 ## Skill Body
 
 After the frontmatter, include:
+
 - **When to Use** section with bullet points
 - **Instructions** for how to accomplish the task
 - **Examples** of commands or workflows

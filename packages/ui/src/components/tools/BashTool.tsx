@@ -25,9 +25,7 @@ export default function BashTool({ name, parsedInput, result, isLoading, isError
       {resultContent && (
         <pre
           className={`overflow-x-hidden rounded px-2 py-1 font-mono text-sm break-words whitespace-pre-wrap ${
-            isError
-              ? "bg-red-100/50 text-red-700"
-              : "bg-neutral-100/50 text-neutral-600"
+            isError ? "bg-red-100/50 text-red-700" : "bg-neutral-100/50 text-neutral-600"
           }`}
         >
           {resultContent}

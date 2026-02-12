@@ -17,7 +17,11 @@ function generateId(): string {
   return Math.random().toString(36).slice(2, 10);
 }
 
-export function WorkspaceList({ gatewayUrl, onSelectWorkspace, onSessionReady }: WorkspaceListProps) {
+export function WorkspaceList({
+  gatewayUrl,
+  onSelectWorkspace,
+  onSessionReady,
+}: WorkspaceListProps) {
   const [workspaces, setWorkspaces] = useState<WorkspaceInfo[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -101,7 +105,9 @@ export function WorkspaceList({ gatewayUrl, onSelectWorkspace, onSessionReady }:
       }
     };
 
-    return () => { ws.close(); };
+    return () => {
+      ws.close();
+    };
   }, [gatewayUrl, sendRequest, onSessionReady]);
 
   const handleCreateWorkspace = useCallback(() => {
@@ -144,7 +150,13 @@ export function WorkspaceList({ gatewayUrl, onSelectWorkspace, onSessionReady }:
               onClick={() => setShowCreateForm(!showCreateForm)}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 transition-colors"
             >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
               </svg>
               New Workspace
@@ -153,9 +165,7 @@ export function WorkspaceList({ gatewayUrl, onSelectWorkspace, onSessionReady }:
               <span
                 className={`w-2 h-2 rounded-full ${isConnected ? "bg-green-500" : "bg-red-500"}`}
               />
-              <span className="text-gray-500">
-                {isConnected ? "Connected" : "Disconnected"}
-              </span>
+              <span className="text-gray-500">{isConnected ? "Connected" : "Disconnected"}</span>
             </div>
           </div>
         </div>
@@ -185,7 +195,10 @@ export function WorkspaceList({ gatewayUrl, onSelectWorkspace, onSessionReady }:
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Name <span className="text-gray-400 font-normal">(optional — defaults to folder name)</span>
+                Name{" "}
+                <span className="text-gray-400 font-normal">
+                  (optional — defaults to folder name)
+                </span>
               </label>
               <input
                 type="text"
@@ -225,7 +238,8 @@ export function WorkspaceList({ gatewayUrl, onSelectWorkspace, onSessionReady }:
           <div className="text-center text-gray-400 py-12">
             <p className="text-lg mb-2">No workspaces yet</p>
             <p className="text-sm">
-              Create a workspace to start chatting, or open a project in VS Code with the Claudia extension.
+              Create a workspace to start chatting, or open a project in VS Code with the Claudia
+              extension.
             </p>
           </div>
         ) : (
@@ -241,14 +255,10 @@ export function WorkspaceList({ gatewayUrl, onSelectWorkspace, onSessionReady }:
                     <div className="font-medium text-gray-900 group-hover:text-blue-700 truncate">
                       {ws.name}
                     </div>
-                    <div className="text-xs text-gray-400 truncate mt-0.5">
-                      {ws.cwd}
-                    </div>
+                    <div className="text-xs text-gray-400 truncate mt-0.5">{ws.cwd}</div>
                   </div>
                   <div className="flex items-center gap-3 flex-shrink-0 ml-4">
-                    <span className="text-xs text-gray-400">
-                      {formatTime(ws.updatedAt)}
-                    </span>
+                    <span className="text-xs text-gray-400">{formatTime(ws.updatedAt)}</span>
                     <svg
                       className="w-4 h-4 text-gray-300 group-hover:text-blue-400"
                       fill="none"

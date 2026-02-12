@@ -1,12 +1,8 @@
 {
   "name": "claudia",
   "displayName": "Claudia",
-  "description": "Claudia AI assistant for VS Code",
   "version": "0.1.0",
-  "publisher": "iamclaudia-ai",
-  "engines": {
-    "vscode": "^1.85.0"
-  },
+  "description": "Claudia AI assistant for VS Code",
   "categories": [
     "AI",
     "Chat",
@@ -15,15 +11,40 @@
   "keywords": [
     "ai",
     "assistant",
-    "claudia",
     "claude",
+    "claudia",
     "coding"
   ],
-  "icon": "resources/icon.png",
-  "activationEvents": [
-    "onStartupFinished"
-  ],
+  "publisher": "iamclaudia-ai",
   "main": "./dist/extension.js",
+  "scripts": {
+    "vscode:prepublish": "npm run build",
+    "build": "tsc -p ./ && bun run build-webview.ts",
+    "build:webview": "bun run build-webview.ts",
+    "compile": "tsc -p ./",
+    "typecheck": "tsc -p ./ --noEmit",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package",
+    "lint": "eslint src --ext ts"
+  },
+  "dependencies": {
+    "@claudia/ui": "workspace:*",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3",
+    "ws": "^8.x"
+  },
+  "devDependencies": {
+    "@types/node": "^20.x",
+    "@types/react": "^19.2.9",
+    "@types/react-dom": "^19.2.3",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^6.x",
+    "@typescript-eslint/parser": "^6.x",
+    "bun-plugin-tailwind": "0.1.2",
+    "eslint": "^8.x",
+    "tailwindcss": "4.1.18",
+    "typescript": "^5.x"
+  },
   "contributes": {
     "commands": [
       {
@@ -104,32 +125,11 @@
       }
     ]
   },
-  "scripts": {
-    "vscode:prepublish": "npm run build",
-    "build": "tsc -p ./ && bun run build-webview.ts",
-    "build:webview": "bun run build-webview.ts",
-    "compile": "tsc -p ./",
-    "typecheck": "tsc -p ./ --noEmit",
-    "watch": "tsc -watch -p ./",
-    "package": "vsce package",
-    "lint": "eslint src --ext ts"
-  },
-  "devDependencies": {
-    "@types/node": "^20.x",
-    "@types/react": "^19.2.9",
-    "@types/react-dom": "^19.2.3",
-    "@types/vscode": "^1.85.0",
-    "@typescript-eslint/eslint-plugin": "^6.x",
-    "@typescript-eslint/parser": "^6.x",
-    "bun-plugin-tailwind": "0.1.2",
-    "eslint": "^8.x",
-    "tailwindcss": "4.1.18",
-    "typescript": "^5.x"
-  },
-  "dependencies": {
-    "@claudia/ui": "workspace:*",
-    "react": "^19.2.3",
-    "react-dom": "^19.2.3",
-    "ws": "^8.x"
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "icon": "resources/icon.png",
+  "engines": {
+    "vscode": "^1.85.0"
   }
 }

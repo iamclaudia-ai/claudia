@@ -42,8 +42,7 @@ window.addEventListener("message", (event) => {
 });
 
 // Read config injected by the extension via data-* attributes
-const gatewayUrl =
-  document.documentElement.dataset.gatewayUrl || "ws://localhost:30086/ws";
+const gatewayUrl = document.documentElement.dataset.gatewayUrl || "ws://localhost:30086/ws";
 const workspaceCwd = document.documentElement.dataset.workspaceCwd || "";
 
 const vscodeBridge: PlatformBridge = {
@@ -69,8 +68,7 @@ const vscodeBridge: PlatformBridge = {
 
   // VS Code-specific actions via postMessage
   openFile: (path) => vscode.postMessage({ type: "openFile", path }),
-  applyEdit: (path, content) =>
-    vscode.postMessage({ type: "applyEdit", path, content }),
+  applyEdit: (path, content) => vscode.postMessage({ type: "applyEdit", path, content }),
   openTerminal: () => vscode.postMessage({ type: "openTerminal" }),
   showNotification: (type, text) =>
     vscode.postMessage({
@@ -94,9 +92,7 @@ const vscodeBridge: PlatformBridge = {
 vscode.postMessage({ type: "ready" });
 
 // Gateway options: auto-discover workspace by CWD
-const gatewayOptions = workspaceCwd
-  ? { autoDiscoverCwd: workspaceCwd }
-  : undefined;
+const gatewayOptions = workspaceCwd ? { autoDiscoverCwd: workspaceCwd } : undefined;
 
 // Render
 createRoot(document.getElementById("root")!).render(

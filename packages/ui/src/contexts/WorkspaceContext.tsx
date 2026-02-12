@@ -7,18 +7,8 @@ interface WorkspaceContextValue {
 
 const WorkspaceContext = createContext<WorkspaceContextValue>({});
 
-export function WorkspaceProvider({
-  children,
-  cwd,
-}: {
-  children: ReactNode;
-  cwd?: string;
-}) {
-  return (
-    <WorkspaceContext.Provider value={{ cwd }}>
-      {children}
-    </WorkspaceContext.Provider>
-  );
+export function WorkspaceProvider({ children, cwd }: { children: ReactNode; cwd?: string }) {
+  return <WorkspaceContext.Provider value={{ cwd }}>{children}</WorkspaceContext.Provider>;
 }
 
 export function useWorkspace(): WorkspaceContextValue {

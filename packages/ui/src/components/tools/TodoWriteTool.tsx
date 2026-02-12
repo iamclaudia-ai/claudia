@@ -9,7 +9,12 @@ interface TodoItem {
   status?: string;
 }
 
-export default function TodoWriteTool({ name, parsedInput, result: _result, isLoading }: ToolProps) {
+export default function TodoWriteTool({
+  name,
+  parsedInput,
+  result: _result,
+  isLoading,
+}: ToolProps) {
   const label = getToolLabel(name, parsedInput);
   const todos = (parsedInput?.todos as TodoItem[] | undefined) || [];
 
@@ -32,9 +37,7 @@ export default function TodoWriteTool({ name, parsedInput, result: _result, isLo
               </span>
               <span
                 className={
-                  todo.status === "completed"
-                    ? "text-neutral-500 line-through"
-                    : "text-neutral-700"
+                  todo.status === "completed" ? "text-neutral-500 line-through" : "text-neutral-700"
                 }
               >
                 {todo.content}

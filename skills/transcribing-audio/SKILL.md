@@ -10,6 +10,7 @@ Use this skill to transcribe audio files to text using Parakeet MLX - NVIDIA's s
 ## When to Use
 
 Use this skill when the user wants to:
+
 - Transcribe an audio file (MP3, WAV, M4A, etc.)
 - Convert speech to text
 - Get a text transcript from a recording
@@ -48,23 +49,23 @@ parakeet-mlx /path/to/audio.mp3 --output-dir /path/to/output
 
 ## Output Formats
 
-| Format | Description | Use Case |
-|--------|-------------|----------|
-| `txt` | Plain text, no timestamps | Reading, copying, searching |
-| `srt` | SubRip subtitles with timestamps | Video subtitles, editing |
-| `vtt` | WebVTT subtitles with timestamps | Web video, HTML5 |
-| `json` | Structured data with full timestamps | Programmatic use, analysis |
-| `all` | All of the above | When you need everything |
+| Format | Description                          | Use Case                    |
+| ------ | ------------------------------------ | --------------------------- |
+| `txt`  | Plain text, no timestamps            | Reading, copying, searching |
+| `srt`  | SubRip subtitles with timestamps     | Video subtitles, editing    |
+| `vtt`  | WebVTT subtitles with timestamps     | Web video, HTML5            |
+| `json` | Structured data with full timestamps | Programmatic use, analysis  |
+| `all`  | All of the above                     | When you need everything    |
 
 ## Options
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--output-format` | `srt` | Output format (txt/srt/vtt/json/all) |
-| `--output-dir` | `.` | Directory for output files |
-| `--highlight-words` | `false` | Word-level timestamps in SRT/VTT |
-| `--verbose` / `-v` | `false` | Show detailed progress |
-| `--chunk-duration` | `120` | Chunk duration in seconds for long audio |
+| Option              | Default | Description                              |
+| ------------------- | ------- | ---------------------------------------- |
+| `--output-format`   | `srt`   | Output format (txt/srt/vtt/json/all)     |
+| `--output-dir`      | `.`     | Directory for output files               |
+| `--highlight-words` | `false` | Word-level timestamps in SRT/VTT         |
+| `--verbose` / `-v`  | `false` | Show detailed progress                   |
+| `--chunk-duration`  | `120`   | Chunk duration in seconds for long audio |
 
 ## Model
 
@@ -73,16 +74,19 @@ Uses `mlx-community/parakeet-tdt-0.6b-v3` by default - a 600M parameter model th
 ## Examples
 
 ### Transcribe a voice memo
+
 ```bash
 parakeet-mlx ~/Desktop/voice-memo.m4a --output-format txt
 ```
 
 ### Generate subtitles for a video
+
 ```bash
 parakeet-mlx video.mp4 --output-format srt --highlight-words
 ```
 
 ### Transcribe multiple files
+
 ```bash
 parakeet-mlx file1.mp3 file2.mp3 file3.mp3 --output-format txt
 ```
@@ -90,11 +94,13 @@ parakeet-mlx file1.mp3 file2.mp3 file3.mp3 --output-format txt
 ## Reading the Output
 
 After transcription, read the output file to show the user:
+
 ```bash
 cat /path/to/audio.txt  # For text output
 ```
 
 For JSON output, you can parse the timestamps:
+
 ```bash
 cat /path/to/audio.json | jq '.sentences[] | {text, start, end}'
 ```

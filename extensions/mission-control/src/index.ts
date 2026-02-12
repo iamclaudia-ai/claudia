@@ -6,11 +6,7 @@
  */
 
 import { z } from "zod";
-import type {
-  ClaudiaExtension,
-  ExtensionContext,
-  HealthCheckResponse,
-} from "@claudia/shared";
+import type { ClaudiaExtension, ExtensionContext, HealthCheckResponse } from "@claudia/shared";
 
 export function createMissionControlExtension(): ClaudiaExtension {
   let ctx: ExtensionContext | null = null;
@@ -21,8 +17,7 @@ export function createMissionControlExtension(): ClaudiaExtension {
     methods: [
       {
         name: "mission-control.health-check",
-        description:
-          "Return standardized health-check payload for Mission Control extension",
+        description: "Return standardized health-check payload for Mission Control extension",
         inputSchema: z.object({}),
       },
     ],

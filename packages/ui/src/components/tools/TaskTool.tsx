@@ -30,9 +30,7 @@ export default function TaskTool({ name, parsedInput, result, isLoading }: ToolP
           {prompt}
         </pre>
       )}
-      {result?.content && (
-        <ResultBlock content={result.content} isError={result.is_error} />
-      )}
+      {result?.content && <ResultBlock content={result.content} isError={result.is_error} />}
     </div>
   );
 

@@ -30,7 +30,13 @@ export function ClaudiaChat({ bridge, gatewayOptions, onBack }: ClaudiaChatProps
   );
 }
 
-function ChatInner({ gatewayOptions, onBack }: { gatewayOptions?: UseGatewayOptions; onBack?: () => void }) {
+function ChatInner({
+  gatewayOptions,
+  onBack,
+}: {
+  gatewayOptions?: UseGatewayOptions;
+  onBack?: () => void;
+}) {
   const bridge = useBridge();
   const gateway = useGateway(bridge.gatewayUrl, gatewayOptions);
   const audio = useAudioPlayback(gateway);
@@ -70,9 +76,12 @@ function ChatInner({ gatewayOptions, onBack }: { gatewayOptions?: UseGatewayOpti
   }, []);
 
   /** For interactive tools (AskUserQuestion, ExitPlanMode) to send messages */
-  const handleToolMessage = useCallback((text: string) => {
-    gateway.sendPrompt(text, []);
-  }, [gateway]);
+  const handleToolMessage = useCallback(
+    (text: string) => {
+      gateway.sendPrompt(text, []);
+    },
+    [gateway],
+  );
 
   return (
     <WorkspaceProvider cwd={gateway.workspace?.cwd}>

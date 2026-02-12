@@ -1,4 +1,4 @@
-import * as vscode from 'vscode';
+import * as vscode from "vscode";
 
 export interface EditorContext {
   /** Full file path */
@@ -30,7 +30,7 @@ export interface EditorContext {
 
 export interface DiagnosticInfo {
   message: string;
-  severity: 'error' | 'warning' | 'info' | 'hint';
+  severity: "error" | "warning" | "info" | "hint";
   line: number;
   column: number;
 }
@@ -54,7 +54,7 @@ export function getEditorContext(editor: vscode.TextEditor): EditorContext {
 
   const context: EditorContext = {
     filePath: document.uri.fsPath,
-    fileName: document.fileName.split('/').pop() || document.fileName,
+    fileName: document.fileName.split("/").pop() || document.fileName,
     languageId: document.languageId,
     currentLine: selection.active.line + 1,
     totalLines: document.lineCount,
@@ -82,19 +82,19 @@ export function getEditorContext(editor: vscode.TextEditor): EditorContext {
 }
 
 function getSeverityString(
-  severity: vscode.DiagnosticSeverity
-): 'error' | 'warning' | 'info' | 'hint' {
+  severity: vscode.DiagnosticSeverity,
+): "error" | "warning" | "info" | "hint" {
   switch (severity) {
     case vscode.DiagnosticSeverity.Error:
-      return 'error';
+      return "error";
     case vscode.DiagnosticSeverity.Warning:
-      return 'warning';
+      return "warning";
     case vscode.DiagnosticSeverity.Information:
-      return 'info';
+      return "info";
     case vscode.DiagnosticSeverity.Hint:
-      return 'hint';
+      return "hint";
     default:
-      return 'info';
+      return "info";
   }
 }
 
@@ -109,18 +109,16 @@ export function formatContextForPrompt(ctx: EditorContext): string {
   lines.push(`Line: ${ctx.currentLine}/${ctx.totalLines}`);
 
   if (ctx.selectionRange) {
-    lines.push(
-      `Selection: lines ${ctx.selectionRange.startLine}-${ctx.selectionRange.endLine}`
-    );
+    lines.push(`Selection: lines ${ctx.selectionRange.startLine}-${ctx.selectionRange.endLine}`);
   }
 
   if (ctx.diagnostics.length > 0) {
-    const errors = ctx.diagnostics.filter((d) => d.severity === 'error').length;
-    const warnings = ctx.diagnostics.filter((d) => d.severity === 'warning').length;
+    const errors = ctx.diagnostics.filter((d) => d.severity === "error").length;
+    const warnings = ctx.diagnostics.filter((d) => d.severity === "warning").length;
     if (errors > 0 || warnings > 0) {
       lines.push(`Issues: ${errors} errors, ${warnings} warnings`);
     }
   }
 
-  return lines.join(' | ');
+  return lines.join(" | ");
 }

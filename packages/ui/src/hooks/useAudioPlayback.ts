@@ -51,9 +51,7 @@ function pcm16ToAudioBuffer(
   return audioBuffer;
 }
 
-export function useAudioPlayback(
-  gateway: UseGatewayReturn,
-): UseAudioPlaybackReturn {
+export function useAudioPlayback(gateway: UseGatewayReturn): UseAudioPlaybackReturn {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
 
@@ -85,26 +83,29 @@ export function useAudioPlayback(
     }
   }, []);
 
-  const scheduleBuffer = useCallback((buffer: AudioBuffer) => {
-    const ctx = ensureAudioContext();
-    const source = ctx.createBufferSource();
-    source.buffer = buffer;
-    source.connect(ctx.destination);
+  const scheduleBuffer = useCallback(
+    (buffer: AudioBuffer) => {
+      const ctx = ensureAudioContext();
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+      source.connect(ctx.destination);
 
-    const startAt = Math.max(playbackCursorRef.current, ctx.currentTime + 0.01);
-    playbackCursorRef.current = startAt + buffer.duration;
+      const startAt = Math.max(playbackCursorRef.current, ctx.currentTime + 0.01);
+      playbackCursorRef.current = startAt + buffer.duration;
 
-    activeSourcesRef.current.add(source);
-    isPlayingRef.current = true;
-    setIsPlaying(true);
+      activeSourcesRef.current.add(source);
+      isPlayingRef.current = true;
+      setIsPlaying(true);
 
-    source.onended = () => {
-      activeSourcesRef.current.delete(source);
-      onSourceEnded();
-    };
+      source.onended = () => {
+        activeSourcesRef.current.delete(source);
+        onSourceEnded();
+      };
 
-    source.start(startAt);
-  }, [ensureAudioContext, onSourceEnded]);
+      source.start(startAt);
+    },
+    [ensureAudioContext, onSourceEnded],
+  );
 
   /** Stop playback and clear all scheduled sources */
   const stop = useCallback(() => {
@@ -154,11 +155,14 @@ export function useAudioPlayback(
         const arrayBuffer = base64ToArrayBuffer(audio);
 
         if (format === "wav") {
-          void ctx.decodeAudioData(arrayBuffer.slice(0)).then((buffer) => {
-            scheduleBuffer(buffer);
-          }).catch((err) => {
-            console.warn("[AudioPlayback] Failed to decode WAV chunk:", err);
-          });
+          void ctx
+            .decodeAudioData(arrayBuffer.slice(0))
+            .then((buffer) => {
+              scheduleBuffer(buffer);
+            })
+            .catch((err) => {
+              console.warn("[AudioPlayback] Failed to decode WAV chunk:", err);
+            });
         } else {
           const buffer = pcm16ToAudioBuffer(ctx, arrayBuffer, 24000);
           scheduleBuffer(buffer);
@@ -189,11 +193,14 @@ export function useAudioPlayback(
         isStreamingRef.current = true;
         setIsStreaming(true);
 
-        void ctx.decodeAudioData(arrayBuffer.slice(0)).then((buffer) => {
-          scheduleBuffer(buffer);
-        }).catch((err) => {
-          console.warn("[AudioPlayback] Failed to decode batch audio:", err);
-        });
+        void ctx
+          .decodeAudioData(arrayBuffer.slice(0))
+          .then((buffer) => {
+            scheduleBuffer(buffer);
+          })
+          .catch((err) => {
+            console.warn("[AudioPlayback] Failed to decode batch audio:", err);
+          });
       }
     });
   }, [gateway, ensureAudioContext, scheduleBuffer]);

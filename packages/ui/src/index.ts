@@ -29,7 +29,13 @@ export type { Route } from "./router";
 
 // Hooks
 export { useGateway } from "./hooks/useGateway";
-export type { UseGatewayOptions, UseGatewayReturn, WorkspaceInfo, SessionInfo, SessionConfigInfo } from "./hooks/useGateway";
+export type {
+  UseGatewayOptions,
+  UseGatewayReturn,
+  WorkspaceInfo,
+  SessionInfo,
+  SessionConfigInfo,
+} from "./hooks/useGateway";
 
 // Page components (for web client routing)
 export { WorkspaceList } from "./components/WorkspaceList";

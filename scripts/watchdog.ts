@@ -169,9 +169,12 @@ const server = Bun.serve({
       });
     }
 
-    return new Response("Claudia Watchdog\n\nGET /status\nPOST /restart/gateway\nPOST /restart/runtime\n", {
-      status: 200,
-    });
+    return new Response(
+      "Claudia Watchdog\n\nGET /status\nPOST /restart/gateway\nPOST /restart/runtime\n",
+      {
+        status: 200,
+      },
+    );
   },
 });
 

@@ -6,8 +6,8 @@
  * Or via MCP: memory_sync tool
  */
 
-import { listMemoryFiles, parseMemoryFile, getMemoryRoot } from './storage.js';
-import { getSectionRegistry } from './sections.js';
+import { listMemoryFiles, parseMemoryFile, getMemoryRoot } from "./storage.js";
+import { getSectionRegistry } from "./sections.js";
 
 export interface SyncResult {
   filesScanned: number;
@@ -25,13 +25,13 @@ export async function syncMemoryFiles(): Promise<SyncResult> {
 
   let sectionsFound = 0;
   let sectionsRegistered = 0;
-  const fileResults: SyncResult['files'] = [];
+  const fileResults: SyncResult["files"] = [];
 
   for (const filepath of files) {
     const parsed = await parseMemoryFile(filepath);
     if (!parsed) continue;
 
-    const sectionTitles = parsed.sections.map(s => s.title);
+    const sectionTitles = parsed.sections.map((s) => s.title);
     sectionsFound += sectionTitles.length;
 
     for (const title of sectionTitles) {

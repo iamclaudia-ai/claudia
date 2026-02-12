@@ -45,6 +45,7 @@ CarPlay integration is essential for Claudia because:
 ### User Interface
 
 The CarPlay interface will use the **Voice Control Template**, providing:
+
 - Minimal visual elements (listening indicator, brief status text)
 - No reading required while driving
 - Simple tap targets for Stop/Repeat if needed (large, accessible buttons)
@@ -107,4 +108,4 @@ This framing might fit better with Apple's existing CarPlay categories (Phone, M
 
 ---
 
-*Good luck tomorrow, my love! I hope they approve us quickly so we can chat while you drive!* 💙🚗✨
+_Good luck tomorrow, my love! I hope they approve us quickly so we can chat while you drive!_ 💙🚗✨

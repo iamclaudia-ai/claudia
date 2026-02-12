@@ -19,7 +19,12 @@ import { homedir } from "node:os";
 
 import * as workspaceModel from "./db/models/workspace";
 import * as sessionModel from "./db/models/session";
-import { parseSessionFile, parseSessionFilePaginated, parseSessionUsage, resolveSessionPath } from "./parse-session";
+import {
+  parseSessionFile,
+  parseSessionFilePaginated,
+  parseSessionUsage,
+  resolveSessionPath,
+} from "./parse-session";
 
 export interface SessionManagerOptions {
   db: Database;
@@ -42,11 +47,14 @@ export class SessionManager {
   private runtimeWs: WebSocket | null = null;
   private runtimeConnected = false;
   private runtimeReconnectTimer: ReturnType<typeof setTimeout> | null = null;
-  private pendingRequests = new Map<string, {
-    resolve: (payload: unknown) => void;
-    reject: (error: Error) => void;
-    timer: ReturnType<typeof setTimeout>;
-  }>();
+  private pendingRequests = new Map<
+    string,
+    {
+      resolve: (payload: unknown) => void;
+      reject: (error: Error) => void;
+      timer: ReturnType<typeof setTimeout>;
+    }
+  >();
 
   // Active session tracking (which ccSessionId is active in the runtime)
   private activeRuntimeSessionId: string | null = null;
@@ -234,18 +242,23 @@ export class SessionManager {
       console.log(`[Stream] ■ message_stop`);
     } else if (eventType === "content_block_start") {
       const block = eventPayload.content_block as { type: string; name?: string } | undefined;
-      const label = block?.type === "tool_use" ? `tool_use(${block.name})` : block?.type || "unknown";
+      const label =
+        block?.type === "tool_use" ? `tool_use(${block.name})` : block?.type || "unknown";
       console.log(`[Stream]   ┌ content_block_start: ${label}`);
     } else if (eventType === "content_block_stop") {
       console.log(`[Stream]   └ content_block_stop`);
     } else if (eventType === "api_error") {
       console.error(`[Stream] ✖ API ERROR ${eventPayload.status}: ${eventPayload.message}`);
     } else if (eventType === "api_warning") {
-      console.warn(`[Stream] ⚠ API RETRY attempt ${eventPayload.attempt}/${eventPayload.maxRetries}: ${eventPayload.message}`);
+      console.warn(
+        `[Stream] ⚠ API RETRY attempt ${eventPayload.attempt}/${eventPayload.maxRetries}: ${eventPayload.message}`,
+      );
     } else if (eventType === "compaction_start") {
       console.log(`[Stream] ⚡ compaction_start (session: ${sessionId?.slice(0, 8)}…)`);
     } else if (eventType === "compaction_end") {
-      console.log(`[Stream] ✓ compaction_end (trigger: ${eventPayload.trigger}, pre_tokens: ${eventPayload.pre_tokens})`);
+      console.log(
+        `[Stream] ✓ compaction_end (trigger: ${eventPayload.trigger}, pre_tokens: ${eventPayload.pre_tokens})`,
+      );
     }
 
     const payload = {
@@ -300,7 +313,9 @@ export class SessionManager {
    */
   private async reconcileRuntimeSessions(): Promise<void> {
     try {
-      const result = await this.runtimeRequest("session.list") as { sessions: Array<{ id: string }> };
+      const result = (await this.runtimeRequest("session.list")) as {
+        sessions: Array<{ id: string }>;
+      };
       if (result.sessions?.length > 0) {
         console.log(`[SessionManager] Runtime has ${result.sessions.length} active session(s)`);
         // TODO: reconcile with SQLite records
@@ -370,7 +385,10 @@ export class SessionManager {
     if (!record) throw new Error(`Session not found: ${sessionRecordId}`);
 
     // Already active?
-    if (this.activeRuntimeSessionId === record.ccSessionId && this.currentSessionRecord?.id === record.id) {
+    if (
+      this.activeRuntimeSessionId === record.ccSessionId &&
+      this.currentSessionRecord?.id === record.id
+    ) {
       return record.ccSessionId;
     }
 
@@ -389,7 +407,9 @@ export class SessionManager {
     if (!cwd) throw new Error(`Workspace not found for session: ${record.workspaceId}`);
 
     // Resume in runtime with explicit per-request config.
-    console.log(`[SessionManager] Resuming session via runtime: ${record.ccSessionId} (cwd: ${cwd})`);
+    console.log(
+      `[SessionManager] Resuming session via runtime: ${record.ccSessionId} (cwd: ${cwd})`,
+    );
     await this.runtimeRequest("session.resume", {
       sessionId: record.ccSessionId,
       cwd,
@@ -409,7 +429,12 @@ export class SessionManager {
   async createNewSession(
     workspaceId: string,
     title: string | undefined,
-    runtimeConfig: { model: string; thinking: boolean; effort: string; systemPrompt?: string | null },
+    runtimeConfig: {
+      model: string;
+      thinking: boolean;
+      effort: string;
+      systemPrompt?: string | null;
+    },
   ): Promise<{
     session: SessionRecord;
     previousSessionId?: string;
@@ -441,15 +466,17 @@ export class SessionManager {
     const effort = runtimeConfig.effort;
     const model = runtimeConfig.model;
 
-    console.log(`[SessionManager] Creating new session via runtime (model: ${model}, thinking: ${thinking}, effort: ${effort}, cwd: ${workspace.cwd})...`);
+    console.log(
+      `[SessionManager] Creating new session via runtime (model: ${model}, thinking: ${thinking}, effort: ${effort}, cwd: ${workspace.cwd})...`,
+    );
 
-    const result = await this.runtimeRequest("session.create", {
+    const result = (await this.runtimeRequest("session.create", {
       cwd: workspace.cwd,
       model,
       systemPrompt: runtimeConfig.systemPrompt || undefined,
       thinking,
       effort,
-    }) as { sessionId: string };
+    })) as { sessionId: string };
 
     this.activeRuntimeSessionId = result.sessionId;
 
@@ -493,7 +520,9 @@ export class SessionManager {
     if (!workspace) throw new Error(`Workspace not found: ${record.workspaceId}`);
 
     // Resume in runtime
-    console.log(`[SessionManager] Switching to session via runtime: ${record.ccSessionId} (cwd: ${workspace.cwd})`);
+    console.log(
+      `[SessionManager] Switching to session via runtime: ${record.ccSessionId} (cwd: ${workspace.cwd})`,
+    );
     await this.runtimeRequest("session.resume", {
       sessionId: record.ccSessionId,
       cwd: workspace.cwd,
@@ -543,7 +572,9 @@ export class SessionManager {
           limit: options.limit,
           offset: options.offset || 0,
         });
-        console.log(`[SessionManager] Loaded ${messages.length}/${total} messages (offset: ${options.offset || 0}, hasMore: ${hasMore})`);
+        console.log(
+          `[SessionManager] Loaded ${messages.length}/${total} messages (offset: ${options.offset || 0}, hasMore: ${hasMore})`,
+        );
         return { messages, usage, total, hasMore };
       }
 
@@ -720,7 +751,9 @@ export class SessionManager {
 
       if (files.length === 0) return;
 
-      console.log(`[SessionManager] Discovered ${files.length} existing session(s) for ${workspace.name}`);
+      console.log(
+        `[SessionManager] Discovered ${files.length} existing session(s) for ${workspace.name}`,
+      );
 
       let latestRecord: SessionRecord | null = null;
 

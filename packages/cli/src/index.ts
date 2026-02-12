@@ -64,7 +64,10 @@ export function coerceValue(value: string): unknown {
     if (Number.isFinite(num)) return num;
   }
 
-  if ((value.startsWith("{") && value.endsWith("}")) || (value.startsWith("[") && value.endsWith("]"))) {
+  if (
+    (value.startsWith("{") && value.endsWith("}")) ||
+    (value.startsWith("[") && value.endsWith("]"))
+  ) {
     try {
       return JSON.parse(value);
     } catch {
@@ -110,10 +113,17 @@ export function parseCliParams(rawArgs: string[]): Record<string, unknown> {
 
 export function resolveRef(root: JsonSchema, ref: string): JsonSchema | undefined {
   if (!ref.startsWith("#/")) return undefined;
-  const segments = ref.slice(2).split("/").map((s) => s.replace(/~1/g, "/").replace(/~0/g, "~"));
+  const segments = ref
+    .slice(2)
+    .split("/")
+    .map((s) => s.replace(/~1/g, "/").replace(/~0/g, "~"));
   let current: unknown = root;
   for (const segment of segments) {
-    if (!current || typeof current !== "object" || !(segment in (current as Record<string, unknown>))) {
+    if (
+      !current ||
+      typeof current !== "object" ||
+      !(segment in (current as Record<string, unknown>))
+    ) {
       return undefined;
     }
     current = (current as Record<string, unknown>)[segment];
@@ -121,7 +131,11 @@ export function resolveRef(root: JsonSchema, ref: string): JsonSchema | undefine
   return current as JsonSchema;
 }
 
-export function resolveSchema(schema: JsonSchema | undefined, root: JsonSchema | undefined, depth = 0): JsonSchema | undefined {
+export function resolveSchema(
+  schema: JsonSchema | undefined,
+  root: JsonSchema | undefined,
+  depth = 0,
+): JsonSchema | undefined {
   if (!schema) return undefined;
   if (!root) return schema;
   if (!schema.$ref || depth > 20) return schema;
@@ -179,7 +193,11 @@ export function matchesSchemaType(value: unknown, schema: JsonSchema, root: Json
   }
 }
 
-export function validateParamsAgainstSchema(method: string, params: Record<string, unknown>, schema?: JsonSchema): void {
+export function validateParamsAgainstSchema(
+  method: string,
+  params: Record<string, unknown>,
+  schema?: JsonSchema,
+): void {
   if (!schema) return;
   const root = schema;
   const resolvedSchema = resolveSchema(schema, root) ?? schema;
@@ -206,7 +224,9 @@ export function validateParamsAgainstSchema(method: string, params: Record<strin
     if (!matchesSchemaType(value, propSchema, root)) {
       const expectedType = schemaType(propSchema, root);
       const actualType = value === null ? "null" : Array.isArray(value) ? "array" : typeof value;
-      throw new Error(`Invalid type for ${method}.${key}: expected ${expectedType}, got ${actualType}`);
+      throw new Error(
+        `Invalid type for ${method}.${key}: expected ${expectedType}, got ${actualType}`,
+      );
     }
   }
 }
@@ -238,9 +258,12 @@ export function printMethodHelp(entry: MethodCatalogEntry): void {
   }
 }
 
-export function exampleValueForSchema(schema: JsonSchema | undefined, root: JsonSchema | undefined): string {
+export function exampleValueForSchema(
+  schema: JsonSchema | undefined,
+  root: JsonSchema | undefined,
+): string {
   const resolved = resolveSchema(schema, root) ?? schema;
-  if (!resolved) return "\"value\"";
+  if (!resolved) return '"value"';
 
   if (resolved.enum && resolved.enum.length > 0) {
     return JSON.stringify(resolved.enum[0]);
@@ -255,7 +278,7 @@ export function exampleValueForSchema(schema: JsonSchema | undefined, root: Json
 
   switch (resolved.type) {
     case "string":
-      return "\"value\"";
+      return '"value"';
     case "number":
       return "1.23";
     case "integer":
@@ -270,7 +293,7 @@ export function exampleValueForSchema(schema: JsonSchema | undefined, root: Json
     case "object":
       return "'{}'";
     default:
-      return "\"value\"";
+      return '"value"';
   }
 }
 
@@ -308,7 +331,8 @@ export function printMethodExamples(entry: MethodCatalogEntry): void {
   console.log(`  ${requiredCmd}`);
 
   if (optionalFlags.length > 0) {
-    const mixed = `${requiredCmd} ${optionalFlags.slice(0, Math.min(2, optionalFlags.length)).join(" ")}`.trim();
+    const mixed =
+      `${requiredCmd} ${optionalFlags.slice(0, Math.min(2, optionalFlags.length)).join(" ")}`.trim();
     console.log(`  ${mixed}`);
   }
 }
@@ -444,19 +468,23 @@ async function speak(text: string): Promise<void> {
 
   return new Promise((resolve, reject) => {
     ws.onopen = () => {
-      ws.send(JSON.stringify({
-        type: "req",
-        id: generateId(),
-        method: "subscribe",
-        params: { events: ["voice.*"] },
-      }));
+      ws.send(
+        JSON.stringify({
+          type: "req",
+          id: generateId(),
+          method: "subscribe",
+          params: { events: ["voice.*"] },
+        }),
+      );
 
-      ws.send(JSON.stringify({
-        type: "req",
-        id: generateId(),
-        method: "voice.speak",
-        params: { text },
-      }));
+      ws.send(
+        JSON.stringify({
+          type: "req",
+          id: generateId(),
+          method: "voice.speak",
+          params: { text },
+        }),
+      );
     };
 
     ws.onmessage = async (event) => {
@@ -508,7 +536,7 @@ async function promptCompat(args: string[]): Promise<void> {
   }
 
   if (!prompt) {
-    console.error("Usage: claudia \"your message here\"");
+    console.error('Usage: claudia "your message here"');
     process.exit(1);
   }
 
@@ -539,7 +567,9 @@ async function promptCompat(args: string[]): Promise<void> {
       const payload = (msg.payload || {}) as Record<string, unknown>;
 
       if (method === "workspace.getOrCreate") {
-        const workspace = payload.workspace as { id: string; activeSessionId?: string | null } | undefined;
+        const workspace = payload.workspace as
+          | { id: string; activeSessionId?: string | null }
+          | undefined;
         if (!workspace) return;
         if (workspace.activeSessionId) {
           sessionRecordId = workspace.activeSessionId;
@@ -563,7 +593,10 @@ async function promptCompat(args: string[]): Promise<void> {
         }
       }
 
-      if ((method === "workspace.getOrCreate" || method === "workspace.createSession") && sessionRecordId) {
+      if (
+        (method === "workspace.getOrCreate" || method === "workspace.createSession") &&
+        sessionRecordId
+      ) {
         sendRequest("session.prompt", {
           sessionId: sessionRecordId,
           content: prompt,
@@ -620,7 +653,7 @@ async function main(): Promise<void> {
   if (args[0] === "speak") {
     const text = args.slice(1).join(" ");
     if (!text) {
-      console.error("Usage: claudia speak \"text to speak\"");
+      console.error('Usage: claudia speak "text to speak"');
       process.exit(1);
     }
     await speak(text);

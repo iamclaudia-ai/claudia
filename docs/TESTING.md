@@ -19,16 +19,19 @@ Last updated: 2026-02-12
 ## Phases
 
 1. Unit tests (fast, pure logic)
+
 - CLI argument parsing/coercion.
 - CLI JSON Schema `$ref` resolution.
 - CLI required param/type validation.
 - Extension manager method validation and source routing.
 
 2. Integration tests (in-process components)
+
 - Extension event subscription + wildcard routing behavior.
 - Gateway extension manager with multiple extensions.
 
 3. End-to-end smoke (manual, low-cost)
+
 - Connect to running gateway.
 - Create workspace + session explicitly.
 - Send one cheap prompt and assert stream completes.
@@ -36,25 +39,31 @@ Last updated: 2026-02-12
 ## Smoke scripts
 
 ### Quick smoke (no model call)
+
 `bun run test:smoke`
 
 Checks:
+
 - `GET /health`
 - `method.list` over gateway WebSocket
 
 Env:
+
 - `CLAUDIA_GATEWAY_HTTP` (default `http://localhost:30086`)
 - `CLAUDIA_GATEWAY_WS` (default `ws://localhost:30086/ws`)
 
 ### E2E smoke (uses model)
+
 `bun run test:e2e`
 
 Checks:
+
 - `workspace.getOrCreate`
 - `workspace.createSession`
 - `session.prompt` streaming completion + expected output marker
 
 Env:
+
 - `CLAUDIA_GATEWAY_WS` (default `ws://localhost:30086/ws`)
 - `CLAUDIA_SMOKE_MODEL` (default `claude-3-5-haiku-latest`)
 - `CLAUDIA_SMOKE_THINKING` (default `false`)

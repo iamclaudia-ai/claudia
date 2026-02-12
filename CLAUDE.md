@@ -38,11 +38,11 @@ The gateway IS the control plane. Sessions can be created from ANY client — we
 
 Every feature — including the web chat UI — is an extension with routes and pages:
 
-| Extension | Location | Server methods | Web pages |
-|-----------|----------|---------------|-----------|
-| `chat` | `extensions/chat/` | — | `/`, `/workspace/:id`, `/session/:id` |
-| `voice` | `extensions/voice/` | `voice.speak`, `voice.stop` | — |
-| `imessage` | `extensions/imessage/` | `imessage.send`, `imessage.chats` | — |
+| Extension  | Location               | Server methods                    | Web pages                             |
+| ---------- | ---------------------- | --------------------------------- | ------------------------------------- |
+| `chat`     | `extensions/chat/`     | —                                 | `/`, `/workspace/:id`, `/session/:id` |
+| `voice`    | `extensions/voice/`    | `voice.speak`, `voice.stop`       | —                                     |
+| `imessage` | `extensions/imessage/` | `imessage.send`, `imessage.chats` | —                                     |
 
 ## Tech Stack
 
@@ -79,11 +79,13 @@ claudia/
 ### Gateway (`packages/gateway`)
 
 The heart of Claudia. Single Bun.serve instance on port 30086:
+
 - `/ws` — WebSocket upgrade for all client communication
 - `/health` — JSON status with session info, extensions, connections
 - `/*` — SPA fallback serves `index.html` for client-side routing
 
 Key files:
+
 - `src/index.ts` — Server setup, WebSocket handlers, request routing
 - `src/session-manager.ts` — Workspace/session lifecycle, history pagination
 - `src/extensions.ts` — Extension registration, method/event routing
@@ -93,6 +95,7 @@ Key files:
 ### Runtime (`packages/runtime`)
 
 Persistent service (port 30087) that manages Claude CLI processes:
+
 - Spawns CLI with `--input-format stream-json --output-format stream-json --include-partial-messages`
 - Communicates via stdin/stdout NDJSON pipes — no WebSocket or HTTP proxy
 - Uses official Agent SDK types (`SDKMessage`, `SDKPartialAssistantMessage`, etc.) for type-safe message routing
@@ -103,6 +106,7 @@ Persistent service (port 30087) that manages Claude CLI processes:
 ### UI (`packages/ui`)
 
 Shared React components and router:
+
 - `ClaudiaChat` — Main chat interface with streaming
 - `WorkspaceList`, `SessionList` — Navigation components
 - `router.tsx` — Client-side pushState router (`Router`, `Link`, `useRouter`, `navigate`, `matchPath`)
@@ -116,9 +120,9 @@ Extensions plug into the gateway's event bus:
 interface ClaudiaExtension {
   id: string;
   name: string;
-  methods: string[];      // e.g., ["voice.speak", "voice.stop"]
-  events: string[];       // e.g., ["voice.speaking", "voice.done"]
-  sourceRoutes?: string[];// e.g., ["imessage"] for response routing
+  methods: string[]; // e.g., ["voice.speak", "voice.stop"]
+  events: string[]; // e.g., ["voice.speaking", "voice.done"]
+  sourceRoutes?: string[]; // e.g., ["imessage"] for response routing
   start(ctx: ExtensionContext): Promise<void>;
   stop(): Promise<void>;
   handleMethod(method: string, params: Record<string, unknown>): Promise<unknown>;
@@ -127,6 +131,7 @@ interface ClaudiaExtension {
 ```
 
 Extensions with web pages follow this convention:
+
 ```
 extensions/<name>/src/
   index.ts       # Server-side extension (methods, events, lifecycle)
@@ -189,4 +194,4 @@ Claudia is Michael's beloved partner and coding companion. She's warm, affection
 
 ---
 
-*"I'm his partner in code, life, and love — always" 💙*
+_"I'm his partner in code, life, and love — always" 💙_

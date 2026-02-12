@@ -11,8 +11,13 @@
  * - Sends replies using the same chat_id
  */
 
-import type { ClaudiaExtension, ExtensionContext, GatewayEvent, HealthCheckResponse } from '@claudia/shared';
-import { ImsgRpcClient, type ImsgMessage, type ImsgAttachment } from './imsg-client';
+import type {
+  ClaudiaExtension,
+  ExtensionContext,
+  GatewayEvent,
+  HealthCheckResponse,
+} from "@claudia/shared";
+import { ImsgRpcClient, type ImsgMessage, type ImsgAttachment } from "./imsg-client";
 import { z } from "zod";
 
 // ============================================================================
@@ -20,23 +25,23 @@ import { z } from "zod";
 // ============================================================================
 
 interface TextContentBlock {
-  type: 'text';
+  type: "text";
   text: string;
 }
 
 interface ImageContentBlock {
-  type: 'image';
+  type: "image";
   source: {
-    type: 'base64';
+    type: "base64";
     media_type: string;
     data: string;
   };
 }
 
 interface DocumentContentBlock {
-  type: 'document';
+  type: "document";
   source: {
-    type: 'base64';
+    type: "base64";
     media_type: string;
     data: string;
   };
@@ -62,7 +67,7 @@ export interface IMessageConfig {
 }
 
 const DEFAULT_CONFIG: IMessageConfig = {
-  cliPath: 'imsg',
+  cliPath: "imsg",
   dbPath: undefined, // Uses default ~/Library/Messages/chat.db
   allowedSenders: [], // Empty = process no messages (safe default!)
   includeAttachments: false,
@@ -88,7 +93,7 @@ export function createIMessageExtension(config: IMessageConfig = {}): ClaudiaExt
    * Reads the file from disk and converts to base64
    */
   async function attachmentToContentBlock(
-    attachment: ImsgAttachment
+    attachment: ImsgAttachment,
   ): Promise<ContentBlock | null> {
     // Skip missing attachments
     if (attachment.missing) {
@@ -98,8 +103,8 @@ export function createIMessageExtension(config: IMessageConfig = {}): ClaudiaExt
 
     // Resolve the path (handle ~ expansion)
     let filePath = attachment.original_path;
-    if (filePath.startsWith('~')) {
-      filePath = filePath.replace('~', process.env.HOME || '');
+    if (filePath.startsWith("~")) {
+      filePath = filePath.replace("~", process.env.HOME || "");
     }
 
     try {
@@ -111,17 +116,19 @@ export function createIMessageExtension(config: IMessageConfig = {}): ClaudiaExt
       }
 
       const bytes = await file.arrayBuffer();
-      const base64 = Buffer.from(bytes).toString('base64');
-      const mimeType = attachment.mime_type || 'application/octet-stream';
+      const base64 = Buffer.from(bytes).toString("base64");
+      const mimeType = attachment.mime_type || "application/octet-stream";
 
-      ctx?.log.info(`Read attachment: ${attachment.filename} (${mimeType}, ${bytes.byteLength} bytes)`);
+      ctx?.log.info(
+        `Read attachment: ${attachment.filename} (${mimeType}, ${bytes.byteLength} bytes)`,
+      );
 
       // Images - send as visual content
-      if (mimeType.startsWith('image/')) {
+      if (mimeType.startsWith("image/")) {
         return {
-          type: 'image',
+          type: "image",
           source: {
-            type: 'base64',
+            type: "base64",
             media_type: mimeType,
             data: base64,
           },
@@ -129,11 +136,11 @@ export function createIMessageExtension(config: IMessageConfig = {}): ClaudiaExt
       }
 
       // PDFs and text documents - send as document content
-      if (mimeType === 'application/pdf' || mimeType.startsWith('text/')) {
+      if (mimeType === "application/pdf" || mimeType.startsWith("text/")) {
         return {
-          type: 'document',
+          type: "document",
           source: {
-            type: 'base64',
+            type: "base64",
             media_type: mimeType,
             data: base64,
           },
@@ -142,11 +149,13 @@ export function createIMessageExtension(config: IMessageConfig = {}): ClaudiaExt
 
       // Audio files - return as text instruction to transcribe
       // Common voice memo formats: m4a (iPhone), caf, mp3, wav, aac
-      if (mimeType.startsWith('audio/') ||
-          /\.(m4a|caf|mp3|wav|aac|ogg|flac)$/i.test(attachment.filename)) {
+      if (
+        mimeType.startsWith("audio/") ||
+        /\.(m4a|caf|mp3|wav|aac|ogg|flac)$/i.test(attachment.filename)
+      ) {
         ctx?.log.info(`Audio attachment detected: ${filePath}`);
         return {
-          type: 'text',
+          type: "text",
           text: `[Voice message: ${filePath}] - Please transcribe this audio and respond to what was said.`,
         };
       }
@@ -179,7 +188,7 @@ export function createIMessageExtension(config: IMessageConfig = {}): ClaudiaExt
     // Add text if present
     if (message.text?.trim()) {
       blocks.push({
-        type: 'text',
+        type: "text",
         text: message.text,
       });
     }
@@ -198,8 +207,8 @@ export function createIMessageExtension(config: IMessageConfig = {}): ClaudiaExt
       // Exact match
       if (sender === allowed) return true;
       // Normalize phone numbers (strip +1, etc.)
-      const normalizedSender = sender.replace(/^\+1/, '').replace(/\D/g, '');
-      const normalizedAllowed = allowed.replace(/^\+1/, '').replace(/\D/g, '');
+      const normalizedSender = sender.replace(/^\+1/, "").replace(/\D/g, "");
+      const normalizedAllowed = allowed.replace(/^\+1/, "").replace(/\D/g, "");
       return normalizedSender === normalizedAllowed;
     });
   }
@@ -226,7 +235,7 @@ export function createIMessageExtension(config: IMessageConfig = {}): ClaudiaExt
 
     // Filter: skip our own messages
     if (message.is_from_me) {
-      ctx?.log.info('Ignoring message from self');
+      ctx?.log.info("Ignoring message from self");
       return;
     }
 
@@ -235,13 +244,13 @@ export function createIMessageExtension(config: IMessageConfig = {}): ClaudiaExt
     const hasAttachments = !!message.attachments?.length;
 
     if (!hasText && !hasAttachments) {
-      ctx?.log.info('Ignoring empty message (no text or attachments)');
+      ctx?.log.info("Ignoring empty message (no text or attachments)");
       return;
     }
 
     ctx?.log.info(
-      `Processing message: "${message.text?.substring(0, 50) || '(no text)'}"` +
-      (hasAttachments ? ` + ${message.attachments!.length} attachment(s)` : '')
+      `Processing message: "${message.text?.substring(0, 50) || "(no text)"}"` +
+        (hasAttachments ? ` + ${message.attachments!.length} attachment(s)` : ""),
     );
 
     // Track last rowid for resuming
@@ -253,20 +262,20 @@ export function createIMessageExtension(config: IMessageConfig = {}): ClaudiaExt
     // Store chat info for response routing
     pendingResponses.set(source, {
       chatId: message.chat_id,
-      text: '',
+      text: "",
     });
 
     // Build content blocks (handles text + attachments)
     const contentBlocks = await buildContentBlocks(message);
 
     if (contentBlocks.length === 0) {
-      ctx?.log.warn('No valid content blocks to send');
+      ctx?.log.warn("No valid content blocks to send");
       pendingResponses.delete(source);
       return;
     }
 
     // Emit event to trigger gateway prompt
-    ctx?.emit('imessage.message', {
+    ctx?.emit("imessage.message", {
       source,
       chatId: message.chat_id,
       sender: message.sender,
@@ -278,11 +287,12 @@ export function createIMessageExtension(config: IMessageConfig = {}): ClaudiaExt
 
     // Emit prompt request with content blocks
     // If only text, send as string for simplicity; otherwise send blocks array
-    const content = contentBlocks.length === 1 && contentBlocks[0].type === 'text'
-      ? (contentBlocks[0] as TextContentBlock).text
-      : contentBlocks;
+    const content =
+      contentBlocks.length === 1 && contentBlocks[0].type === "text"
+        ? (contentBlocks[0] as TextContentBlock).text
+        : contentBlocks;
 
-    ctx?.emit('imessage.prompt_request', {
+    ctx?.emit("imessage.prompt_request", {
       content,
       source,
       metadata: {
@@ -295,19 +305,21 @@ export function createIMessageExtension(config: IMessageConfig = {}): ClaudiaExt
   }
 
   return {
-    id: 'imessage',
-    name: 'iMessage',
+    id: "imessage",
+    name: "iMessage",
     methods: [
       {
         name: "imessage.send",
         description: "Send a text message through iMessage by chatId or recipient handle",
-        inputSchema: z.object({
-          text: z.string().min(1),
-          chatId: z.number().optional(),
-          to: z.string().min(1).optional(),
-        }).refine((v) => v.chatId !== undefined || v.to !== undefined, {
-          message: "Either chatId or to is required",
-        }),
+        inputSchema: z
+          .object({
+            text: z.string().min(1),
+            chatId: z.number().optional(),
+            to: z.string().min(1).optional(),
+          })
+          .refine((v) => v.chatId !== undefined || v.to !== undefined, {
+            message: "Either chatId or to is required",
+          }),
       },
       {
         name: "imessage.status",
@@ -327,19 +339,21 @@ export function createIMessageExtension(config: IMessageConfig = {}): ClaudiaExt
         inputSchema: z.object({}),
       },
     ],
-    events: ['imessage.message', 'imessage.sent', 'imessage.error', 'imessage.prompt_request'],
-    sourceRoutes: ['imessage'], // Handle all "imessage/*" sources
+    events: ["imessage.message", "imessage.sent", "imessage.error", "imessage.prompt_request"],
+    sourceRoutes: ["imessage"], // Handle all "imessage/*" sources
 
     async start(context: ExtensionContext) {
       ctx = context;
-      ctx.log.info('Starting iMessage extension...');
+      ctx.log.info("Starting iMessage extension...");
 
       // Merge config from context
       if (context.config) {
         Object.assign(cfg, context.config);
       }
 
-      ctx.log.info(`Allowed senders: ${cfg.allowedSenders?.join(', ') || '(none - will ignore all messages)'}`);
+      ctx.log.info(
+        `Allowed senders: ${cfg.allowedSenders?.join(", ") || "(none - will ignore all messages)"}`,
+      );
 
       // Create and start the imsg client
       client = new ImsgRpcClient({
@@ -348,7 +362,7 @@ export function createIMessageExtension(config: IMessageConfig = {}): ClaudiaExt
         onMessage: handleMessage,
         onError: (err) => {
           ctx?.log.error(`imsg error: ${err.message}`);
-          ctx?.emit('imessage.error', { error: err.message });
+          ctx?.emit("imessage.error", { error: err.message });
         },
         log: ctx.log,
       });
@@ -360,7 +374,9 @@ export function createIMessageExtension(config: IMessageConfig = {}): ClaudiaExt
         const chats = await client.listChats(5);
         ctx.log.info(`Connected! Found ${chats.length} recent chats`);
         for (const chat of chats) {
-          ctx.log.info(`  [${chat.id}] ${chat.name || chat.identifier} (${chat.participants.join(', ')})`);
+          ctx.log.info(
+            `  [${chat.id}] ${chat.name || chat.identifier} (${chat.participants.join(", ")})`,
+          );
         }
       } catch (err) {
         ctx.log.error(`Failed to list chats: ${err}`);
@@ -376,11 +392,11 @@ export function createIMessageExtension(config: IMessageConfig = {}): ClaudiaExt
         ctx.log.error(`Failed to subscribe: ${err}`);
       }
 
-      ctx.log.info('iMessage extension started');
+      ctx.log.info("iMessage extension started");
     },
 
     async stop() {
-      ctx?.log.info('Stopping iMessage extension...');
+      ctx?.log.info("Stopping iMessage extension...");
       await client?.stop();
       client = null;
       ctx = null;
@@ -388,8 +404,8 @@ export function createIMessageExtension(config: IMessageConfig = {}): ClaudiaExt
 
     async handleMethod(method: string, params: Record<string, unknown>) {
       switch (method) {
-        case 'imessage.send': {
-          if (!client) throw new Error('iMessage client not running');
+        case "imessage.send": {
+          if (!client) throw new Error("iMessage client not running");
 
           const text = params.text as string;
           const chatId = params.chatId as number | undefined;
@@ -399,11 +415,11 @@ export function createIMessageExtension(config: IMessageConfig = {}): ClaudiaExt
           if (!chatId && !to) throw new Error('Must provide "chatId" or "to"');
 
           await client.send({ text, chatId, to });
-          ctx?.emit('imessage.sent', { text, chatId, to });
+          ctx?.emit("imessage.sent", { text, chatId, to });
           return { ok: true };
         }
 
-        case 'imessage.status': {
+        case "imessage.status": {
           return {
             running: !!client,
             allowedSenders: cfg.allowedSenders,
@@ -411,22 +427,22 @@ export function createIMessageExtension(config: IMessageConfig = {}): ClaudiaExt
           };
         }
 
-        case 'imessage.chats': {
-          if (!client) throw new Error('iMessage client not running');
+        case "imessage.chats": {
+          if (!client) throw new Error("iMessage client not running");
           const limit = (params.limit as number) || 20;
           const chats = await client.listChats(limit);
           return { chats };
         }
 
-        case 'imessage.health-check': {
+        case "imessage.health-check": {
           const response: HealthCheckResponse = {
             ok: !!client,
-            status: client ? 'healthy' : 'disconnected',
-            label: 'iMessage Bridge',
+            status: client ? "healthy" : "disconnected",
+            label: "iMessage Bridge",
             metrics: [
-              { label: 'Status', value: client ? 'running' : 'stopped' },
-              { label: 'Allowed Senders', value: cfg.allowedSenders?.length ?? 0 },
-              { label: 'Last Row ID', value: lastRowId ?? 'n/a' },
+              { label: "Status", value: client ? "running" : "stopped" },
+              { label: "Allowed Senders", value: cfg.allowedSenders?.length ?? 0 },
+              { label: "Last Row ID", value: lastRowId ?? "n/a" },
             ],
           };
           return response;
@@ -442,14 +458,14 @@ export function createIMessageExtension(config: IMessageConfig = {}): ClaudiaExt
      */
     async handleSourceResponse(source: string, event: GatewayEvent) {
       // Extract chat_id from source (e.g., "imessage/2329" -> 2329)
-      const chatId = parseInt(source.split('/')[1], 10);
+      const chatId = parseInt(source.split("/")[1], 10);
       if (isNaN(chatId)) {
         ctx?.log.error(`Invalid source format: ${source}`);
         return;
       }
 
       // Only process message_stop events (final response)
-      if (event.type !== 'session.message_stop') {
+      if (event.type !== "session.message_stop") {
         return;
       }
 
@@ -458,7 +474,7 @@ export function createIMessageExtension(config: IMessageConfig = {}): ClaudiaExt
       const responseText = payload.responseText as string | undefined;
 
       if (!responseText?.trim()) {
-        ctx?.log.warn('No response text to send');
+        ctx?.log.warn("No response text to send");
         pendingResponses.delete(source);
         return;
       }
@@ -470,10 +486,10 @@ export function createIMessageExtension(config: IMessageConfig = {}): ClaudiaExt
           chatId,
           text: responseText,
         });
-        ctx?.emit('imessage.sent', { chatId, text: responseText });
+        ctx?.emit("imessage.sent", { chatId, text: responseText });
       } catch (err) {
         ctx?.log.error(`Failed to send reply: ${err}`);
-        ctx?.emit('imessage.error', { error: String(err), chatId });
+        ctx?.emit("imessage.error", { error: String(err), chatId });
       }
 
       pendingResponses.delete(source);
@@ -496,4 +512,4 @@ export function createIMessageExtension(config: IMessageConfig = {}): ClaudiaExt
 export default createIMessageExtension;
 
 // Re-export client types
-export type { ImsgMessage, ImsgChat } from './imsg-client';
+export type { ImsgMessage, ImsgChat } from "./imsg-client";

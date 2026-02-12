@@ -11,6 +11,7 @@ Last updated: 2026-02-12
 ## Recommended Standard
 
 Per workspace package/extension/client:
+
 - `build`: compile/package this workspace.
 - `test`: run local tests for this workspace.
 - `typecheck`: run local TS type checks (or explicit no-op for non-TS apps).
@@ -18,6 +19,7 @@ Per workspace package/extension/client:
 - `start`: run once (services/tools, if applicable).
 
 Root scripts:
+
 - `dev`: start gateway dev mode.
 - `build`: build all workspaces that expose `build`.
 - `test`: broad test runner.

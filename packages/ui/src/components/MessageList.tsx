@@ -1,4 +1,12 @@
-import type { Message, TextBlock, ImageBlock, FileBlock, ToolUseBlock, ErrorBlock, ContentBlock } from "../types";
+import type {
+  Message,
+  TextBlock,
+  ImageBlock,
+  FileBlock,
+  ToolUseBlock,
+  ErrorBlock,
+  ContentBlock,
+} from "../types";
 import { MessageContent } from "./MessageContent";
 import { ToolCallBlock } from "./ToolCallBlock";
 import { CopyButton } from "./CopyButton";
@@ -27,7 +35,8 @@ function formatTimestamp(ts?: number): string | null {
 function isToolOnlyMessage(msg: Message): boolean {
   if (msg.role !== "assistant") return false;
   return msg.blocks.every(
-    (b) => b.type === "thinking" || b.type === "tool_use" || (b.type === "text" && !b.content?.trim()),
+    (b) =>
+      b.type === "thinking" || b.type === "tool_use" || (b.type === "text" && !b.content?.trim()),
   );
 }
 
@@ -128,7 +137,8 @@ export function MessageList({
                 {row.messages.flatMap(({ msg, msgIdx }) =>
                   msg.blocks.map((block, blockIdx) => {
                     if (block.type === "thinking") {
-                      const isLast = msgIdx === messages.length - 1 && blockIdx === msg.blocks.length - 1;
+                      const isLast =
+                        msgIdx === messages.length - 1 && blockIdx === msg.blocks.length - 1;
                       return (
                         <MessageContent
                           key={`${msgIdx}-${blockIdx}`}
@@ -162,21 +172,16 @@ export function MessageList({
         // ── Regular message ──
         const { msg, msgIdx } = row;
         return (
-          <div
-            key={msgIdx}
-            className={msg.role === "user" ? "ml-12" : "mr-12"}
-          >
+          <div key={msgIdx} className={msg.role === "user" ? "ml-12" : "mr-12"}>
             {/* Copy button + timestamp — only for messages with text content */}
             {(() => {
-              const hasText = msg.blocks.some(b => b.type === "text" && b.content?.trim());
+              const hasText = msg.blocks.some((b) => b.type === "text" && b.content?.trim());
               if (!hasText) return null;
               const rawContent = getMessageRawContent(msg.blocks);
               const time = formatTimestamp(msg.timestamp);
               const isUser = msg.role === "user";
               return (
-                <div
-                  className={`flex items-center gap-2 mb-1 ${isUser ? "justify-end" : ""}`}
-                >
+                <div className={`flex items-center gap-2 mb-1 ${isUser ? "justify-end" : ""}`}>
                   {isUser ? (
                     <>
                       {time && <span className="text-xs text-gray-400">{time}</span>}
@@ -194,7 +199,13 @@ export function MessageList({
             {msg.role === "user" ? (
               <UserMessage msg={msg} />
             ) : (
-              <AssistantMessage msg={msg} msgIdx={msgIdx} totalMessages={messages.length} isQuerying={isQuerying} onSendMessage={msgIdx === messages.length - 1 ? onSendMessage : undefined} />
+              <AssistantMessage
+                msg={msg}
+                msgIdx={msgIdx}
+                totalMessages={messages.length}
+                isQuerying={isQuerying}
+                onSendMessage={msgIdx === messages.length - 1 ? onSendMessage : undefined}
+              />
             )}
           </div>
         );
@@ -235,9 +246,7 @@ function UserMessage({ msg }: { msg: Message }) {
                   className="flex items-center gap-2 px-3 py-2 rounded-md border border-gray-300 bg-gray-50"
                 >
                   <FileIcon className="w-5 h-5 text-gray-500" />
-                  <span className="text-sm text-gray-700">
-                    {file.filename || "file"}
-                  </span>
+                  <span className="text-sm text-gray-700">{file.filename || "file"}</span>
                 </div>
               );
             })}
@@ -331,10 +340,28 @@ function AssistantMessage({
           const err = group.blocks[0] as ErrorBlock & { originalIndex: number };
           if (err.isRetrying) {
             return (
-              <div key={err.originalIndex} className="mt-2 px-3 py-2 text-sm bg-amber-50 border border-amber-200 rounded-md flex items-center gap-2">
-                <svg className="w-4 h-4 text-amber-500 animate-spin shrink-0" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              <div
+                key={err.originalIndex}
+                className="mt-2 px-3 py-2 text-sm bg-amber-50 border border-amber-200 rounded-md flex items-center gap-2"
+              >
+                <svg
+                  className="w-4 h-4 text-amber-500 animate-spin shrink-0"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                >
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  />
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                  />
                 </svg>
                 <span className="text-amber-700">{err.message}</span>
                 {err.retryInMs && (
@@ -346,10 +373,23 @@ function AssistantMessage({
             );
           }
           return (
-            <div key={err.originalIndex} className="mt-2 px-3 py-2 text-sm bg-red-50 border border-red-200 rounded-md">
+            <div
+              key={err.originalIndex}
+              className="mt-2 px-3 py-2 text-sm bg-red-50 border border-red-200 rounded-md"
+            >
               <div className="flex items-center gap-2">
-                <svg className="w-4 h-4 text-red-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+                <svg
+                  className="w-4 h-4 text-red-500 shrink-0"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"
+                  />
                 </svg>
                 <span className="text-red-700 font-medium">{err.message}</span>
                 {err.status && (
@@ -364,18 +404,17 @@ function AssistantMessage({
           const text = group.blocks[0] as TextBlock & { originalIndex: number };
           if (!text.content || text.content.trim().length === 0) return null;
           return (
-            <MessageContent
-              key={text.originalIndex}
-              content={text.content}
-              type="assistant"
-            />
+            <MessageContent key={text.originalIndex} content={text.content} type="assistant" />
           );
         }
 
         // Unknown block type fallback
         const block = group.blocks[0];
         return (
-          <div key={`unknown-${groupIdx}`} className="mt-2 p-3 bg-yellow-50 border border-yellow-200 rounded-md">
+          <div
+            key={`unknown-${groupIdx}`}
+            className="mt-2 p-3 bg-yellow-50 border border-yellow-200 rounded-md"
+          >
             <div className="text-sm font-mono text-yellow-800">
               <strong>Unknown message type:</strong> {(block as any).type || "undefined"}
             </div>

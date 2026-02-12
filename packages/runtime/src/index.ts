@@ -276,7 +276,9 @@ const server = Bun.serve<SocketData>({
     },
     close(ws) {
       clients.delete(ws);
-      console.log(`[Runtime] Gateway disconnected: ${ws.data.id.slice(0, 8)} (${clients.size} total)`);
+      console.log(
+        `[Runtime] Gateway disconnected: ${ws.data.id.slice(0, 8)} (${clients.size} total)`,
+      );
     },
   },
 });

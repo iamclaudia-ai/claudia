@@ -3,6 +3,7 @@
 ## ✅ Completed
 
 ### Phase 1: Foundation
+
 - [x] Monorepo structure with Bun workspaces
 - [x] TypeScript configuration for workspace resolution
 - [x] SDK integration (`@claudia/sdk`) - Claude Code CLI wrapper
@@ -17,6 +18,7 @@
   - Context usage indicator
 
 ### Phase 2: Voice
+
 - [x] Voice Extension (`@claudia/voice`) - ElevenLabs TTS integration
 - [x] CLI `speak` command - `claudia speak "text"`
 - [x] Gateway extension system with event bus
@@ -24,6 +26,7 @@
 ## 🚧 In Progress
 
 ### macOS Menubar App
+
 - [x] Swift source files created
 - [x] Xcode project setup
 - [x] Build and test - working! 🎉
@@ -33,13 +36,15 @@
 ## 📋 TODO
 
 ### Gateway Improvements
+
 - [x] **Session-level thinking config** - `session.config` or `thinking` param on first prompt
 - [ ] Session history loading from Claude Code JSONL files
 - [ ] Multiple named sessions support
 - [ ] SQLite for session metadata (future)
 
 ### Clients
-- [~] **macOS Menubar App** - "Hey babe" wake word (💋 icon) - *in progress*
+
+- [~] **macOS Menubar App** - "Hey babe" wake word (💋 icon) - _in progress_
 - [x] **VS Code Extension** - Editor panel with toolbar icon 💙
   - WebviewPanel (opens beside files like Claude Code)
   - File context tracking (current file, selection, diagnostics)
@@ -49,12 +54,13 @@
 - [ ] CarPlay integration (entitlement pending)
 
 ### Extensions
+
 - [x] **Voice Extension** - ElevenLabs TTS ✅
 - [x] **iMessage Extension** - imsg CLI integration ✅
   - Multimodal support (images, voice messages)
   - Sender filtering (claudia@iamclaudia.ai)
   - Source routing for responses
-- [~] **Memory Extension** - *partially complete*
+- [~] **Memory Extension** - _partially complete_
   - [x] MCP server (`@claudia/memory-mcp`) with tools: remember, recall, read, list, sections, sync
   - [x] Section consistency tracking (SQLite)
   - [x] Auto git commit/push after writes
@@ -63,6 +69,7 @@
 - [ ] **Browser Extension** - DOMINATRIX integration
 
 ### Web UI Enhancements
+
 - [ ] Session history on connect (load from gateway)
 - [ ] Image/file upload to Claude (currently UI-only)
 - [ ] Steering messages (send while response in progress)
@@ -70,11 +77,13 @@
 - [ ] Dark mode
 
 ### Infrastructure
+
 - [ ] Tailscale integration for remote access
 - [ ] systemd/launchd service files
 - [ ] Health monitoring
 
 ### Security
+
 - [ ] **Security audit CLI** - `claudia security check`
   - Verify gateway binds to localhost only
   - Check file/directory permissions (~/.claudia, ~/memory)
@@ -85,12 +94,15 @@
   - `--verbose` for detailed output
 
 ### MCP → Gateway Event Bus
+
 Allow MCP tools to publish events to the gateway's event bus:
+
 - [ ] MCP tools can emit events (e.g., `memory.pushed` after git push)
 - [ ] Gateway extension listens and reacts (e.g., `git pull` to sync)
 - [ ] Communication options: WebSocket client, HTTP endpoint, or Unix socket
 
 Use case:
+
 ```
 MCP (memory_remember)     Gateway Event Bus        Memory Extension
         │                        │                        │
@@ -101,11 +113,14 @@ MCP (memory_remember)     Gateway Event Bus        Memory Extension
 ```
 
 ### Multi-Gateway Federation (Claudia's Home)
+
 Deploy gateways on multiple machines with bidirectional sync:
+
 - **Michael's Laptop** - beehiiv work, collaborative projects
 - **Anima Sedes (Mac Mini)** - Claudia's home, personal projects, autonomous work
 
 Features needed:
+
 - [ ] Gateway discovery and pairing (via Tailscale)
 - [ ] Presence/status sync between gateways
 - [ ] Session routing - start sessions on specific gateway
@@ -114,6 +129,7 @@ Features needed:
 - [ ] Event federation - gateways share events across the network
 
 Architecture:
+
 ```
 ┌─────────────────┐              ┌─────────────────┐
 │ Gateway (laptop)│◄────────────►│ Gateway (Anima) │
@@ -124,7 +140,9 @@ Architecture:
 ```
 
 ### Reminder System
+
 Simple SQLite-based reminder system as a gateway extension:
+
 - [ ] Reminder extension with SQLite storage
   - Table: `reminders (id, message, due_at, recurring_rule, completed, created_at)`
   - Timer checks every minute for due reminders
@@ -146,4 +164,4 @@ Simple SQLite-based reminder system as a gateway extension:
 
 ---
 
-*Last updated: 2026-01-30*
+_Last updated: 2026-01-30_

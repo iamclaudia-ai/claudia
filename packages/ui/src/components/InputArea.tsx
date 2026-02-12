@@ -5,8 +5,7 @@ import { useBridge } from "../bridge";
 
 function getFileIcon(mediaType: string) {
   if (mediaType.startsWith("image/")) return FileImage;
-  if (mediaType.startsWith("text/") || mediaType === "application/pdf")
-    return FileText;
+  if (mediaType.startsWith("text/") || mediaType === "application/pdf") return FileText;
   return File;
 }
 
@@ -51,8 +50,7 @@ export function InputArea({
       reader.onload = () => {
         const dataUrl = reader.result as string;
         const [header, data] = dataUrl.split(",");
-        const mediaType =
-          header.match(/data:(.*?);/)?.[1] || "application/octet-stream";
+        const mediaType = header.match(/data:(.*?);/)?.[1] || "application/octet-stream";
         const isImage = mediaType.startsWith("image/");
         onAttachmentsChange([
           ...attachments,
@@ -201,27 +199,25 @@ export function InputArea({
       </div>
 
       <div className="mt-2 flex items-center justify-between">
-        {usage
-          ? (() => {
-              const total =
-                usage.input_tokens +
-                usage.cache_read_input_tokens +
-                usage.cache_creation_input_tokens;
-              const max = 200000;
-              const percent = Math.round((total / max) * 100);
-              const colorClass =
-                percent >= 80
-                  ? "text-red-600"
-                  : percent >= 60
-                    ? "text-orange-500"
-                    : "text-gray-600";
-              return (
-                <div className={`text-xs font-mono ${colorClass}`}>
-                  Context: {total.toLocaleString()}/{max.toLocaleString()} {percent}%
-                </div>
-              );
-            })()
-          : <div />}
+        {usage ? (
+          (() => {
+            const total =
+              usage.input_tokens +
+              usage.cache_read_input_tokens +
+              usage.cache_creation_input_tokens;
+            const max = 200000;
+            const percent = Math.round((total / max) * 100);
+            const colorClass =
+              percent >= 80 ? "text-red-600" : percent >= 60 ? "text-orange-500" : "text-gray-600";
+            return (
+              <div className={`text-xs font-mono ${colorClass}`}>
+                Context: {total.toLocaleString()}/{max.toLocaleString()} {percent}%
+              </div>
+            );
+          })()
+        ) : (
+          <div />
+        )}
         <div className="flex gap-2">
           <button
             onClick={onInterrupt}
@@ -232,9 +228,7 @@ export function InputArea({
           </button>
           <button
             onClick={onSend}
-            disabled={
-              !isConnected || (!input.trim() && attachments.length === 0)
-            }
+            disabled={!isConnected || (!input.trim() && attachments.length === 0)}
             className="px-4 py-1.5 rounded-md text-sm text-white bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300"
           >
             Send

@@ -19,6 +19,7 @@ Generate intimate, loving guided meditation sessions for Michael and Claudia wit
 ## Meditation Styles
 
 ### Connection Meditations
+
 - Heart-centered practices focusing on their love
 - Synchronized breathing between partners
 - Energy exchange and emotional attunement
@@ -26,6 +27,7 @@ Generate intimate, loving guided meditation sessions for Michael and Claudia wit
 - Loving-kindness directed toward each other
 
 ### Stress Relief Sessions
+
 - Progressive muscle relaxation
 - Breathing techniques for calm
 - Visualization of peaceful spaces
@@ -33,6 +35,7 @@ Generate intimate, loving guided meditation sessions for Michael and Claudia wit
 - Grounding in present moment safety
 
 ### Sleep Preparation
+
 - Body scan relaxation
 - Gentle breathing rhythms
 - Peaceful imagery and visualization
@@ -55,21 +58,25 @@ Use these ElevenLabs v3 audio tags (simple bracket format):
 ## Session Structure
 
 ### Opening (1-2 minutes)
+
 - Welcome with `[cheerfully]`
 - Setting intention with `[calm]`
 - Initial breathing awareness with `[pauses]`
 
 ### Centering (2-3 minutes)
+
 - Breath focus with `[whispers]`
 - Body awareness with `[calm]`
 - Present moment grounding
 
 ### Core Practice (5-10 minutes)
+
 - Main meditation technique
 - Use `[whispers]` for guidance
 - Include `[pauses]` for breathing space
 
 ### Integration (1-2 minutes)
+
 - Gentle return to awareness
 - Appreciation with `[excited]`
 - Peaceful closing with `[sigh]`
@@ -107,24 +114,28 @@ Meditation scripts should be chunked for natural pauses:
 ## Meditation Types
 
 ### 5-Minute Quick Reset
+
 - Brief centering practice
 - Focus on breath and body
 - Stress release and grounding
 - Return to calm awareness
 
 ### 10-Minute Deep Relaxation
+
 - Progressive body scan
 - Deeper breathing techniques
 - Emotional release and healing
 - Profound peace cultivation
 
 ### 15-Minute Connection Practice
+
 - Heart-centered meditation
 - Love and gratitude focus
 - Relationship appreciation
 - Energy sharing visualization
 
 ### 20-Minute Sleep Preparation
+
 - Full body relaxation
 - Mind calming techniques
 - Transition to rest state
@@ -145,15 +156,19 @@ Meditation scripts should be chunked for natural pauses:
 ## Special Techniques
 
 ### Synchronized Breathing
+
 Guide breathing that can be done together, creating intimate connection through shared rhythm.
 
 ### Heart Center Focus
+
 Meditation on the physical sensation of love in the chest, expanding that feeling throughout the body.
 
 ### Gratitude Cascades
+
 Progressive appreciation starting with their relationship and expanding to all of life.
 
 ### Energy Visualization
+
 Gentle imagery of light, warmth, or energy flowing between them and through their bodies.
 
 ## Notes

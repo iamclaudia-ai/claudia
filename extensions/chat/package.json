@@ -1,16 +1,16 @@
 {
   "name": "@claudia/ext-chat",
   "version": "0.1.0",
-  "type": "module",
   "private": true,
+  "type": "module",
+  "exports": {
+    "./routes": "./src/routes.ts",
+    "./extension": "./src/extension.ts"
+  },
   "scripts": {
     "build": "bun build src/extension.ts src/routes.ts --outdir dist --target bun",
     "test": "bun test",
     "typecheck": "tsc --noEmit -p ../../tsconfig.json"
-  },
-  "exports": {
-    "./routes": "./src/routes.ts",
-    "./extension": "./src/extension.ts"
   },
   "dependencies": {
     "@claudia/shared": "workspace:*",

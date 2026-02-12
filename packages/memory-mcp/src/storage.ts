@@ -2,14 +2,14 @@
  * Filesystem operations for ~/memory
  */
 
-import { readdir, readFile, writeFile, mkdir, stat } from 'node:fs/promises';
-import { join, dirname, relative } from 'node:path';
-import { homedir } from 'node:os';
-import { spawn } from 'bun';
-import matter from 'gray-matter';
-import type { ParsedMemory, MemoryFrontmatter, MemorySection, MemoryCategory } from './types.js';
+import { readdir, readFile, writeFile, mkdir, stat } from "node:fs/promises";
+import { join, dirname, relative } from "node:path";
+import { homedir } from "node:os";
+import { spawn } from "bun";
+import matter from "gray-matter";
+import type { ParsedMemory, MemoryFrontmatter, MemorySection, MemoryCategory } from "./types.js";
 
-const MEMORY_ROOT = join(homedir(), 'memory');
+const MEMORY_ROOT = join(homedir(), "memory");
 
 /**
  * Git commit and push a memory file (runs async, doesn't block)
@@ -22,15 +22,15 @@ export function gitCommitAndPush(filepath: string, message: string): void {
   (async () => {
     try {
       // git add
-      const add = spawn(['git', 'add', resolved], { cwd: MEMORY_ROOT });
+      const add = spawn(["git", "add", resolved], { cwd: MEMORY_ROOT });
       await add.exited;
 
       // git commit
-      const commit = spawn(['git', 'commit', '-m', message], { cwd: MEMORY_ROOT });
+      const commit = spawn(["git", "commit", "-m", message], { cwd: MEMORY_ROOT });
       await commit.exited;
 
       // git push
-      const push = spawn(['git', 'push'], { cwd: MEMORY_ROOT });
+      const push = spawn(["git", "push"], { cwd: MEMORY_ROOT });
       await push.exited;
 
       console.error(`[memory] Git pushed: ${relativePath}`);
@@ -51,10 +51,10 @@ export function getMemoryRoot(): string {
  * Resolve a memory path (handles relative paths)
  */
 export function resolvePath(filepath: string): string {
-  if (filepath.startsWith('~/memory/')) {
-    return filepath.replace('~/memory/', MEMORY_ROOT + '/');
+  if (filepath.startsWith("~/memory/")) {
+    return filepath.replace("~/memory/", MEMORY_ROOT + "/");
   }
-  if (filepath.startsWith('/')) {
+  if (filepath.startsWith("/")) {
     return filepath;
   }
   return join(MEMORY_ROOT, filepath);
@@ -87,7 +87,7 @@ export async function parseMemoryFile(filepath: string): Promise<ParsedMemory | 
   const resolved = resolvePath(filepath);
 
   try {
-    const raw = await readFile(resolved, 'utf-8');
+    const raw = await readFile(resolved, "utf-8");
     const { data, content } = matter(raw);
 
     const frontmatter = data as MemoryFrontmatter;
@@ -110,7 +110,7 @@ export async function parseMemoryFile(filepath: string): Promise<ParsedMemory | 
  */
 function parseSections(content: string): MemorySection[] {
   const sections: MemorySection[] = [];
-  const lines = content.split('\n');
+  const lines = content.split("\n");
 
   let currentSection: MemorySection | null = null;
   let buffer: string[] = [];
@@ -122,14 +122,14 @@ function parseSections(content: string): MemorySection[] {
     if (h2Match || h3Match) {
       // Save previous section
       if (currentSection) {
-        currentSection.content = buffer.join('\n').trim();
+        currentSection.content = buffer.join("\n").trim();
         sections.push(currentSection);
       }
 
       // Start new section
       currentSection = {
         title: h2Match ? h2Match[1] : h3Match![1],
-        content: '',
+        content: "",
         level: h2Match ? 2 : 3,
       };
       buffer = [];
@@ -140,7 +140,7 @@ function parseSections(content: string): MemorySection[] {
 
   // Save last section
   if (currentSection) {
-    currentSection.content = buffer.join('\n').trim();
+    currentSection.content = buffer.join("\n").trim();
     sections.push(currentSection);
   }
 
@@ -153,7 +153,7 @@ function parseSections(content: string): MemorySection[] {
 export async function getFileSections(filepath: string): Promise<string[]> {
   const parsed = await parseMemoryFile(filepath);
   if (!parsed) return [];
-  return parsed.sections.map(s => s.title);
+  return parsed.sections.map((s) => s.title);
 }
 
 /**
@@ -169,9 +169,9 @@ export async function listMemoryFiles(category?: MemoryCategory): Promise<string
       for (const entry of entries) {
         const fullPath = join(dir, entry.name);
 
-        if (entry.isDirectory() && !entry.name.startsWith('.')) {
+        if (entry.isDirectory() && !entry.name.startsWith(".")) {
           await scan(fullPath);
-        } else if (entry.isFile() && entry.name.endsWith('.md')) {
+        } else if (entry.isFile() && entry.name.endsWith(".md")) {
           files.push(getRelativePath(fullPath));
         }
       }
@@ -196,7 +196,7 @@ export async function listMemoryFiles(category?: MemoryCategory): Promise<string
 export async function appendToSection(
   filepath: string,
   section: string,
-  content: string
+  content: string,
 ): Promise<{ isNewSection: boolean }> {
   const resolved = resolvePath(filepath);
   const parsed = await parseMemoryFile(filepath);
@@ -205,7 +205,7 @@ export async function appendToSection(
     throw new Error(`File not found: ${filepath}`);
   }
 
-  const raw = await readFile(resolved, 'utf-8');
+  const raw = await readFile(resolved, "utf-8");
   const { data: frontmatter, content: body } = matter(raw);
 
   // Update the updated_at timestamp
@@ -213,7 +213,7 @@ export async function appendToSection(
 
   // Check if section exists
   const sectionIndex = parsed.sections.findIndex(
-    s => s.title.toLowerCase() === section.toLowerCase()
+    (s) => s.title.toLowerCase() === section.toLowerCase(),
   );
 
   let newBody: string;
@@ -236,18 +236,18 @@ export async function appendToSection(
       // Insert content before the next section
       newBody =
         body.slice(0, sectionEnd).trimEnd() +
-        '\n\n' +
+        "\n\n" +
         content.trim() +
-        '\n' +
+        "\n" +
         body.slice(sectionEnd);
     } else {
       // Fallback: append to end
-      newBody = body.trimEnd() + '\n\n' + content.trim() + '\n';
+      newBody = body.trimEnd() + "\n\n" + content.trim() + "\n";
     }
   } else {
     // Create new section at the end
     isNewSection = true;
-    newBody = body.trimEnd() + '\n\n## ' + section + '\n\n' + content.trim() + '\n';
+    newBody = body.trimEnd() + "\n\n## " + section + "\n\n" + content.trim() + "\n";
   }
 
   // Rebuild the file
@@ -255,7 +255,7 @@ export async function appendToSection(
   await writeFile(resolved, newFile);
 
   // Git commit and push (async, non-blocking)
-  const action = isNewSection ? 'Add section' : 'Update';
+  const action = isNewSection ? "Add section" : "Update";
   gitCommitAndPush(filepath, `memory: ${action} "${section}" in ${filepath}`);
 
   return { isNewSection };
@@ -274,11 +274,11 @@ export async function createMemoryFile(
     tags?: string[];
     summary?: string;
     author?: string;
-  }
+  },
 ): Promise<void> {
   const resolved = resolvePath(filepath);
   const now = new Date().toISOString();
-  const dateStr = now.split('T')[0];
+  const dateStr = now.split("T")[0];
 
   // Ensure directory exists
   await mkdir(dirname(resolved), { recursive: true });
@@ -288,7 +288,7 @@ export async function createMemoryFile(
     title,
     date: dateStr,
     categories: [options.category],
-    author: options.author || 'Claudia',
+    author: options.author || "Claudia",
     created_at: now,
     updated_at: now,
   };
@@ -318,9 +318,7 @@ export async function readMemory(filepath: string, section?: string): Promise<st
   if (!parsed) return null;
 
   if (section) {
-    const found = parsed.sections.find(
-      s => s.title.toLowerCase() === section.toLowerCase()
-    );
+    const found = parsed.sections.find((s) => s.title.toLowerCase() === section.toLowerCase());
     return found?.content || null;
   }
 

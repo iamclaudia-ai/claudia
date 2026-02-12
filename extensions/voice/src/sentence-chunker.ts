@@ -12,7 +12,7 @@ const SENTENCE_BOUNDARY = /([.!?]+)\s+/g;
 const NEWLINE_BOUNDARY = /\n\s*\n/g;
 
 export class SentenceChunker {
-  private buffer = '';
+  private buffer = "";
 
   /**
    * Feed new text from a streaming delta.
@@ -72,12 +72,12 @@ export class SentenceChunker {
   /** Get any remaining text that hasn't formed a complete sentence */
   flush(): string | null {
     const remaining = this.buffer.trim();
-    this.buffer = '';
+    this.buffer = "";
     return remaining.length > 0 ? remaining : null;
   }
 
   /** Clear the buffer */
   reset(): void {
-    this.buffer = '';
+    this.buffer = "";
   }
 }

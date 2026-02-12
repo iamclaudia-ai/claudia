@@ -1,13 +1,13 @@
-import * as vscode from 'vscode';
-import { EditorContext } from './context';
-import * as crypto from 'crypto';
+import * as vscode from "vscode";
+import { EditorContext } from "./context";
+import * as crypto from "crypto";
 
 /**
  * Provides the Claudia chat as an editor panel using the shared @claudia/ui
  * React component, bundled into dist/webview/
  */
 export class ClaudiaPanelProvider {
-  public static readonly viewType = 'claudia.chatPanel';
+  public static readonly viewType = "claudia.chatPanel";
 
   private readonly _panel: vscode.WebviewPanel;
   private _currentContext?: EditorContext;
@@ -25,22 +25,22 @@ export class ClaudiaPanelProvider {
     // Create the webview panel
     this._panel = vscode.window.createWebviewPanel(
       ClaudiaPanelProvider.viewType,
-      '💙 Claudia',
+      "💙 Claudia",
       viewColumn,
       {
         enableScripts: true,
         retainContextWhenHidden: true,
         localResourceRoots: [
-          vscode.Uri.joinPath(extensionUri, 'dist', 'webview'),
-          vscode.Uri.joinPath(extensionUri, 'resources'),
+          vscode.Uri.joinPath(extensionUri, "dist", "webview"),
+          vscode.Uri.joinPath(extensionUri, "resources"),
         ],
       },
     );
 
     // Set icon for the tab (blue heart)
     this._panel.iconPath = {
-      light: vscode.Uri.joinPath(extensionUri, 'resources', 'icon-light.svg'),
-      dark: vscode.Uri.joinPath(extensionUri, 'resources', 'icon-dark.svg'),
+      light: vscode.Uri.joinPath(extensionUri, "resources", "icon-light.svg"),
+      dark: vscode.Uri.joinPath(extensionUri, "resources", "icon-dark.svg"),
     };
 
     // Set the HTML content
@@ -54,11 +54,7 @@ export class ClaudiaPanelProvider {
     );
 
     // Handle panel disposal
-    this._panel.onDidDispose(
-      () => this._dispose(),
-      null,
-      this._disposables,
-    );
+    this._panel.onDidDispose(() => this._dispose(), null, this._disposables);
 
     // Track viewColumn changes (when user drags panel to different group)
     this._panel.onDidChangeViewState(
@@ -84,7 +80,7 @@ export class ClaudiaPanelProvider {
    */
   public sendToChat(text: string, context?: EditorContext) {
     this._postMessage({
-      type: 'sendMessage',
+      type: "sendMessage",
       text,
       context,
     });
@@ -96,7 +92,7 @@ export class ClaudiaPanelProvider {
   public updateContext(context: EditorContext) {
     this._currentContext = context;
     this._postMessage({
-      type: 'context',
+      type: "context",
       context,
     });
   }
@@ -107,49 +103,49 @@ export class ClaudiaPanelProvider {
 
   private _handleMessage(message: { type: string; [key: string]: unknown }) {
     switch (message.type) {
-      case 'ready':
+      case "ready":
         // Webview is ready, send current context
         if (this._currentContext) {
           this._postMessage({
-            type: 'context',
+            type: "context",
             context: this._currentContext,
           });
         }
         break;
 
-      case 'openFile':
-        if (typeof message.path === 'string') {
+      case "openFile":
+        if (typeof message.path === "string") {
           vscode.workspace.openTextDocument(message.path).then((doc) => {
             vscode.window.showTextDocument(doc, vscode.ViewColumn.One);
           });
         }
         break;
 
-      case 'applyEdit':
-        if (typeof message.path === 'string' && typeof message.content === 'string') {
+      case "applyEdit":
+        if (typeof message.path === "string" && typeof message.content === "string") {
           this._applyEdit({ path: message.path, content: message.content });
         }
         break;
 
-      case 'copyToClipboard':
-        if (typeof message.text === 'string') {
+      case "copyToClipboard":
+        if (typeof message.text === "string") {
           vscode.env.clipboard.writeText(message.text);
         }
         break;
 
-      case 'showInfo':
-        if (typeof message.text === 'string') {
+      case "showInfo":
+        if (typeof message.text === "string") {
           vscode.window.showInformationMessage(message.text);
         }
         break;
 
-      case 'showError':
-        if (typeof message.text === 'string') {
+      case "showError":
+        if (typeof message.text === "string") {
           vscode.window.showErrorMessage(message.text);
         }
         break;
 
-      case 'openTerminal':
+      case "openTerminal":
         this.openTerminalBelow();
         break;
     }
@@ -158,8 +154,8 @@ export class ClaudiaPanelProvider {
   public async openTerminalBelow() {
     this._panel.reveal(vscode.ViewColumn.Beside);
     setTimeout(async () => {
-      await vscode.commands.executeCommand('workbench.action.splitEditorDown');
-      await vscode.commands.executeCommand('workbench.action.createTerminalEditor');
+      await vscode.commands.executeCommand("workbench.action.splitEditorDown");
+      await vscode.commands.executeCommand("workbench.action.createTerminalEditor");
     }, 100);
   }
 
@@ -169,10 +165,7 @@ export class ClaudiaPanelProvider {
       await vscode.window.showTextDocument(doc, vscode.ViewColumn.One);
 
       const edit = new vscode.WorkspaceEdit();
-      const fullRange = new vscode.Range(
-        doc.positionAt(0),
-        doc.positionAt(doc.getText().length),
-      );
+      const fullRange = new vscode.Range(doc.positionAt(0), doc.positionAt(doc.getText().length));
 
       edit.replace(doc.uri, fullRange, message.content);
       await vscode.workspace.applyEdit(edit);
@@ -198,18 +191,18 @@ export class ClaudiaPanelProvider {
 
   private _getHtmlContent(): string {
     const webview = this._panel.webview;
-    const config = vscode.workspace.getConfiguration('claudia');
-    const gatewayUrl = config.get<string>('gatewayUrl', 'ws://localhost:30086/ws');
+    const config = vscode.workspace.getConfiguration("claudia");
+    const gatewayUrl = config.get<string>("gatewayUrl", "ws://localhost:30086/ws");
 
     // Generate nonce for CSP
-    const nonce = crypto.randomBytes(16).toString('hex');
+    const nonce = crypto.randomBytes(16).toString("hex");
 
     // Get URIs for bundled webview assets
     const scriptUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(this.extensionUri, 'dist', 'webview', 'index.js'),
+      vscode.Uri.joinPath(this.extensionUri, "dist", "webview", "index.js"),
     );
     const styleUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(this.extensionUri, 'dist', 'webview', 'index.css'),
+      vscode.Uri.joinPath(this.extensionUri, "dist", "webview", "index.css"),
     );
 
     // CSP: nonce-based script loading, inline styles for Tailwind
@@ -217,13 +210,13 @@ export class ClaudiaPanelProvider {
       `default-src 'none'`,
       `script-src 'nonce-${nonce}'`,
       `style-src ${webview.cspSource} 'unsafe-inline'`,
-      `connect-src ${gatewayUrl.replace('ws:', 'ws:').replace('wss:', 'wss:')} ws://localhost:* wss://localhost:*`,
+      `connect-src ${gatewayUrl.replace("ws:", "ws:").replace("wss:", "wss:")} ws://localhost:* wss://localhost:*`,
       `font-src ${webview.cspSource}`,
       `img-src ${webview.cspSource} data:`,
-    ].join('; ');
+    ].join("; ");
 
     // Get workspace CWD for auto-discover mode
-    const workspaceCwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
+    const workspaceCwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || "";
 
     return /* html */ `<!DOCTYPE html>
 <html lang="en" data-platform="vscode" data-gateway-url="${gatewayUrl}" data-workspace-cwd="${workspaceCwd}">

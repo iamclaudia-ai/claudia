@@ -3,7 +3,12 @@ import { CollapsibleTool } from "./CollapsibleTool";
 import { FilePath, ToolHeader } from "./utils";
 import { getToolLabel } from "./toolConfig";
 
-export default function NotebookEditTool({ name, parsedInput, result: _result, isLoading }: ToolProps) {
+export default function NotebookEditTool({
+  name,
+  parsedInput,
+  result: _result,
+  isLoading,
+}: ToolProps) {
   const label = getToolLabel(name, parsedInput);
   const notebookPath = parsedInput?.notebook_path as string | undefined;
   const cellType = parsedInput?.cell_type as string | undefined;

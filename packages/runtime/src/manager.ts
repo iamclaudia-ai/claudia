@@ -69,9 +69,7 @@ export class RuntimeSessionManager extends EventEmitter {
    * Create a new Claude session.
    * Session is ready for prompts immediately.
    */
-  async create(
-    params: SessionCreateParams,
-  ): Promise<{ sessionId: string }> {
+  async create(params: SessionCreateParams): Promise<{ sessionId: string }> {
     const options: CreateSessionOptions = {
       cwd: params.cwd,
       model: params.model,
@@ -94,15 +92,11 @@ export class RuntimeSessionManager extends EventEmitter {
    * Resume an existing Claude session.
    * Session is ready for prompts immediately.
    */
-  async resume(
-    params: SessionResumeParams,
-  ): Promise<{ sessionId: string }> {
+  async resume(params: SessionResumeParams): Promise<{ sessionId: string }> {
     // Check if already active
     const existing = this.sessions.get(params.sessionId);
     if (existing?.isActive) {
-      console.log(
-        `[Manager] Session already active: ${params.sessionId.slice(0, 8)}`,
-      );
+      console.log(`[Manager] Session already active: ${params.sessionId.slice(0, 8)}`);
       return { sessionId: existing.id };
     }
 
@@ -127,19 +121,13 @@ export class RuntimeSessionManager extends EventEmitter {
    * Send a prompt to a session.
    * If the session isn't running, auto-resumes it first (lazy start).
    */
-  async prompt(
-    sessionId: string,
-    content: string | unknown[],
-    cwd?: string,
-  ): Promise<void> {
+  async prompt(sessionId: string, content: string | unknown[], cwd?: string): Promise<void> {
     let session = this.sessions.get(sessionId);
 
     if (!session || !session.isActive) {
       // Lazy resume — session died or runtime restarted
       if (!cwd) {
-        throw new Error(
-          `Session not found and no cwd provided for auto-resume: ${sessionId}`,
-        );
+        throw new Error(`Session not found and no cwd provided for auto-resume: ${sessionId}`);
       }
       const sessionConfig = this.config?.session;
       console.log(
@@ -197,9 +185,7 @@ export class RuntimeSessionManager extends EventEmitter {
    * Close all sessions — for graceful shutdown.
    */
   async closeAll(): Promise<void> {
-    const promises = Array.from(this.sessions.keys()).map((id) =>
-      this.close(id),
-    );
+    const promises = Array.from(this.sessions.keys()).map((id) => this.close(id));
     await Promise.all(promises);
   }
 

@@ -150,16 +150,14 @@ export function createChatExtension(): ClaudiaExtension {
           if (!sessionId) throw new Error("Missing sessionId parameter");
 
           try {
-            const res = await fetch(
-              `http://localhost:${runtimePort}/session/${sessionId}`,
-              { method: "DELETE" },
-            );
+            const res = await fetch(`http://localhost:${runtimePort}/session/${sessionId}`, {
+              method: "DELETE",
+            });
             const result = await res.json();
             ctx?.log.info(`Killed session: ${sessionId}`);
             return result;
           } catch (error) {
-            const msg =
-              error instanceof Error ? error.message : "Unknown error";
+            const msg = error instanceof Error ? error.message : "Unknown error";
             throw new Error(`Failed to kill session: ${msg}`);
           }
         }
@@ -178,9 +176,7 @@ export function createChatExtension(): ClaudiaExtension {
             ),
           );
 
-          const killed = results.filter(
-            (r) => r.status === "fulfilled",
-          ).length;
+          const killed = results.filter((r) => r.status === "fulfilled").length;
           ctx?.log.info(`Killed ${killed}/${runtime.sessions.length} sessions`);
           return { status: "ok", killed, total: runtime.sessions.length };
         }

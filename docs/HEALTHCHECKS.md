@@ -21,6 +21,7 @@ interface HealthCheckResponse {
 ```
 
 Notes:
+
 - `ok` is a binary readiness signal.
 - `status` is a UI-facing state string.
 - `label` should be stable and human-readable.
@@ -28,11 +29,11 @@ Notes:
 
 ## Current Extension Coverage
 
-| Extension | Method | Status |
-|---|---|---|
-| `chat` | `chat.health-check` | implemented |
-| `voice` | `voice.health-check` | implemented |
-| `imessage` | `imessage.health-check` | implemented |
+| Extension         | Method                         | Status      |
+| ----------------- | ------------------------------ | ----------- |
+| `chat`            | `chat.health-check`            | implemented |
+| `voice`           | `voice.health-check`           | implemented |
+| `imessage`        | `imessage.health-check`        | implemented |
 | `mission-control` | `mission-control.health-check` | implemented |
 
 ## Recommended Status Meanings

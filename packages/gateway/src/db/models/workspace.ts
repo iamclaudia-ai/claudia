@@ -30,7 +30,9 @@ function toWorkspace(row: WorkspaceRow): Workspace {
 }
 
 export function listWorkspaces(db: Database): Workspace[] {
-  const rows = db.query("SELECT * FROM workspaces ORDER BY updated_at DESC").all() as WorkspaceRow[];
+  const rows = db
+    .query("SELECT * FROM workspaces ORDER BY updated_at DESC")
+    .all() as WorkspaceRow[];
   return rows.map(toWorkspace);
 }
 
@@ -44,14 +46,13 @@ export function getWorkspaceByCwd(db: Database, cwd: string): Workspace | null {
   return row ? toWorkspace(row) : null;
 }
 
-export function createWorkspace(
-  db: Database,
-  params: { name: string; cwd: string },
-): Workspace {
+export function createWorkspace(db: Database, params: { name: string; cwd: string }): Workspace {
   const id = generateWorkspaceId();
-  db.query(
-    "INSERT INTO workspaces (id, name, cwd) VALUES (?, ?, ?)",
-  ).run(id, params.name, params.cwd);
+  db.query("INSERT INTO workspaces (id, name, cwd) VALUES (?, ?, ?)").run(
+    id,
+    params.name,
+    params.cwd,
+  );
 
   return getWorkspace(db, id)!;
 }

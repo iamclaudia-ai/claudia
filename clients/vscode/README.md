@@ -15,20 +15,20 @@ Claudia AI assistant integrated directly into VS Code.
 
 ## Commands
 
-| Command | Keybinding | Description |
-|---------|------------|-------------|
-| `Claudia: Open Chat` | `Cmd+Shift+C` | Open the Claudia chat panel |
-| `Claudia: Send Selection` | Right-click menu | Send selected code to Claudia |
-| `Claudia: Explain This Code` | Right-click menu | Ask Claudia to explain the selection |
-| `Claudia: Fix This Code` | Right-click menu | Ask Claudia to fix the selection (includes diagnostics) |
+| Command                      | Keybinding       | Description                                             |
+| ---------------------------- | ---------------- | ------------------------------------------------------- |
+| `Claudia: Open Chat`         | `Cmd+Shift+C`    | Open the Claudia chat panel                             |
+| `Claudia: Send Selection`    | Right-click menu | Send selected code to Claudia                           |
+| `Claudia: Explain This Code` | Right-click menu | Ask Claudia to explain the selection                    |
+| `Claudia: Fix This Code`     | Right-click menu | Ask Claudia to fix the selection (includes diagnostics) |
 
 ## Configuration
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `claudia.gatewayUrl` | `ws://localhost:30086/ws` | Gateway WebSocket URL |
-| `claudia.webUiUrl` | `http://localhost:3034` | Web UI URL (for iframe mode) |
-| `claudia.includeFileContext` | `true` | Include file context in messages |
+| Setting                      | Default                   | Description                      |
+| ---------------------------- | ------------------------- | -------------------------------- |
+| `claudia.gatewayUrl`         | `ws://localhost:30086/ws` | Gateway WebSocket URL            |
+| `claudia.webUiUrl`           | `http://localhost:3034`   | Web UI URL (for iframe mode)     |
+| `claudia.includeFileContext` | `true`                    | Include file context in messages |
 
 ## Development
 

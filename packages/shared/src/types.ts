@@ -8,7 +8,7 @@ export interface SessionState {
   id: string;
   createdAt: Date;
   lastActiveAt: Date;
-  status: 'idle' | 'thinking' | 'streaming' | 'error';
+  status: "idle" | "thinking" | "streaming" | "error";
 }
 
 // ============================================================================
@@ -16,7 +16,7 @@ export interface SessionState {
 // ============================================================================
 
 export interface Workspace {
-  id: string;              // TypeID: ws_<ulid>
+  id: string; // TypeID: ws_<ulid>
   name: string;
   cwd: string;
   activeSessionId: string | null;
@@ -25,10 +25,10 @@ export interface Workspace {
 }
 
 export interface SessionRecord {
-  id: string;              // TypeID: ses_<ulid>
+  id: string; // TypeID: ses_<ulid>
   workspaceId: string;
-  ccSessionId: string;     // Claude Code UUID (for resume)
-  status: 'active' | 'archived';
+  ccSessionId: string; // Claude Code UUID (for resume)
+  status: "active" | "archived";
   title: string | null;
   summary: string | null;
   previousSessionId: string | null;
@@ -41,7 +41,7 @@ export interface Extension {
   name: string;
   methods: string[];
   events: string[];
-  status: 'starting' | 'running' | 'stopped' | 'error';
+  status: "starting" | "running" | "stopped" | "error";
 }
 
 export interface Client {
@@ -51,9 +51,9 @@ export interface Client {
 }
 
 export interface Subscription {
-  events: string[];  // e.g., ["session.*", "voice.wake"]
-  sessionId?: string;  // scope to specific session
-  extensionId?: string;  // scope to specific extension
+  events: string[]; // e.g., ["session.*", "voice.wake"]
+  sessionId?: string; // scope to specific session
+  extensionId?: string; // scope to specific extension
 }
 
 // Stream event types from Claude Code
@@ -63,29 +63,29 @@ export interface StreamEvent {
 }
 
 export interface ChunkEvent extends StreamEvent {
-  type: 'chunk';
+  type: "chunk";
   text: string;
 }
 
 export interface ThinkingEvent extends StreamEvent {
-  type: 'thinking';
+  type: "thinking";
   thinking: string;
 }
 
 export interface ToolUseEvent extends StreamEvent {
-  type: 'tool_use';
+  type: "tool_use";
   name: string;
   input: Record<string, unknown>;
 }
 
 export interface ToolResultEvent extends StreamEvent {
-  type: 'tool_result';
+  type: "tool_result";
   output: string;
   isError?: boolean;
 }
 
 export interface CompleteEvent extends StreamEvent {
-  type: 'complete';
+  type: "complete";
   text: string;
   usage?: {
     inputTokens: number;
@@ -94,7 +94,7 @@ export interface CompleteEvent extends StreamEvent {
 }
 
 export interface ErrorEvent extends StreamEvent {
-  type: 'error';
+  type: "error";
   error: string;
 }
 

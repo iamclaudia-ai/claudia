@@ -6,20 +6,20 @@
  * sometimes "Dev Prefs" or "Coding Preferences")
  */
 
-import { Database } from 'bun:sqlite';
-import { join } from 'node:path';
-import { homedir } from 'node:os';
-import { mkdir } from 'node:fs/promises';
-import type { SectionRecord } from './types.js';
+import { Database } from "bun:sqlite";
+import { join } from "node:path";
+import { homedir } from "node:os";
+import { mkdir } from "node:fs/promises";
+import type { SectionRecord } from "./types.js";
 
-const DB_PATH = join(homedir(), '.claudia', 'memory-sections.db');
+const DB_PATH = join(homedir(), ".claudia", "memory-sections.db");
 
 export class SectionRegistry {
   private db: Database | null = null;
 
   async init(): Promise<void> {
     // Ensure directory exists
-    await mkdir(join(homedir(), '.claudia'), { recursive: true });
+    await mkdir(join(homedir(), ".claudia"), { recursive: true });
 
     this.db = new Database(DB_PATH, { create: true });
 
@@ -47,9 +47,7 @@ export class SectionRegistry {
     const stmt = this.db!.prepare(`
       SELECT DISTINCT section_title FROM sections ORDER BY section_title
     `);
-    return stmt
-      .all()
-      .map((row) => (row as { section_title: string }).section_title);
+    return stmt.all().map((row) => (row as { section_title: string }).section_title);
   }
 
   /**
@@ -70,7 +68,7 @@ export class SectionRegistry {
     const allSections = this.getAllSectionTitles();
     const queryLower = query.toLowerCase();
 
-    return allSections.filter(section => {
+    return allSections.filter((section) => {
       const sectionLower = section.toLowerCase();
 
       // Exact match
@@ -84,7 +82,7 @@ export class SectionRegistry {
       // Word overlap
       const queryWords = new Set(queryLower.split(/\s+/));
       const sectionWords = sectionLower.split(/\s+/);
-      const overlap = sectionWords.filter(w => queryWords.has(w)).length;
+      const overlap = sectionWords.filter((w) => queryWords.has(w)).length;
       const similarity = overlap / Math.max(queryWords.size, sectionWords.length);
 
       return similarity >= threshold;
@@ -129,7 +127,7 @@ export class SectionRegistry {
     }
 
     // Prefer exact case-insensitive match
-    const exact = similar.find(s => s.toLowerCase() === query.toLowerCase());
+    const exact = similar.find((s) => s.toLowerCase() === query.toLowerCase());
     if (exact) return exact;
 
     // Otherwise return the first (most common) match

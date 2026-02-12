@@ -100,7 +100,9 @@ extensions.setEmitCallback(async (type, payload, source) => {
 
       // Send prompt through session manager with explicit session targeting/config.
       if (!req.sessionId || !req.model || req.thinking === undefined || !req.effort) {
-        console.warn("[Gateway] Ignoring prompt_request with missing required params: sessionId/model/thinking/effort");
+        console.warn(
+          "[Gateway] Ignoring prompt_request with missing required params: sessionId/model/thinking/effort",
+        );
         return;
       }
       await sessionManager.prompt(req.content as string | unknown[], req.sessionId, {
@@ -236,9 +238,7 @@ const BUILTIN_METHODS: GatewayMethodDefinition[] = [
   },
 ];
 
-const BUILTIN_METHODS_BY_NAME = new Map(
-  BUILTIN_METHODS.map((m) => [m.method, m] as const),
-);
+const BUILTIN_METHODS_BY_NAME = new Map(BUILTIN_METHODS.map((m) => [m.method, m] as const));
 
 /**
  * Handle incoming WebSocket messages
@@ -264,7 +264,9 @@ function handleRequest(ws: ServerWebSocket<ClientState>, req: Request): void {
   if (methodDef) {
     const parsed = methodDef.inputSchema.safeParse(req.params ?? {});
     if (!parsed.success) {
-      const issues = parsed.error.issues.map((i) => `${i.path.join(".") || "params"}: ${i.message}`);
+      const issues = parsed.error.issues.map(
+        (i) => `${i.path.join(".") || "params"}: ${i.message}`,
+      );
       sendError(ws, req.id, `Invalid params for ${req.method}: ${issues.join("; ")}`);
       return;
     }
@@ -302,11 +304,7 @@ function handleRequest(ws: ServerWebSocket<ClientState>, req: Request): void {
   }
 }
 
-function handleMethodBuiltin(
-  ws: ServerWebSocket<ClientState>,
-  req: Request,
-  action: string,
-): void {
+function handleMethodBuiltin(ws: ServerWebSocket<ClientState>, req: Request, action: string): void {
   switch (action) {
     case "list": {
       const builtin = BUILTIN_METHODS.map((m) => ({
@@ -421,8 +419,7 @@ async function handleWorkspaceMethod(
         sendError(ws, req.id, `Unknown workspace action: ${action}`);
     }
   } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Unknown error";
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
     sendError(ws, req.id, errorMessage);
   }
 }
@@ -480,10 +477,8 @@ async function handleSessionMethod(
         }
 
         // Track request metadata for routing
-        sessionManager.currentRequestWantsVoice =
-          req.params?.speakResponse === true;
-        sessionManager.currentRequestSource =
-          (req.params?.source as string) || null;
+        sessionManager.currentRequestWantsVoice = req.params?.speakResponse === true;
+        sessionManager.currentRequestSource = (req.params?.source as string) || null;
 
         // Send prompt through session manager
         const ccSessionId = await sessionManager.prompt(content, targetSessionId, {
@@ -580,8 +575,7 @@ async function handleSessionMethod(
         sendError(ws, req.id, `Unknown session action: ${action}`);
     }
   } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Unknown error";
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
     sendError(ws, req.id, errorMessage);
   }
 }
@@ -600,8 +594,7 @@ async function handleExtensionMethod(
     );
     sendResponse(ws, req.id, result);
   } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Unknown error";
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
     sendError(ws, req.id, errorMessage);
   }
 }
@@ -622,10 +615,7 @@ function handleSubscribe(ws: ServerWebSocket<ClientState>, req: Request): void {
 /**
  * Handle unsubscription requests
  */
-function handleUnsubscribe(
-  ws: ServerWebSocket<ClientState>,
-  req: Request,
-): void {
+function handleUnsubscribe(ws: ServerWebSocket<ClientState>, req: Request): void {
   const state = clients.get(ws);
   if (!state) return;
 
@@ -638,11 +628,7 @@ function handleUnsubscribe(
 /**
  * Send a response to a client
  */
-function sendResponse(
-  ws: ServerWebSocket<ClientState>,
-  id: string,
-  payload: unknown,
-): void {
+function sendResponse(ws: ServerWebSocket<ClientState>, id: string, payload: unknown): void {
   const response: GatewayResponse = { type: "res", id, ok: true, payload };
   ws.send(JSON.stringify(response));
 }
@@ -650,11 +636,7 @@ function sendResponse(
 /**
  * Send an error response to a client
  */
-function sendError(
-  ws: ServerWebSocket<ClientState>,
-  id: string,
-  error: string,
-): void {
+function sendError(ws: ServerWebSocket<ClientState>, id: string, error: string): void {
   const response: GatewayResponse = { type: "res", id, ok: false, error };
   ws.send(JSON.stringify(response));
 }
@@ -662,34 +644,22 @@ function sendError(
 /**
  * Broadcast an event to subscribed clients
  */
-function broadcastEvent(
-  eventName: string,
-  payload: unknown,
-  _source?: string,
-): void {
+function broadcastEvent(eventName: string, payload: unknown, _source?: string): void {
   const event: Event = { type: "event", event: eventName, payload };
   const data = JSON.stringify(event);
   const payloadObj =
-    payload && typeof payload === "object"
-      ? (payload as Record<string, unknown>)
-      : null;
+    payload && typeof payload === "object" ? (payload as Record<string, unknown>) : null;
   const payloadSessionId =
-    typeof payloadObj?.sessionId === "string"
-      ? (payloadObj.sessionId as string)
-      : null;
-  const isScopedVoiceEvent =
-    eventName.startsWith("voice.") && payloadSessionId !== null;
-  const requiredStreamPattern = payloadSessionId
-    ? `stream.${payloadSessionId}.*`
-    : null;
+    typeof payloadObj?.sessionId === "string" ? (payloadObj.sessionId as string) : null;
+  const isScopedVoiceEvent = eventName.startsWith("voice.") && payloadSessionId !== null;
+  const requiredStreamPattern = payloadSessionId ? `stream.${payloadSessionId}.*` : null;
 
   for (const [ws, state] of clients) {
     // Route session-scoped voice streams only to clients subscribed to that session stream.
     if (isScopedVoiceEvent) {
       const hasGlobal = state.subscriptions.has("*");
       const hasSessionStream =
-        requiredStreamPattern !== null &&
-        state.subscriptions.has(requiredStreamPattern);
+        requiredStreamPattern !== null && state.subscriptions.has(requiredStreamPattern);
       if (!hasGlobal && !hasSessionStream) {
         continue;
       }

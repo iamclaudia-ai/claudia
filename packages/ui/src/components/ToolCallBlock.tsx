@@ -96,9 +96,7 @@ export const ToolCallBlock = memo(function ToolCallBlock({
         return <SkillTool {...toolProps} />;
       }
       // Fallback for unknown tools — show raw JSON
-      const collapsedContent = (
-        <ToolHeader toolName={name} label={name} />
-      );
+      const collapsedContent = <ToolHeader toolName={name} label={name} />;
 
       const expandedContent = input ? (
         <pre className="overflow-x-hidden rounded bg-neutral-50 px-2 py-1.5 font-mono text-sm whitespace-pre-wrap break-words text-neutral-700">

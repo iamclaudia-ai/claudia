@@ -7,11 +7,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Link } from "@claudia/ui";
-import type {
-  HealthCheckResponse,
-  HealthAction,
-  HealthItem,
-} from "@claudia/shared";
+import type { HealthCheckResponse, HealthAction, HealthItem } from "@claudia/shared";
 
 // Same-origin WebSocket URL (served from gateway)
 const WS_URL = `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/ws`;
@@ -141,9 +137,7 @@ function HealthCard({
       <div className="rounded-xl border border-zinc-700/50 bg-zinc-800/50 p-5">
         <div className="flex items-center gap-2 mb-3">
           <StatusDot status="error" />
-          <h3 className="text-sm font-medium text-zinc-200">
-            {data.extension.name}
-          </h3>
+          <h3 className="text-sm font-medium text-zinc-200">{data.extension.name}</h3>
         </div>
         <p className="text-xs text-red-400">{error || "No response"}</p>
       </div>
@@ -159,9 +153,7 @@ function HealthCard({
         <div className="flex items-center gap-2">
           <StatusDot status={health.status} />
           <h3 className="text-sm font-medium text-zinc-200">{health.label}</h3>
-          <span className="text-xs text-zinc-500 capitalize">
-            {health.status}
-          </span>
+          <span className="text-xs text-zinc-500 capitalize">{health.status}</span>
         </div>
         <div className="flex gap-2">
           {globalActions.map((action) => (
@@ -199,10 +191,7 @@ function HealthCard({
                 {/* Dynamic detail columns from first item */}
                 {health.items[0]?.details &&
                   Object.keys(health.items[0].details).map((key) => (
-                    <th
-                      key={key}
-                      className="text-left font-medium pb-2 pr-3 capitalize"
-                    >
+                    <th key={key} className="text-left font-medium pb-2 pr-3 capitalize">
                       {key}
                     </th>
                   ))}
@@ -216,9 +205,7 @@ function HealthCard({
                 <ItemRow
                   key={item.id}
                   item={item}
-                  actions={
-                    health.actions?.filter((a) => a.scope === "item") || []
-                  }
+                  actions={health.actions?.filter((a) => a.scope === "item") || []}
                   onAction={onAction}
                 />
               ))}
@@ -296,9 +283,7 @@ export function MissionControlPage() {
 
     try {
       // Step 1: Discover extensions
-      const { extensions } = await request<{ extensions: ExtensionInfo[] }>(
-        "extension.list",
-      );
+      const { extensions } = await request<{ extensions: ExtensionInfo[] }>("extension.list");
 
       // Step 2: Filter for health-check capable extensions
       const healthExtensions = extensions.filter((ext: ExtensionInfo) =>
@@ -308,9 +293,7 @@ export function MissionControlPage() {
       // Step 3: Call each health-check in parallel
       const results = await Promise.allSettled(
         healthExtensions.map(async (ext: ExtensionInfo) => {
-          const healthMethod = ext.methods.find((m: string) =>
-            m.endsWith(".health-check"),
-          )!;
+          const healthMethod = ext.methods.find((m: string) => m.endsWith(".health-check"))!;
           const health = await request<HealthCheckResponse>(healthMethod);
           return { extension: ext, health } as ExtensionHealth;
         }),
@@ -384,10 +367,7 @@ export function MissionControlPage() {
       <div className="border-b border-zinc-800 px-6 py-4">
         <div className="flex items-center justify-between max-w-5xl mx-auto">
           <div className="flex items-center gap-3">
-            <Link
-              to="/"
-              className="text-zinc-500 hover:text-zinc-300 transition-colors"
-            >
+            <Link to="/" className="text-zinc-500 hover:text-zinc-300 transition-colors">
               &larr;
             </Link>
             <h1 className="text-lg font-semibold">Mission Control</h1>
@@ -398,9 +378,7 @@ export function MissionControlPage() {
           </div>
           <div className="flex items-center gap-3">
             {lastUpdated && (
-              <span className="text-xs text-zinc-600">
-                Updated {formatTimeAgo(lastUpdated)}
-              </span>
+              <span className="text-xs text-zinc-600">Updated {formatTimeAgo(lastUpdated)}</span>
             )}
             <button
               onClick={refresh}
@@ -415,9 +393,7 @@ export function MissionControlPage() {
       {/* Content */}
       <div className="max-w-5xl mx-auto px-6 py-6">
         {loading ? (
-          <div className="text-center py-12 text-zinc-500">
-            Loading health data...
-          </div>
+          <div className="text-center py-12 text-zinc-500">Loading health data...</div>
         ) : healthData.length === 0 ? (
           <div className="text-center py-12 text-zinc-500">
             No extensions with health checks found
@@ -425,11 +401,7 @@ export function MissionControlPage() {
         ) : (
           <div className="space-y-4">
             {healthData.map((data: ExtensionHealth) => (
-              <HealthCard
-                key={data.extension.id}
-                data={data}
-                onAction={handleAction}
-              />
+              <HealthCard key={data.extension.id} data={data} onAction={handleAction} />
             ))}
           </div>
         )}

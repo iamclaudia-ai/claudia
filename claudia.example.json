@@ -12,7 +12,7 @@
     "thinking": false,
     // Adaptive thinking effort: "low" | "medium" | "high" | "max"
     "effort": "medium",
-    "systemPrompt": null  // Or path to file: "./prompts/system.md"
+    "systemPrompt": null // Or path to file: "./prompts/system.md"
   },
 
   "extensions": {
@@ -49,20 +49,20 @@
     // Uses `imsg` CLI: brew install steipete/tap/imsg
     "imessage": {
       "enabled": false,
-      "sourceRoutes": ["imessage"],  // Handles "imessage/*" sources
+      "sourceRoutes": ["imessage"], // Handles "imessage/*" sources
       "config": {
-        "cliPath": "imsg",  // Path to imsg CLI (default: "imsg")
-        "dbPath": null,     // Messages DB path (default: ~/Library/Messages/chat.db)
-        "allowedSenders": ["claudia@iamclaudia.ai"],  // ONLY process messages from these senders
+        "cliPath": "imsg", // Path to imsg CLI (default: "imsg")
+        "dbPath": null, // Messages DB path (default: ~/Library/Messages/chat.db)
+        "allowedSenders": ["claudia@iamclaudia.ai"], // ONLY process messages from these senders
         "includeAttachments": false,
-        "historyLimit": 0   // Include N recent messages as context (0 = disabled)
+        "historyLimit": 0 // Include N recent messages as context (0 = disabled)
       }
     },
 
     // Slack Extension (example)
     "slack": {
       "enabled": false,
-      "sourceRoutes": ["slack"],  // Handles "slack/*" sources
+      "sourceRoutes": ["slack"], // Handles "slack/*" sources
       "config": {
         "botToken": "${SLACK_BOT_TOKEN}",
         "appToken": "${SLACK_APP_TOKEN}"

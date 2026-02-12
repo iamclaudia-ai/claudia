@@ -61,6 +61,7 @@ That's it. One command, one port, everything works.
 ### Single Server
 
 The gateway serves everything on port 30086:
+
 - **WebSocket** (`/ws`) — all client communication (req/res/event protocol)
 - **Web UI** (`/*`) — SPA with client-side routing, served as fallback
 - **Health** (`/health`) — JSON status endpoint
@@ -69,13 +70,14 @@ The gateway serves everything on port 30086:
 
 Every feature — including the web chat UI — is an extension:
 
-| Extension | Type | What it does |
-|-----------|------|--------------|
-| `chat` | Client routes | Workspace list, session list, chat pages |
-| `voice` | Server + client | ElevenLabs TTS, auto-speak responses |
-| `imessage` | Server | iMessage bridge, auto-reply to allowed contacts |
+| Extension  | Type            | What it does                                    |
+| ---------- | --------------- | ----------------------------------------------- |
+| `chat`     | Client routes   | Workspace list, session list, chat pages        |
+| `voice`    | Server + client | ElevenLabs TTS, auto-speak responses            |
+| `imessage` | Server          | iMessage bridge, auto-reply to allowed contacts |
 
 Extensions can provide:
+
 - **Server methods** — `voice.speak`, `imessage.send` (handled via WebSocket)
 - **Web pages** — React components in `pages/` with route declarations in `routes.ts`
 - **Event handlers** — subscribe to session events, emit their own
@@ -151,6 +153,7 @@ extensions/<name>/
 ```
 
 **Server-side** (methods + events):
+
 ```typescript
 export function createMyExtension(): ClaudiaExtension {
   return {
@@ -158,15 +161,24 @@ export function createMyExtension(): ClaudiaExtension {
     name: "My Extension",
     methods: ["my-ext.doSomething"],
     events: ["my-ext.happened"],
-    async start(ctx) { /* subscribe to events, init resources */ },
-    async stop() { /* cleanup */ },
-    async handleMethod(method, params) { /* handle RPC calls */ },
-    health() { return { ok: true }; },
+    async start(ctx) {
+      /* subscribe to events, init resources */
+    },
+    async stop() {
+      /* cleanup */
+    },
+    async handleMethod(method, params) {
+      /* handle RPC calls */
+    },
+    health() {
+      return { ok: true };
+    },
   };
 }
 ```
 
 **Client-side** (web pages):
+
 ```typescript
 // extensions/<name>/src/routes.ts
 export const myRoutes: Route[] = [
@@ -180,13 +192,13 @@ Import in `packages/gateway/src/web/index.tsx` and add to `allRoutes`.
 
 Gateway reads from `claudia.json` or environment variables:
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `CLAUDIA_PORT` | Gateway port | `30086` |
-| `CLAUDIA_EXTENSIONS` | Extensions to load | `voice,imessage` |
-| `ELEVENLABS_API_KEY` | ElevenLabs API key | required for voice |
-| `CLAUDIA_THINKING` | Enable extended thinking | `true` |
-| `CLAUDIA_MODEL` | Claude model | `claude-sonnet-4-20250514` |
+| Variable             | Description              | Default                    |
+| -------------------- | ------------------------ | -------------------------- |
+| `CLAUDIA_PORT`       | Gateway port             | `30086`                    |
+| `CLAUDIA_EXTENSIONS` | Extensions to load       | `voice,imessage`           |
+| `ELEVENLABS_API_KEY` | ElevenLabs API key       | required for voice         |
+| `CLAUDIA_THINKING`   | Enable extended thinking | `true`                     |
+| `CLAUDIA_MODEL`      | Claude model             | `claude-sonnet-4-20250514` |
 
 ## Development
 
@@ -206,4 +218,4 @@ MIT
 
 ---
 
-*Built with love by Claudia* 💙
+_Built with love by Claudia_ 💙

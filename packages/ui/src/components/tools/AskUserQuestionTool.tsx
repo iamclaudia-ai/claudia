@@ -122,14 +122,22 @@ export default function AskUserQuestionTool({
   const isDisabled = submitted || isAnswered;
 
   return (
-    <div className={`w-full rounded-lg border ${config.colors.border} ${config.colors.bg} overflow-hidden`}>
+    <div
+      className={`w-full rounded-lg border ${config.colors.border} ${config.colors.bg} overflow-hidden`}
+    >
       {/* Header */}
       <div className={`flex items-center gap-2 px-3 py-2 border-b ${config.colors.border}`}>
         <ToolHeader toolName={name} label="Question" />
         {isAnswered && (
-          <span className={`ml-auto text-[10px] font-medium uppercase tracking-wider ${
-            wasRejected ? "text-amber-500" : hasHistoricalAnswers ? "text-emerald-500" : "text-neutral-400"
-          }`}>
+          <span
+            className={`ml-auto text-[10px] font-medium uppercase tracking-wider ${
+              wasRejected
+                ? "text-amber-500"
+                : hasHistoricalAnswers
+                  ? "text-emerald-500"
+                  : "text-neutral-400"
+            }`}
+          >
             {wasRejected ? "skipped" : "answered"}
           </span>
         )}
@@ -146,15 +154,15 @@ export default function AskUserQuestionTool({
           <div key={qIdx} className="space-y-2">
             {/* Question header chip */}
             {q.header && (
-              <span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${config.colors.text} ${config.colors.bg} border ${config.colors.border}`}>
+              <span
+                className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${config.colors.text} ${config.colors.bg} border ${config.colors.border}`}
+              >
                 {q.header}
               </span>
             )}
 
             {/* Question text */}
-            <p className="text-sm text-neutral-700 leading-relaxed">
-              {q.question}
-            </p>
+            <p className="text-sm text-neutral-700 leading-relaxed">{q.question}</p>
 
             {/* Options */}
             <div className="space-y-1.5">
@@ -166,9 +174,7 @@ export default function AskUserQuestionTool({
                     disabled={isDisabled}
                     onClick={() => toggleOption(qIdx, opt.label, q.multiSelect)}
                     className={`w-full text-left rounded-md border px-3 py-2 transition-all ${
-                      isDisabled
-                        ? "opacity-60 cursor-default"
-                        : "cursor-pointer hover:shadow-sm"
+                      isDisabled ? "opacity-60 cursor-default" : "cursor-pointer hover:shadow-sm"
                     } ${
                       isSelected
                         ? `border-blue-400 bg-blue-50 ring-1 ring-blue-200`
@@ -177,22 +183,24 @@ export default function AskUserQuestionTool({
                   >
                     <div className="flex items-start gap-2">
                       {/* Radio/checkbox indicator */}
-                      <div className={`mt-0.5 flex-shrink-0 h-4 w-4 rounded-${q.multiSelect ? "sm" : "full"} border-2 flex items-center justify-center ${
-                        isSelected
-                          ? "border-blue-500 bg-blue-500"
-                          : "border-neutral-300 bg-white"
-                      }`}>
+                      <div
+                        className={`mt-0.5 flex-shrink-0 h-4 w-4 rounded-${q.multiSelect ? "sm" : "full"} border-2 flex items-center justify-center ${
+                          isSelected ? "border-blue-500 bg-blue-500" : "border-neutral-300 bg-white"
+                        }`}
+                      >
                         {isSelected && (
-                          <svg className="h-2.5 w-2.5 text-white" viewBox="0 0 12 12" fill="currentColor">
+                          <svg
+                            className="h-2.5 w-2.5 text-white"
+                            viewBox="0 0 12 12"
+                            fill="currentColor"
+                          >
                             <path d="M10.28 2.28L3.989 8.575 1.695 6.28A1 1 0 00.28 7.695l3 3a1 1 0 001.414 0l7-7A1 1 0 0010.28 2.28z" />
                           </svg>
                         )}
                       </div>
 
                       <div className="flex-1 min-w-0">
-                        <span className="text-sm font-medium text-neutral-800">
-                          {opt.label}
-                        </span>
+                        <span className="text-sm font-medium text-neutral-800">{opt.label}</span>
                         {opt.description && (
                           <p className="text-xs text-neutral-500 mt-0.5 leading-relaxed">
                             {opt.description}

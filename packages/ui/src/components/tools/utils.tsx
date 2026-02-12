@@ -33,20 +33,14 @@ export function ToolHeader({ toolName, label }: ToolHeaderProps) {
   if (isValidElement(displayIcon)) {
     const element = displayIcon as React.ReactElement<{ className?: string }>;
     const existing = (element.props as { className?: string })?.className || "";
-    const resized = existing
-      ? existing.replace(/size-\d+(\.\d+)?/g, "size-3")
-      : "size-3";
+    const resized = existing ? existing.replace(/size-\d+(\.\d+)?/g, "size-3") : "size-3";
     displayIcon = cloneElement(element, { className: resized });
   }
 
   return (
-    <div
-      className={`flex items-center gap-1.5 text-sm font-medium ${config.colors.text}`}
-    >
+    <div className={`flex items-center gap-1.5 text-sm font-medium ${config.colors.text}`}>
       {displayIcon && (
-        <span
-          className={`flex h-4 w-4 items-center justify-center ${config.colors.iconColor}`}
-        >
+        <span className={`flex h-4 w-4 items-center justify-center ${config.colors.iconColor}`}>
           {displayIcon}
         </span>
       )}
@@ -82,7 +76,10 @@ export function FilePath({ path, cwd: explicitCwd }: { path: string; cwd?: strin
   const displayPath = stripCwdPrefix(path, cwd);
 
   return (
-    <MonoText className="max-w-xs truncate rounded border border-neutral-200/50 bg-neutral-50/50 px-1.5 py-0.5" title={path}>
+    <MonoText
+      className="max-w-xs truncate rounded border border-neutral-200/50 bg-neutral-50/50 px-1.5 py-0.5"
+      title={path}
+    >
       {displayPath}
     </MonoText>
   );

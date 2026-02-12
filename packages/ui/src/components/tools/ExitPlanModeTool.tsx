@@ -45,7 +45,9 @@ export default function ExitPlanModeTool({
   }, [onSendMessage]);
 
   return (
-    <div className={`w-full rounded-lg border ${config.colors.border} ${config.colors.bg} overflow-hidden`}>
+    <div
+      className={`w-full rounded-lg border ${config.colors.border} ${config.colors.bg} overflow-hidden`}
+    >
       {/* Header */}
       <div className={`flex items-center gap-2 px-3 py-2 border-b ${config.colors.border}`}>
         <ToolHeader toolName={name} label={label} />
@@ -63,9 +65,7 @@ export default function ExitPlanModeTool({
 
       <div className="p-3 space-y-3">
         {/* Description */}
-        <p className="text-sm text-neutral-600 leading-relaxed">
-          {description}
-        </p>
+        <p className="text-sm text-neutral-600 leading-relaxed">{description}</p>
 
         {/* Allowed prompts / permissions - only for ExitPlanMode */}
         {!isEntering && allowedPrompts.length > 0 && (

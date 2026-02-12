@@ -7,14 +7,14 @@
  * to generate high-quality emotional audio from bedtime story markdown.
  */
 
-const fs = require('fs');
-const path = require('path');
+const fs = require("fs");
+const path = require("path");
 
 const API_KEY = process.env.ELEVENLABS_API_KEY;
-const VOICE_ID = process.env.ELEVENLABS_VOICE_ID || 'JBFqnCBsd6RMkjVDRZzb';
+const VOICE_ID = process.env.ELEVENLABS_VOICE_ID || "JBFqnCBsd6RMkjVDRZzb";
 
 if (!API_KEY) {
-  console.error('❌ Error: ELEVENLABS_API_KEY environment variable not set');
+  console.error("❌ Error: ELEVENLABS_API_KEY environment variable not set");
   process.exit(1);
 }
 
@@ -32,14 +32,14 @@ async function generateAudio(markdownPath) {
       throw new Error(`Markdown file not found: ${markdownPath}`);
     }
 
-    const markdownContent = fs.readFileSync(markdownPath, 'utf8');
+    const markdownContent = fs.readFileSync(markdownPath, "utf8");
 
     // Extract story content between the --- markers, excluding header/metadata
     let storyText = markdownContent;
 
     // Remove title and description
-    storyText = storyText.replace(/^# .*$/gm, '');
-    storyText = storyText.replace(/^\*.*\*$/gm, '');
+    storyText = storyText.replace(/^# .*$/gm, "");
+    storyText = storyText.replace(/^\*.*\*$/gm, "");
 
     // Extract content between --- markers
     const betweenDashes = storyText.match(/---\n\n([\s\S]*?)\n\n---/);
@@ -47,36 +47,36 @@ async function generateAudio(markdownPath) {
       storyText = betweenDashes[1];
     } else {
       // Fallback: remove everything after second ---
-      storyText = storyText.replace(/\n\n---\n\n[\s\S]*$/, '');
-      storyText = storyText.replace(/^---\n\n/, '');
+      storyText = storyText.replace(/\n\n---\n\n[\s\S]*$/, "");
+      storyText = storyText.replace(/^---\n\n/, "");
     }
 
     storyText = storyText.trim();
 
     if (!storyText) {
-      throw new Error('No story content found in markdown file');
+      throw new Error("No story content found in markdown file");
     }
 
     console.log(`📝 Story length: ${storyText.length} characters`);
     console.log(`🎵 Using voice: ${VOICE_ID}`);
 
     // Call ElevenLabs text-to-dialogue API
-    const response = await fetch('https://api.elevenlabs.io/v1/text-to-dialogue', {
-      method: 'POST',
+    const response = await fetch("https://api.elevenlabs.io/v1/text-to-dialogue", {
+      method: "POST",
       headers: {
-        'Accept': 'audio/mpeg',
-        'Content-Type': 'application/json',
-        'xi-api-key': API_KEY
+        Accept: "audio/mpeg",
+        "Content-Type": "application/json",
+        "xi-api-key": API_KEY,
       },
       body: JSON.stringify({
         inputs: [
           {
             text: storyText,
-            voice_id: VOICE_ID
-          }
+            voice_id: VOICE_ID,
+          },
         ],
-        model_id: 'eleven_v3' // Use v3 for audio tags support
-      })
+        model_id: "eleven_v3", // Use v3 for audio tags support
+      }),
     });
 
     if (!response.ok) {
@@ -84,11 +84,11 @@ async function generateAudio(markdownPath) {
       throw new Error(`ElevenLabs API error: ${response.status} - ${errorText}`);
     }
 
-    console.log('✅ API call successful!');
+    console.log("✅ API call successful!");
 
     // Save MP3 file next to markdown with same name
     const audioBuffer = await response.arrayBuffer();
-    const audioPath = markdownPath.replace(/\.md$/, '.mp3');
+    const audioPath = markdownPath.replace(/\.md$/, ".mp3");
 
     fs.writeFileSync(audioPath, Buffer.from(audioBuffer));
 
@@ -111,13 +111,13 @@ async function main() {
   const markdownPath = process.argv[2];
 
   if (!markdownPath) {
-    console.error('Usage: node generate-audio.js <path-to-markdown-file>');
+    console.error("Usage: node generate-audio.js <path-to-markdown-file>");
     process.exit(1);
   }
 
   try {
     await generateAudio(markdownPath);
-    console.log('🎉 Audio generation complete!');
+    console.log("🎉 Audio generation complete!");
   } catch (error) {
     console.error(error.message);
     process.exit(1);

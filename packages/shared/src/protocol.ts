@@ -10,16 +10,16 @@
 
 /** Client → Gateway request */
 export interface Request {
-  type: 'req';
-  id: string;  // Client-generated, used to match response
-  method: string;  // e.g., "session.create", "voice.speak"
+  type: "req";
+  id: string; // Client-generated, used to match response
+  method: string; // e.g., "session.create", "voice.speak"
   params?: Record<string, unknown>;
 }
 
 /** Gateway → Client response */
 export interface Response {
-  type: 'res';
-  id: string;  // Matches the request id
+  type: "res";
+  id: string; // Matches the request id
   ok: boolean;
   payload?: unknown;
   error?: string;
@@ -27,8 +27,8 @@ export interface Response {
 
 /** Gateway → Client push event */
 export interface Event {
-  type: 'event';
-  event: string;  // e.g., "session.chunk", "voice.wake"
+  type: "event";
+  event: string; // e.g., "session.chunk", "voice.wake"
   payload: unknown;
 }
 
@@ -53,10 +53,10 @@ export interface SessionPromptParams {
 }
 
 export interface ContentBlock {
-  type: 'text' | 'image';
+  type: "text" | "image";
   text?: string;
   source?: {
-    type: 'base64';
+    type: "base64";
     mediaType: string;
     data: string;
   };
@@ -109,7 +109,7 @@ export interface SessionErrorEvent {
 // ============================================================================
 
 export interface SubscribeParams {
-  events: string[];  // e.g., ["session.*", "voice.wake"]
+  events: string[]; // e.g., ["session.*", "voice.wake"]
   sessionId?: string;
   extensionId?: string;
 }

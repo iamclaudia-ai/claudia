@@ -123,11 +123,13 @@ updated_at: 2026-01-28T10:30:00Z
 # Michael
 
 ## Preferences
+
 - Prefers TypeScript over JavaScript
 - Likes dark mode for all IDEs
 - Uses pnpm as package manager
 
 ## Working Style
+
 - Values concise explanations
 - Appreciates when I take initiative
 ```
@@ -151,6 +153,7 @@ Libby is a Haiku-powered sub-agent that handles categorization:
 5. Handles chunking and embedding
 
 **Prompt pattern:**
+
 ```
 You are Libby, a memory librarian. Given a new memory and the existing
 categories/tags, decide where to store it.
@@ -204,20 +207,21 @@ Multiple gateways stay in sync:
 5. Gateway B re-indexes for local vector search
 
 This enables:
+
 - Memory created on Mac available on iOS
 - Consistent recall across all devices
 - Git as the source of truth
 
 ## Comparison to Clawdbot
 
-| Aspect | Clawdbot | Claudia |
-|--------|----------|---------|
-| Structure | Date-based logs + MEMORY.md | Category-based folders |
-| Categorization | Manual / prompt-driven | Libby sub-agent (Haiku) |
-| Interface | memory_search / memory_get | remember / recall |
-| Write tool | Standard file tools | Dedicated CLI |
-| Sync | Local only | Git + event bus federation |
-| Search | Hybrid (vector + BM25) | Hybrid (vector + BM25) |
+| Aspect         | Clawdbot                    | Claudia                    |
+| -------------- | --------------------------- | -------------------------- |
+| Structure      | Date-based logs + MEMORY.md | Category-based folders     |
+| Categorization | Manual / prompt-driven      | Libby sub-agent (Haiku)    |
+| Interface      | memory_search / memory_get  | remember / recall          |
+| Write tool     | Standard file tools         | Dedicated CLI              |
+| Sync           | Local only                  | Git + event bus federation |
+| Search         | Hybrid (vector + BM25)      | Hybrid (vector + BM25)     |
 
 ## Future Considerations
 

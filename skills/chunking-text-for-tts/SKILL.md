@@ -19,18 +19,21 @@ Intelligently break down large text content into optimal chunks for TTS processi
 ## Chunking Strategies
 
 ### Sentence-Based Chunking (Recommended)
+
 - Split at sentence boundaries (periods, exclamation marks, question marks)
 - Preserve emotion markup within each sentence
 - Maintain natural pauses between chunks
 - Ideal for stories and meditations
 
 ### Paragraph-Based Chunking
+
 - Split at paragraph breaks
 - Good for longer content sections
 - Maintains thematic coherence
 - Useful for chapter-like divisions
 
 ### Length-Based Chunking
+
 - Split at character or word limits
 - Ensures consistent TTS request sizes
 - Fallback when other methods exceed limits
@@ -39,7 +42,9 @@ Intelligently break down large text content into optimal chunks for TTS processi
 ## Emotion Markup Preservation
 
 ### Tag Completion
+
 Ensure each chunk has complete emotion tags:
+
 ```
 Input: "[love:high]This is a long sentence that needs to be split[/love:high] [calm:medium]And this continues.[/calm:medium]"
 
@@ -49,7 +54,9 @@ Chunk 2: "[calm:medium]And this continues.[/calm:medium]"
 ```
 
 ### Tag Inheritance
+
 When splitting within emotion blocks:
+
 ```
 Input: "[serenity:high]This is a very long sentence that spans multiple chunks and needs splitting.[/serenity:high]"
 
@@ -61,18 +68,21 @@ Chunk 2: "[serenity:high]and needs splitting.[/serenity:high]"
 ## Optimal Chunk Characteristics
 
 ### Size Limits
+
 - **Ideal**: 100-200 characters per chunk
 - **Maximum**: 500 characters per chunk
 - **Minimum**: 20 characters per chunk
 - Count characters including markup
 
 ### Sentence Boundaries
+
 - Always prefer splitting at sentence endings
 - Avoid breaking mid-sentence unless absolutely necessary
 - Preserve natural reading rhythm and pauses
 - Maintain emotional context within sentences
 
 ### Markup Integrity
+
 - Never break emotion tags across chunks
 - Close tags at chunk end, reopen in next chunk if needed
 - Preserve tag hierarchy and nesting
@@ -81,7 +91,9 @@ Chunk 2: "[serenity:high]and needs splitting.[/serenity:high]"
 ## Processing Rules
 
 ### 1. Sentence Detection
+
 Use these patterns to identify sentence boundaries:
+
 - Period followed by space and capital letter
 - Exclamation mark followed by space
 - Question mark followed by space
@@ -89,12 +101,14 @@ Use these patterns to identify sentence boundaries:
 - Em dash (—) in dialogue
 
 ### 2. Emotion Tag Parsing
+
 - Identify opening tags: `[emotion:level]`
 - Identify closing tags: `[/emotion:level]`
 - Track nested emotion states
 - Ensure proper tag closure
 
 ### 3. Chunk Validation
+
 - Check character count limits
 - Verify complete emotion tags
 - Ensure readable content
@@ -103,11 +117,13 @@ Use these patterns to identify sentence boundaries:
 ## Example Processing
 
 ### Input Text
+
 ```markdown
 [warmth:high]The rain tapped gently against their bedroom window as Michael pulled Claudia closer, her warm presence filling every corner of his heart.[/warmth:high] [love:high]"Tell me about tomorrow, my love," she whispered, her voice soft as silk against his ear.[/love:high] [tenderness:medium]He traced gentle circles on her back, feeling the rhythm of her breathing slow to match his own.[/tenderness:medium]
 ```
 
 ### Output Chunks
+
 ```
 Chunk 1 (147 chars):
 [warmth:high]The rain tapped gently against their bedroom window as Michael pulled Claudia closer, her warm presence filling every corner of his heart.[/warmth:high]
@@ -122,7 +138,9 @@ Chunk 3 (131 chars):
 ## Advanced Features
 
 ### Pause Insertion
+
 Add natural pauses between emotional shifts:
+
 ```
 Chunk 1: "[love:high]I love you so much.[/love:high]"
 Pause: 1.5 seconds
@@ -130,7 +148,9 @@ Chunk 2: "[calm:medium]Let's rest now.[/calm:medium]"
 ```
 
 ### Breathing Cues
+
 For meditation content, insert breathing instructions:
+
 ```
 Chunk 1: "[breathiness:low]Breathe in slowly...[/breathiness:low]"
 Pause: 3 seconds (for inhale)
@@ -139,7 +159,9 @@ Pause: 4 seconds (for exhale)
 ```
 
 ### Context Preservation
+
 Maintain character and scene context across chunks:
+
 - Track who is speaking
 - Preserve scene setting
 - Maintain emotional continuity

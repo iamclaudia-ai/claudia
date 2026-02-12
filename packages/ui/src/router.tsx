@@ -5,13 +5,7 @@
  * Supports :param patterns, back/forward, and Link components.
  */
 
-import {
-  createContext,
-  useContext,
-  useState,
-  useEffect,
-  useCallback,
-} from "react";
+import { createContext, useContext, useState, useEffect, useCallback } from "react";
 import type { ComponentType, ReactNode } from "react";
 
 // ── Types ────────────────────────────────────────────────────
@@ -33,10 +27,7 @@ interface RouterState {
 // ── Path Matching ────────────────────────────────────────────
 
 /** Match "/workspace/:workspaceId" against "/workspace/ws_abc" → { workspaceId: "ws_abc" } */
-export function matchPath(
-  pattern: string,
-  pathname: string,
-): Record<string, string> | null {
+export function matchPath(pattern: string, pathname: string): Record<string, string> | null {
   const paramNames: string[] = [];
   const regexStr = pattern.replace(/:([^/]+)/g, (_, name) => {
     paramNames.push(name);
@@ -73,13 +64,7 @@ export function useRouter(): RouterState {
 
 // ── Router Component ─────────────────────────────────────────
 
-export function Router({
-  routes,
-  fallback,
-}: {
-  routes: Route[];
-  fallback?: ReactNode;
-}) {
+export function Router({ routes, fallback }: { routes: Route[]; fallback?: ReactNode }) {
   const [pathname, setPathname] = useState(window.location.pathname);
 
   useEffect(() => {

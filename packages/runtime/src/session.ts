@@ -43,7 +43,10 @@ export interface StreamEvent {
  */
 type CliStdoutMessage =
   | SDKMessage
-  | { type: "control_response"; response: { subtype: string; request_id: string; [key: string]: unknown } }
+  | {
+      type: "control_response";
+      response: { subtype: string; request_id: string; [key: string]: unknown };
+    }
   | { type: "keep_alive" };
 
 export interface CreateSessionOptions {
@@ -114,17 +117,12 @@ export class RuntimeSession extends EventEmitter {
   // Logging
   private logFile?: string;
 
-  constructor(
-    id: string,
-    options: CreateSessionOptions | ResumeSessionOptions,
-    isResume: boolean,
-  ) {
+  constructor(id: string, options: CreateSessionOptions | ResumeSessionOptions, isResume: boolean) {
     super();
     this.id = id;
     this.cwd = options.cwd;
     this.model = options.model || DEFAULT_MODEL;
-    this.systemPrompt =
-      "systemPrompt" in options ? options.systemPrompt : undefined;
+    this.systemPrompt = "systemPrompt" in options ? options.systemPrompt : undefined;
     this.effort = options.effort;
     this.isFirstPrompt = !isResume;
 
@@ -298,12 +296,16 @@ export class RuntimeSession extends EventEmitter {
 
     const args = [
       "--print",
-      "--output-format", "stream-json",
-      "--input-format", "stream-json",
+      "--output-format",
+      "stream-json",
+      "--input-format",
+      "stream-json",
       "--include-partial-messages",
       "--verbose",
-      "--model", this.model,
-      "--permission-mode", "bypassPermissions",
+      "--model",
+      this.model,
+      "--permission-mode",
+      "bypassPermissions",
     ];
 
     if (systemPrompt && this.isFirstPrompt) {
@@ -394,7 +396,9 @@ export class RuntimeSession extends EventEmitter {
 
       // Check if process has died
       if (this.proc.exitCode !== null) {
-        console.error(`[Session ${this.id.slice(0, 8)}] Process died unexpectedly (exit code: ${this.proc.exitCode})`);
+        console.error(
+          `[Session ${this.id.slice(0, 8)}] Process died unexpectedly (exit code: ${this.proc.exitCode})`,
+        );
         this.emit("sse", {
           type: "process_died",
           timestamp: new Date().toISOString(),
@@ -408,7 +412,9 @@ export class RuntimeSession extends EventEmitter {
       // Check for stale sessions (no activity for a while)
       if (this.isStale()) {
         const minutesSinceActivity = Math.round((Date.now() - this.lastActivityTime) / 60000);
-        console.warn(`[Session ${this.id.slice(0, 8)}] Session appears stale (${minutesSinceActivity}m since last activity)`);
+        console.warn(
+          `[Session ${this.id.slice(0, 8)}] Session appears stale (${minutesSinceActivity}m since last activity)`,
+        );
         this.emit("sse", {
           type: "session_stale",
           timestamp: new Date().toISOString(),
@@ -544,7 +550,11 @@ export class RuntimeSession extends EventEmitter {
         break;
 
       default:
-        this.log({ type: "unknown_message", messageType: (msg as SDKMessage).type, raw: msg as Record<string, unknown> });
+        this.log({
+          type: "unknown_message",
+          messageType: (msg as SDKMessage).type,
+          raw: msg as Record<string, unknown>,
+        });
         break;
     }
   }
@@ -622,7 +632,9 @@ export class RuntimeSession extends EventEmitter {
   private handleSystemMessage(msg: Record<string, unknown>): void {
     const subtype = msg.subtype as string | undefined;
 
-    console.log(`[Session ${this.id.slice(0, 8)}] system: ${JSON.stringify(msg).substring(0, 200)}`);
+    console.log(
+      `[Session ${this.id.slice(0, 8)}] system: ${JSON.stringify(msg).substring(0, 200)}`,
+    );
     this.log({ ...msg, logged_as: "system" });
 
     if (subtype === "status") {
@@ -638,8 +650,12 @@ export class RuntimeSession extends EventEmitter {
         console.log(`[Session ${this.id.slice(0, 8)}] ✓ Compaction status cleared`);
       }
     } else if (subtype === "compact_boundary") {
-      const metadata = msg.compact_metadata as { trigger?: string; pre_tokens?: number } | undefined;
-      console.log(`[Session ${this.id.slice(0, 8)}] 🔖 Compaction boundary (trigger: ${metadata?.trigger}, pre_tokens: ${metadata?.pre_tokens})`);
+      const metadata = msg.compact_metadata as
+        | { trigger?: string; pre_tokens?: number }
+        | undefined;
+      console.log(
+        `[Session ${this.id.slice(0, 8)}] 🔖 Compaction boundary (trigger: ${metadata?.trigger}, pre_tokens: ${metadata?.pre_tokens})`,
+      );
       this.emit("sse", {
         type: "compaction_end",
         timestamp: new Date().toISOString(),
@@ -683,7 +699,9 @@ export class RuntimeSession extends EventEmitter {
    */
   private sendThinkingConfig(effort: ThinkingEffort): void {
     const maxTokens = THINKING_TOKENS[effort];
-    console.log(`[Session ${this.id.slice(0, 8)}] Configuring thinking: ${effort} (${maxTokens} tokens)`);
+    console.log(
+      `[Session ${this.id.slice(0, 8)}] Configuring thinking: ${effort} (${maxTokens} tokens)`,
+    );
 
     const message = JSON.stringify({
       type: "control_request",
@@ -732,9 +750,7 @@ export class RuntimeSession extends EventEmitter {
 
 // ── Factory Functions ────────────────────────────────────────
 
-export function createRuntimeSession(
-  options: CreateSessionOptions,
-): RuntimeSession {
+export function createRuntimeSession(options: CreateSessionOptions): RuntimeSession {
   const id = randomUUID();
   return new RuntimeSession(id, options, false);
 }

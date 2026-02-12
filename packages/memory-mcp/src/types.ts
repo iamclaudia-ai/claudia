@@ -88,13 +88,13 @@ export interface ListResult {
 
 // Memory categories matching existing structure
 export const MEMORY_CATEGORIES = [
-  'core',
-  'relationships',
-  'milestones',
-  'projects',
-  'insights',
-  'events',
-  'personas',
+  "core",
+  "relationships",
+  "milestones",
+  "projects",
+  "insights",
+  "events",
+  "personas",
 ] as const;
 
 export type MemoryCategory = (typeof MEMORY_CATEGORIES)[number];

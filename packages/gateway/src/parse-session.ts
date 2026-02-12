@@ -128,9 +128,7 @@ function parseAssistantContent(content: unknown[]): ContentBlock[] {
         id: (item.id as string) || "",
         name: (item.name as string) || "Unknown",
         input:
-          typeof item.input === "string"
-            ? item.input
-            : JSON.stringify(item.input || {}, null, 2),
+          typeof item.input === "string" ? item.input : JSON.stringify(item.input || {}, null, 2),
       });
     }
   }
@@ -179,10 +177,7 @@ export function parseSessionFile(filepath: string): HistoryMessage[] {
   const lines = content.split("\n").filter((line) => line.trim());
 
   const messages: HistoryMessage[] = [];
-  const pendingToolResults = new Map<
-    string,
-    { content: string; is_error?: boolean }
-  >();
+  const pendingToolResults = new Map<string, { content: string; is_error?: boolean }>();
 
   for (const line of lines) {
     let entry: JsonlEntry;
@@ -236,9 +231,7 @@ export function parseSessionFile(filepath: string): HistoryMessage[] {
 
         // Only add if there's non-tool-result content
         const userBlocks = parseUserContent(message.content);
-        const hasContent = userBlocks.some(
-          (b) => b.type === "text" || b.type === "image",
-        );
+        const hasContent = userBlocks.some((b) => b.type === "text" || b.type === "image");
         if (hasContent) {
           messages.push({ role: "user", blocks: userBlocks, timestamp: entry.timestamp });
         }

@@ -83,7 +83,7 @@ export class ExtensionManager {
    */
   async handleMethod(method: string, params: Record<string, unknown>): Promise<unknown> {
     // Extract extension ID from method (e.g., "voice.speak" -> "voice")
-    const [extensionId] = method.split('.');
+    const [extensionId] = method.split(".");
 
     const extension = this.extensions.get(extensionId);
     if (!extension) {
@@ -97,7 +97,9 @@ export class ExtensionManager {
 
     const parsed = methodDef.inputSchema.safeParse(params ?? {});
     if (!parsed.success) {
-      const issues = parsed.error.issues.map((i) => `${i.path.join(".") || "params"}: ${i.message}`);
+      const issues = parsed.error.issues.map(
+        (i) => `${i.path.join(".") || "params"}: ${i.message}`,
+      );
       throw new Error(`Invalid params for ${method}: ${issues.join("; ")}`);
     }
 
@@ -126,7 +128,7 @@ export class ExtensionManager {
    */
   async routeToSource(source: string, event: GatewayEvent): Promise<boolean> {
     // Extract prefix from source (e.g., "imessage/+1555..." -> "imessage")
-    const prefix = source.split('/')[0];
+    const prefix = source.split("/")[0];
 
     const extensionId = this.sourceRoutes.get(prefix);
     if (!extensionId) {
@@ -153,7 +155,7 @@ export class ExtensionManager {
    * Check if a source has a registered route
    */
   hasSourceRoute(source: string): boolean {
-    const prefix = source.split('/')[0];
+    const prefix = source.split("/")[0];
     return this.sourceRoutes.has(prefix);
   }
 
@@ -161,7 +163,7 @@ export class ExtensionManager {
    * Get the extension ID that handles a source
    */
   getSourceHandler(source: string): string | undefined {
-    const prefix = source.split('/')[0];
+    const prefix = source.split("/")[0];
     return this.sourceRoutes.get(prefix);
   }
 
@@ -169,7 +171,7 @@ export class ExtensionManager {
    * Check if a method is handled by any extension
    */
   hasMethod(method: string): boolean {
-    const [extensionId] = method.split('.');
+    const [extensionId] = method.split(".");
     const extension = this.extensions.get(extensionId);
     return extension?.methods.some((m) => m.name === method) ?? false;
   }
@@ -281,11 +283,11 @@ export class ExtensionManager {
    * Check if an event type matches a pattern
    */
   private matchesPattern(eventType: string, pattern: string): boolean {
-    if (pattern === '*') return true;
+    if (pattern === "*") return true;
     if (pattern === eventType) return true;
-    if (pattern.endsWith('.*')) {
+    if (pattern.endsWith(".*")) {
       const prefix = pattern.slice(0, -2);
-      return eventType.startsWith(prefix + '.');
+      return eventType.startsWith(prefix + ".");
     }
     return false;
   }
