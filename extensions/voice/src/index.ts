@@ -192,13 +192,17 @@ export function createVoiceExtension(config: VoiceConfig = {}): ClaudiaExtension
   let ctx: ExtensionContext | null = null;
   let unsubscribers: Array<() => void> = [];
 
-  // --- Persistent connection with auto-reconnection on context closure ---
-  let persistentStream: CartesiaStream | null = null;
-
   // --- Streaming state (per response turn) ---
   let currentChunker: SentenceChunker | null = null;
   let currentStreamId: string | null = null;
   let currentSessionId: string | null = null;
+  let streamEnding = false;
+  let streamChunkIndex = 0;
+  let sentenceQueue: string[] = [];
+  let processingQueue = false;
+  let activeSentenceStream: CartesiaStream | null = null;
+  let queueDrainResolve: (() => void) | null = null;
+  let abortRequested = false;
 
   // --- Shared state ---
   let currentBlockType: string | null = null;
@@ -218,74 +222,108 @@ export function createVoiceExtension(config: VoiceConfig = {}): ClaudiaExtension
 
   // --- Streaming TTS ---
 
-  /** Ensure persistent connection is ready, recreate if needed */
-  async function ensurePersistentConnection(): Promise<void> {
-    if (!cfg.apiKey) {
-      throw new Error('No API key configured');
-    }
-
-    if (persistentStream?.isOpen) {
-      return; // Already connected
-    }
-
-    fileLog('INFO', 'Creating persistent Cartesia connection');
-
-    // Create fresh connection if needed
-    persistentStream = new CartesiaStream({
-      apiKey: cfg.apiKey,
-      voiceId: cfg.voiceId,
-      model: cfg.model,
-      emotions: cfg.emotions,
-      speed: cfg.speed,
-      log: fileLog,
-      onAudioChunk: ({ audio, index }) => {
-        if (!currentStreamId) return;
-        fileLog('INFO', `onAudioChunk: stream=${currentStreamId}, index=${index}, size=${audio.length} b64chars`);
-
-        // Forward audio chunk to clients
-        ctx?.emit('voice.audio_chunk', {
-          audio,
-          index,
-          streamId: currentStreamId,
-          sessionId: currentSessionId,
-        });
-
-        // Accumulate for saving if we have active stream
-        if (currentStreamId && currentAudioChunks) {
-          currentAudioChunks.push(Buffer.from(audio, 'base64'));
-        }
-      },
-      onError: (error) => {
-        fileLog('ERROR', `Persistent Cartesia stream error: ${error.message}`);
-
-        // Check for context closure error and handle it
-        if (error.message.includes('Context has closed') || error.message.includes('Context closed')) {
-          fileLog('WARN', 'Cartesia context closed - will recreate connection on next sentence');
-          // Close and nullify the current stream so it gets recreated
-          if (persistentStream) {
-            persistentStream.close().catch(() => {});
-            persistentStream = null;
-          }
-        }
-
-        if (currentStreamId) {
-          ctx?.emit('voice.error', { error: error.message, streamId: currentStreamId });
-        }
-      },
-      onDone: () => {
-        fileLog('INFO', `Sentence completed: stream=${currentStreamId}, ${currentAudioChunks?.length || 0} chunks accumulated`);
-        // Note: Don't end the stream here! onDone is called after each sentence,
-        // not after the entire stream. The stream continues until endStream() is called.
-      },
-    });
-
-    await persistentStream.connect();
-    fileLog('INFO', 'Persistent Cartesia connection established');
-  }
-
   // Current stream audio accumulator (for final save)
   let currentAudioChunks: Buffer[] = [];
 
+
+  function resolveQueueDrainIfIdle(): void {
+    if (!processingQueue && sentenceQueue.length === 0 && queueDrainResolve) {
+      queueDrainResolve();
+      queueDrainResolve = null;
+    }
+  }
+
+  async function waitForQueueDrain(): Promise<void> {
+    if (!processingQueue && sentenceQueue.length === 0) return;
+    await new Promise<void>((resolve) => {
+      queueDrainResolve = resolve;
+    });
+  }
+
+  async function sendSentenceToCartesia(sentence: string, streamId: string, sessionId: string): Promise<void> {
+    let lastError: Error | null = null;
+
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      if (abortRequested || currentStreamId !== streamId) return;
+
+      let streamHadError = false;
+      const sentenceStream = new CartesiaStream({
+        apiKey: cfg.apiKey,
+        voiceId: cfg.voiceId,
+        model: cfg.model,
+        emotions: cfg.emotions,
+        speed: cfg.speed,
+        log: fileLog,
+        onAudioChunk: ({ audio }) => {
+          if (abortRequested || currentStreamId !== streamId) return;
+
+          const index = streamChunkIndex++;
+          ctx?.emit('voice.audio_chunk', {
+            audio,
+            index,
+            streamId,
+            sessionId,
+          });
+          currentAudioChunks.push(Buffer.from(audio, 'base64'));
+        },
+        onError: (error) => {
+          streamHadError = true;
+          lastError = error;
+        },
+        onDone: () => {
+          fileLog('INFO', `Sentence done: stream=${streamId}, queued=${sentenceQueue.length}`);
+        },
+      });
+
+      activeSentenceStream = sentenceStream;
+      try {
+        await sentenceStream.connect();
+        sentenceStream.startStream();
+        sentenceStream.sendText(sentence);
+        await sentenceStream.endStream();
+
+        if (!streamHadError) {
+          return;
+        }
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+      } finally {
+        await sentenceStream.close();
+        if (activeSentenceStream === sentenceStream) {
+          activeSentenceStream = null;
+        }
+      }
+
+      if (attempt < 2) {
+        fileLog('WARN', `Sentence send failed, retrying (attempt=${attempt + 1}): ${sentence.substring(0, 80)}`);
+      }
+    }
+
+    const err = lastError ?? new Error('Failed to send sentence to Cartesia');
+    ctx?.emit('voice.error', { error: err.message, streamId });
+    fileLog('ERROR', `Dropped sentence after retries: ${err.message}`);
+  }
+
+  async function processSentenceQueue(streamId: string, sessionId: string): Promise<void> {
+    if (processingQueue) return;
+    processingQueue = true;
+    try {
+      while (!abortRequested && currentStreamId === streamId && sentenceQueue.length > 0) {
+        const sentence = sentenceQueue.shift();
+        if (!sentence) continue;
+        await sendSentenceToCartesia(sentence, streamId, sessionId);
+      }
+    } finally {
+      processingQueue = false;
+      resolveQueueDrainIfIdle();
+    }
+  }
+
+  function enqueueSentence(sentence: string): void {
+    if (!currentStreamId || !currentSessionId) return;
+    sentenceQueue.push(sentence);
+    void processSentenceQueue(currentStreamId, currentSessionId);
+  }
 
   async function startStream(sessionId: string): Promise<void> {
     if (!cfg.apiKey) {
@@ -294,7 +332,7 @@ export function createVoiceExtension(config: VoiceConfig = {}): ClaudiaExtension
     }
 
     // End any active stream session first
-    if (currentStreamId && persistentStream) {
+    if (currentStreamId) {
       fileLog('WARN', 'startStream: ending existing stream session before starting new one');
       await endStream();
     }
@@ -304,33 +342,19 @@ export function createVoiceExtension(config: VoiceConfig = {}): ClaudiaExtension
     currentSessionId = sessionId;
     currentAudioChunks = [];
     currentChunker = new SentenceChunker();
+    sentenceQueue = [];
+    streamChunkIndex = 0;
+    streamEnding = false;
+    abortRequested = false;
 
-    fileLog('INFO', `startStream: session=${sessionId}, stream=${streamId} (persistent connection with auto-reconnection)`);
+    fileLog('INFO', `startStream: session=${sessionId}, stream=${streamId} (per-sentence Cartesia connections)`);
 
-    try {
-      // Ensure persistent connection is ready
-      await ensurePersistentConnection();
-
-      // Start new stream session on existing connection
-      if (persistentStream) {
-        persistentStream.startStream();
-      }
-
-      isSpeaking = true;
-      ctx?.emit('voice.stream_start', {
-        streamId: currentStreamId,
-        sessionId: currentSessionId,
-      });
-      ctx?.log.info(`Streaming TTS started (stream=${currentStreamId})`);
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : 'Connection failed';
-      fileLog('ERROR', `Failed to start stream: ${msg}`);
-      ctx?.log.error(`Failed to start stream: ${msg}`);
-      ctx?.emit('voice.error', { error: msg });
-      currentStreamId = null;
-      currentSessionId = null;
-      currentChunker = null;
-    }
+    isSpeaking = true;
+    ctx?.emit('voice.stream_start', {
+      streamId: currentStreamId,
+      sessionId: currentSessionId,
+    });
+    ctx?.log.info(`Streaming TTS started (stream=${currentStreamId})`);
   }
 
   async function feedStreamingText(text: string): Promise<void> {
@@ -342,23 +366,15 @@ export function createVoiceExtension(config: VoiceConfig = {}): ClaudiaExtension
       const cleaned = cleanForSpeech(sentence);
       if (cleaned) {
         fileLog('INFO', `🗣️ SPEAKING SENTENCE: "${cleaned}"`);
-
-        try {
-          // Ensure connection is ready (will recreate if context closed)
-          await ensurePersistentConnection();
-
-          if (persistentStream?.isOpen) {
-            persistentStream.sendText(cleaned);
-          }
-        } catch (error) {
-          fileLog('ERROR', `Failed to send sentence to Cartesia: ${error instanceof Error ? error.message : error}`);
-        }
+        enqueueSentence(cleaned);
       }
     }
   }
 
   async function endStream(): Promise<void> {
-    if (!persistentStream || !currentChunker || !currentStreamId) return;
+    if (!currentChunker || !currentStreamId || streamEnding) return;
+
+    streamEnding = true;
 
     const streamId = currentStreamId;
     const sessionId = currentSessionId;
@@ -369,22 +385,13 @@ export function createVoiceExtension(config: VoiceConfig = {}): ClaudiaExtension
       const cleaned = cleanForSpeech(remaining);
       if (cleaned) {
         fileLog('INFO', `endStream: flushing remaining text: "${cleaned.substring(0, 80)}"`);
-        try {
-          await ensurePersistentConnection();
-          if (persistentStream?.isOpen) {
-            persistentStream.sendText(cleaned);
-          }
-        } catch (error) {
-          fileLog('ERROR', `Failed to send final sentence: ${error instanceof Error ? error.message : error}`);
-        }
+        enqueueSentence(cleaned);
       }
     }
 
-    // End Cartesia stream session and wait for done
-    fileLog('INFO', `endStream: awaiting stream session end (stream=${streamId})`);
-    if (persistentStream?.isOpen) {
-      await persistentStream.endStream();
-    }
+    // Wait until all queued sentences are synthesized.
+    fileLog('INFO', `endStream: waiting for sentence queue drain (stream=${streamId})`);
+    await waitForQueueDrain();
     fileLog('INFO', `endStream: session ended (stream=${streamId})`);
 
     ctx?.log.info(`Streaming TTS ended (stream=${streamId})`);
@@ -407,12 +414,16 @@ export function createVoiceExtension(config: VoiceConfig = {}): ClaudiaExtension
       });
     }
 
-    // Reset streaming state (but keep persistent connection alive)
+    // Reset streaming state
     isSpeaking = false;
     currentChunker = null;
     currentStreamId = null;
     currentSessionId = null;
     currentAudioChunks = [];
+    sentenceQueue = [];
+    streamChunkIndex = 0;
+    streamEnding = false;
+    abortRequested = false;
   }
 
   function abortStream(): void {
@@ -429,10 +440,19 @@ export function createVoiceExtension(config: VoiceConfig = {}): ClaudiaExtension
     });
     ctx?.log.info(`Streaming TTS aborted (stream=${streamId})`);
 
+    abortRequested = true;
+    sentenceQueue = [];
+    streamEnding = false;
+    resolveQueueDrainIfIdle();
+    activeSentenceStream?.abort();
+    activeSentenceStream = null;
+
     isSpeaking = false;
     currentChunker = null;
     currentStreamId = null;
     currentSessionId = null;
+    currentAudioChunks = [];
+    streamChunkIndex = 0;
   }
 
   // --- Batch TTS (for voice.speak method) ---
@@ -451,7 +471,7 @@ export function createVoiceExtension(config: VoiceConfig = {}): ClaudiaExtension
       const audioBuffer = await batchSpeak(text, cfg);
       const base64Audio = audioBuffer.toString('base64');
       ctx?.emit('voice.audio', {
-        format: 'mp3',
+        format: 'wav',
         data: base64Audio,
         text: text.substring(0, 100),
       });
@@ -584,13 +604,6 @@ export function createVoiceExtension(config: VoiceConfig = {}): ClaudiaExtension
       // Abort any active stream
       abortStream();
 
-      // Close persistent connection
-      if (persistentStream) {
-        fileLog('INFO', 'Closing persistent Cartesia connection');
-        await persistentStream.close();
-        persistentStream = null;
-      }
-
       for (const unsub of unsubscribers) {
         unsub();
       }
@@ -635,7 +648,7 @@ export function createVoiceExtension(config: VoiceConfig = {}): ClaudiaExtension
 
           const audio = await Bun.file(path).arrayBuffer();
           ctx?.emit('voice.audio', {
-            format: 'mp3',
+            format: 'wav',
             data: Buffer.from(audio).toString('base64'),
             streamId,
           });
