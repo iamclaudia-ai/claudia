@@ -138,6 +138,12 @@ struct VoiceModeApp: App {
                 .onAppear {
                     appState.start()
                 }
+                .onOpenURL { url in
+                    if url.scheme == "voicemode" && url.host == "launch" {
+                        print("[App] Widget launch detected - ensuring voice mode starts")
+                        appState.start()
+                    }
+                }
         }
     }
 }
