@@ -11,7 +11,7 @@
  * - Sends replies using the same chat_id
  */
 
-import type { ClaudiaExtension, ExtensionContext, GatewayEvent } from '@claudia/shared';
+import type { ClaudiaExtension, ExtensionContext, GatewayEvent, HealthCheckResponse } from '@claudia/shared';
 import { ImsgRpcClient, type ImsgMessage, type ImsgAttachment } from './imsg-client';
 
 // ============================================================================
@@ -296,7 +296,7 @@ export function createIMessageExtension(config: IMessageConfig = {}): ClaudiaExt
   return {
     id: 'imessage',
     name: 'iMessage',
-    methods: ['imessage.send', 'imessage.status', 'imessage.chats'],
+    methods: ['imessage.send', 'imessage.status', 'imessage.chats', 'imessage.health-check'],
     events: ['imessage.message', 'imessage.sent', 'imessage.error', 'imessage.prompt_request'],
     sourceRoutes: ['imessage'], // Handle all "imessage/*" sources
 
@@ -386,6 +386,20 @@ export function createIMessageExtension(config: IMessageConfig = {}): ClaudiaExt
           const limit = (params.limit as number) || 20;
           const chats = await client.listChats(limit);
           return { chats };
+        }
+
+        case 'imessage.health-check': {
+          const response: HealthCheckResponse = {
+            ok: !!client,
+            status: client ? 'healthy' : 'disconnected',
+            label: 'iMessage Bridge',
+            metrics: [
+              { label: 'Status', value: client ? 'running' : 'stopped' },
+              { label: 'Allowed Senders', value: cfg.allowedSenders?.length ?? 0 },
+              { label: 'Last Row ID', value: lastRowId ?? 'n/a' },
+            ],
+          };
+          return response;
         }
 
         default:
