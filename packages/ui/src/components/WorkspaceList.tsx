@@ -2,6 +2,10 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import type { GatewayMessage } from "../types";
 import type { WorkspaceInfo, SessionInfo } from "../hooks/useGateway";
 
+const DEFAULT_MODEL = "claude-opus-4-6";
+const DEFAULT_THINKING = true;
+const DEFAULT_EFFORT = "medium";
+
 interface WorkspaceListProps {
   gatewayUrl: string;
   onSelectWorkspace: (workspaceId: string) => void;
@@ -68,12 +72,17 @@ export function WorkspaceList({ gatewayUrl, onSelectWorkspace, onSessionReady }:
             } else {
               // Create first session for the new workspace
               pendingWorkspaceRef.current = ws.id;
-              sendRequest("session.create", { workspaceId: ws.id });
+              sendRequest("workspace.createSession", {
+                workspaceId: ws.id,
+                model: DEFAULT_MODEL,
+                thinking: DEFAULT_THINKING,
+                effort: DEFAULT_EFFORT,
+              });
             }
           }
         }
 
-        if (method === "session.create") {
+        if (method === "workspace.createSession") {
           const session = payload.session as SessionInfo | undefined;
           if (session && onSessionReady) {
             setIsCreating(false);

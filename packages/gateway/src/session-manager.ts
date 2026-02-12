@@ -347,10 +347,8 @@ export class SessionManager {
 
   // ── Session Operations ─────────────────────────────────────
 
-  listSessions(workspaceId?: string): SessionRecord[] {
-    const wsId = workspaceId || this.currentWorkspace?.id;
-    if (!wsId) return [];
-    return sessionModel.listSessions(this.db, wsId);
+  listSessions(workspaceId: string): SessionRecord[] {
+    return sessionModel.listSessions(this.db, workspaceId);
   }
 
   getSession(sessionId: string): SessionRecord | null {
@@ -364,80 +362,59 @@ export class SessionManager {
   /**
    * Initialize or resume a session via the runtime.
    */
-  async initSession(sessionRecordId?: string): Promise<string> {
-    if (sessionRecordId) {
-      const record = sessionModel.getSession(this.db, sessionRecordId);
-      if (!record) throw new Error(`Session not found: ${sessionRecordId}`);
+  async initSession(
+    sessionRecordId: string,
+    runtimeConfig: { model: string; thinking: boolean; effort?: string },
+  ): Promise<string> {
+    const record = sessionModel.getSession(this.db, sessionRecordId);
+    if (!record) throw new Error(`Session not found: ${sessionRecordId}`);
 
-      // Already active?
-      if (this.activeRuntimeSessionId === record.ccSessionId && this.currentSessionRecord?.id === record.id) {
-        return record.ccSessionId;
-      }
-
-      // Close existing runtime session if different
-      if (this.activeRuntimeSessionId && this.activeRuntimeSessionId !== record.ccSessionId) {
-        try {
-          await this.runtimeRequest("session.close", { sessionId: this.activeRuntimeSessionId });
-        } catch {
-          // Ignore close errors
-        }
-      }
-
-      // Set workspace context
-      this.currentWorkspace = workspaceModel.getWorkspace(this.db, record.workspaceId);
-      const cwd = this.currentWorkspace?.cwd;
-      if (!cwd) throw new Error(`Workspace not found for session: ${record.workspaceId}`);
-
-      // Resume in runtime
-      console.log(`[SessionManager] Resuming session via runtime: ${record.ccSessionId} (cwd: ${cwd})`);
-      await this.runtimeRequest("session.resume", {
-        sessionId: record.ccSessionId,
-        cwd,
-        ...this.getRuntimeSessionDefaults(),
-      });
-
-      this.activeRuntimeSessionId = record.ccSessionId;
-      this.currentSessionRecord = record;
+    // Already active?
+    if (this.activeRuntimeSessionId === record.ccSessionId && this.currentSessionRecord?.id === record.id) {
       return record.ccSessionId;
     }
 
-    // No specific session — use current workspace's active session
-    if (this.activeRuntimeSessionId) {
-      return this.activeRuntimeSessionId;
-    }
-
-    if (!this.currentWorkspace) {
-      throw new Error("No workspace set. Use workspace.getOrCreate (VS Code) or specify a sessionId (web).");
-    }
-
-    if (this.currentWorkspace.activeSessionId) {
-      const record = sessionModel.getSession(this.db, this.currentWorkspace.activeSessionId);
-      if (record) {
-        console.log(`[SessionManager] Resuming session via runtime: ${record.ccSessionId} (cwd: ${this.currentWorkspace.cwd})`);
-        await this.runtimeRequest("session.resume", {
-          sessionId: record.ccSessionId,
-          cwd: this.currentWorkspace.cwd,
-          ...this.getRuntimeSessionDefaults(),
-        });
-
-        this.activeRuntimeSessionId = record.ccSessionId;
-        this.currentSessionRecord = record;
-        return record.ccSessionId;
+    // Close existing runtime session if different
+    if (this.activeRuntimeSessionId && this.activeRuntimeSessionId !== record.ccSessionId) {
+      try {
+        await this.runtimeRequest("session.close", { sessionId: this.activeRuntimeSessionId });
+      } catch {
+        // Ignore close errors
       }
     }
 
-    throw new Error("No active session. Create a new session first.");
+    // Set workspace context
+    this.currentWorkspace = workspaceModel.getWorkspace(this.db, record.workspaceId);
+    const cwd = this.currentWorkspace?.cwd;
+    if (!cwd) throw new Error(`Workspace not found for session: ${record.workspaceId}`);
+
+    // Resume in runtime with explicit per-request config.
+    console.log(`[SessionManager] Resuming session via runtime: ${record.ccSessionId} (cwd: ${cwd})`);
+    await this.runtimeRequest("session.resume", {
+      sessionId: record.ccSessionId,
+      cwd,
+      model: runtimeConfig.model,
+      thinking: runtimeConfig.thinking,
+      effort: runtimeConfig.effort,
+    });
+
+    this.activeRuntimeSessionId = record.ccSessionId;
+    this.currentSessionRecord = record;
+    return record.ccSessionId;
   }
 
   /**
    * Create a new session, archiving the current active one.
    */
-  async createNewSession(workspaceId?: string, title?: string): Promise<{
+  async createNewSession(
+    workspaceId: string,
+    title: string | undefined,
+    runtimeConfig: { model: string; thinking: boolean; effort?: string; systemPrompt?: string | null },
+  ): Promise<{
     session: SessionRecord;
     previousSessionId?: string;
   }> {
-    const wsId = workspaceId || this.currentWorkspace?.id;
-    if (!wsId) throw new Error("No workspace available");
+    const wsId = workspaceId;
 
     // Close current runtime session
     if (this.activeRuntimeSessionId) {
@@ -460,17 +437,16 @@ export class SessionManager {
     }
 
     // Create session in runtime
-    const sessionConfig = this.config.session;
-    const thinking = this.pendingSessionConfig.thinking ?? sessionConfig.thinking;
-    const effort = this.pendingSessionConfig.effort ?? sessionConfig.effort;
-    const model = sessionConfig.model || undefined;
+    const thinking = runtimeConfig.thinking;
+    const effort = runtimeConfig.effort;
+    const model = runtimeConfig.model;
 
-    console.log(`[SessionManager] Creating new session via runtime (model: ${model || "default"}, thinking: ${thinking}, effort: ${effort}, cwd: ${workspace.cwd})...`);
+    console.log(`[SessionManager] Creating new session via runtime (model: ${model}, thinking: ${thinking}, effort: ${effort || "default"}, cwd: ${workspace.cwd})...`);
 
     const result = await this.runtimeRequest("session.create", {
       cwd: workspace.cwd,
       model,
-      systemPrompt: sessionConfig.systemPrompt || undefined,
+      systemPrompt: runtimeConfig.systemPrompt || undefined,
       thinking,
       effort,
     }) as { sessionId: string };
@@ -543,15 +519,11 @@ export class SessionManager {
   /**
    * Get session history from JSONL file with optional pagination.
    */
-  getSessionHistory(sessionId?: string, options?: { limit?: number; offset?: number }) {
+  getSessionHistory(sessionId: string, options?: { limit?: number; offset?: number }) {
     let ccSessionId: string | undefined;
 
-    if (sessionId) {
-      const record = sessionModel.getSession(this.db, sessionId);
-      ccSessionId = record?.ccSessionId;
-    } else {
-      ccSessionId = this.currentSessionRecord?.ccSessionId || this.activeRuntimeSessionId || undefined;
-    }
+    const record = sessionModel.getSession(this.db, sessionId);
+    ccSessionId = record?.ccSessionId;
 
     if (!ccSessionId) {
       return { messages: [], usage: null, total: 0, hasMore: false };
@@ -587,8 +559,12 @@ export class SessionManager {
   /**
    * Send a prompt to a session via the runtime.
    */
-  async prompt(content: string | unknown[], sessionRecordId?: string): Promise<string> {
-    const ccSessionId = await this.initSession(sessionRecordId);
+  async prompt(
+    content: string | unknown[],
+    sessionRecordId: string,
+    runtimeConfig: { model: string; thinking: boolean; effort?: string },
+  ): Promise<string> {
+    const ccSessionId = await this.initSession(sessionRecordId, runtimeConfig);
 
     // Update activity timestamp
     if (this.currentSessionRecord) {
@@ -607,12 +583,13 @@ export class SessionManager {
   /**
    * Interrupt the current session via the runtime.
    */
-  async interrupt(): Promise<boolean> {
-    if (!this.activeRuntimeSessionId) return false;
+  async interrupt(sessionRecordId: string): Promise<boolean> {
+    const record = sessionModel.getSession(this.db, sessionRecordId);
+    if (!record) return false;
 
     try {
       await this.runtimeRequest("session.interrupt", {
-        sessionId: this.activeRuntimeSessionId,
+        sessionId: record.ccSessionId,
       });
       return true;
     } catch {

@@ -10,6 +10,9 @@
  */
 
 const GATEWAY_URL = process.env.CLAUDIA_GATEWAY_URL || 'ws://localhost:30086/ws';
+const MODEL = process.env.CLAUDIA_MODEL || "claude-opus-4-6";
+const THINKING = process.env.CLAUDIA_THINKING ? process.env.CLAUDIA_THINKING === "true" : true;
+const EFFORT = process.env.CLAUDIA_THINKING_EFFORT || "medium";
 
 interface Message {
   type: 'req' | 'res' | 'event';
@@ -147,29 +150,62 @@ async function main(): Promise<void> {
 
   let responseText = '';
   let isComplete = false;
+  let sessionRecordId: string | null = null;
+  const pendingMethods = new Map<string, string>();
+
+  const sendRequest = (method: string, params?: Record<string, unknown>) => {
+    const id = generateId();
+    pendingMethods.set(id, method);
+    const msg: Message = { type: "req", id, method, params };
+    ws.send(JSON.stringify(msg));
+  };
 
   ws.onopen = () => {
-    // Subscribe to session events
-    const subscribeMsg: Message = {
-      type: 'req',
-      id: generateId(),
-      method: 'subscribe',
-      params: { events: ['session.*'] },
-    };
-    ws.send(JSON.stringify(subscribeMsg));
-
-    // Send the prompt
-    const promptMsg: Message = {
-      type: 'req',
-      id: generateId(),
-      method: 'session.prompt',
-      params: { content: prompt },
-    };
-    ws.send(JSON.stringify(promptMsg));
+    sendRequest("subscribe", { events: ['session.*'] });
+    sendRequest("workspace.getOrCreate", { cwd: process.cwd() });
   };
 
   ws.onmessage = (event) => {
     const msg: Message = JSON.parse(event.data as string);
+
+    if (msg.type === "res" && msg.ok) {
+      const method = msg.id ? pendingMethods.get(msg.id) : undefined;
+      if (msg.id) pendingMethods.delete(msg.id);
+      const payload = (msg.payload || {}) as Record<string, unknown>;
+
+      if (method === "workspace.getOrCreate") {
+        const workspace = payload.workspace as { id: string; activeSessionId?: string | null } | undefined;
+        if (!workspace) return;
+        if (workspace.activeSessionId) {
+          sessionRecordId = workspace.activeSessionId;
+        } else {
+          sendRequest("workspace.createSession", {
+            workspaceId: workspace.id,
+            model: MODEL,
+            thinking: THINKING,
+            effort: EFFORT,
+          });
+          return;
+        }
+      }
+
+      if (method === "workspace.createSession") {
+        const session = payload.session as { id: string } | undefined;
+        if (session?.id) {
+          sessionRecordId = session.id;
+        }
+      }
+
+      if ((method === "workspace.getOrCreate" || method === "workspace.createSession") && sessionRecordId) {
+        sendRequest("session.prompt", {
+          sessionId: sessionRecordId,
+          content: prompt,
+          model: MODEL,
+          thinking: THINKING,
+          effort: EFFORT,
+        });
+      }
+    }
 
     if (msg.type === 'event') {
       const payload = msg.payload as Record<string, unknown>;

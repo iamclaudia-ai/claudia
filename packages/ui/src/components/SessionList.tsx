@@ -2,6 +2,10 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import type { GatewayMessage } from "../types";
 import type { WorkspaceInfo, SessionInfo } from "../hooks/useGateway";
 
+const DEFAULT_MODEL = "claude-opus-4-6";
+const DEFAULT_THINKING = true;
+const DEFAULT_EFFORT = "medium";
+
 interface SessionListProps {
   gatewayUrl: string;
   workspaceId: string;
@@ -41,7 +45,7 @@ export function SessionList({
 
     ws.onopen = () => {
       setIsConnected(true);
-      sendRequest("session.list", { workspaceId });
+      sendRequest("workspace.listSessions", { workspaceId });
       sendRequest("workspace.get", { workspaceId });
     };
 
@@ -54,7 +58,7 @@ export function SessionList({
         const method = data.id ? pendingRef.current.get(data.id) : undefined;
         if (data.id) pendingRef.current.delete(data.id);
 
-        if (method === "session.list") {
+        if (method === "workspace.listSessions") {
           const list = payload.sessions as SessionInfo[] | undefined;
           setSessions(list || []);
           setIsLoading(false);
@@ -65,7 +69,7 @@ export function SessionList({
           if (ws) setWorkspace(ws);
         }
 
-        if (method === "session.create") {
+        if (method === "workspace.createSession") {
           const session = payload.session as SessionInfo | undefined;
           if (session) {
             setIsCreating(false);
@@ -139,7 +143,12 @@ export function SessionList({
             <button
               onClick={() => {
                 setIsCreating(true);
-                sendRequest("session.create", { workspaceId });
+                sendRequest("workspace.createSession", {
+                  workspaceId,
+                  model: DEFAULT_MODEL,
+                  thinking: DEFAULT_THINKING,
+                  effort: DEFAULT_EFFORT,
+                });
               }}
               disabled={isCreating}
               className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 disabled:opacity-50 transition-colors"

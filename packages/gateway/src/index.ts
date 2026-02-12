@@ -77,6 +77,10 @@ extensions.setEmitCallback(async (type, payload, source) => {
     const req = payload as {
       content: string | unknown[];
       source?: string;
+      sessionId?: string;
+      model?: string;
+      thinking?: boolean;
+      effort?: string;
       metadata?: Record<string, unknown>;
     };
 
@@ -92,8 +96,16 @@ extensions.setEmitCallback(async (type, payload, source) => {
       sessionManager.currentRequestSource = req.source || null;
       sessionManager.currentResponseText = "";
 
-      // Send prompt through session manager
-      await sessionManager.prompt(req.content as string | unknown[]);
+      // Send prompt through session manager with explicit session targeting/config.
+      if (!req.sessionId || !req.model || req.thinking === undefined) {
+        console.warn("[Gateway] Ignoring prompt_request with missing required params: sessionId/model/thinking");
+        return;
+      }
+      await sessionManager.prompt(req.content as string | unknown[], req.sessionId, {
+        model: req.model,
+        thinking: req.thinking,
+        effort: req.effort,
+      });
     }
   }
 });
@@ -196,6 +208,42 @@ async function handleWorkspaceMethod(
         break;
       }
 
+      case "listSessions": {
+        const workspaceId = req.params?.workspaceId as string;
+        if (!workspaceId) {
+          sendError(ws, req.id, "Missing workspaceId parameter");
+          return;
+        }
+        const sessions = sessionManager.listSessions(workspaceId);
+        sendResponse(ws, req.id, { sessions });
+        break;
+      }
+
+      case "createSession": {
+        const workspaceId = req.params?.workspaceId as string;
+        const model = req.params?.model as string;
+        const thinking = req.params?.thinking as boolean | undefined;
+        if (!workspaceId) {
+          sendError(ws, req.id, "Missing workspaceId parameter");
+          return;
+        }
+        if (!model || thinking === undefined) {
+          sendError(ws, req.id, "Missing required params: model and thinking");
+          return;
+        }
+        const title = req.params?.title as string | undefined;
+        const effort = req.params?.effort as string | undefined;
+        const systemPrompt = req.params?.systemPrompt as string | undefined;
+        const result = await sessionManager.createNewSession(workspaceId, title, {
+          model,
+          thinking,
+          effort,
+          systemPrompt,
+        });
+        sendResponse(ws, req.id, result);
+        break;
+      }
+
       default:
         sendError(ws, req.id, `Unknown workspace action: ${action}`);
     }
@@ -240,35 +288,29 @@ async function handleSessionMethod(
       }
 
       case "config": {
-        // Set session config before first prompt
-        const { sessionId: activeSessionId } = sessionManager.getCurrentSession();
-        if (!activeSessionId) {
-          if (req.params?.thinking !== undefined) {
-            sessionManager.pendingSessionConfig.thinking = req.params
-              .thinking as boolean;
-          }
-          if (req.params?.effort !== undefined) {
-            sessionManager.pendingSessionConfig.effort = req.params
-              .effort as string;
-          }
-          sendResponse(ws, req.id, {
-            status: "ok",
-            pending: sessionManager.pendingSessionConfig,
-          });
-        } else {
-          sendResponse(ws, req.id, {
-            status: "ignored",
-            reason:
-              "Session already exists - config only applies to new sessions",
-          });
-        }
+        sendError(
+          ws,
+          req.id,
+          "session.config is deprecated; pass explicit model/thinking on workspace.createSession and session.prompt",
+        );
         break;
       }
 
       case "prompt": {
-        const content = req.params?.content as string;
+        const content = req.params?.content as string | unknown[];
+        const targetSessionId = req.params?.sessionId as string;
+        const model = req.params?.model as string;
+        const thinking = req.params?.thinking as boolean | undefined;
         if (!content) {
           sendError(ws, req.id, "Missing content parameter");
+          return;
+        }
+        if (!targetSessionId) {
+          sendError(ws, req.id, "Missing sessionId parameter");
+          return;
+        }
+        if (!model || thinking === undefined) {
+          sendError(ws, req.id, "Missing required params: model and thinking");
           return;
         }
 
@@ -278,17 +320,12 @@ async function handleSessionMethod(
         sessionManager.currentRequestSource =
           (req.params?.source as string) || null;
 
-        // If thinking is specified and no session exists yet, set pending config
-        const { sessionId: activeId } = sessionManager.getCurrentSession();
-        if (!activeId && req.params?.thinking !== undefined) {
-          sessionManager.pendingSessionConfig.thinking = req.params
-            .thinking as boolean;
-        }
-
         // Send prompt through session manager
-        // Web clients pass sessionId (ses_...) to target a specific session
-        const targetSessionId = req.params?.sessionId as string | undefined;
-        const ccSessionId = await sessionManager.prompt(content, targetSessionId);
+        const ccSessionId = await sessionManager.prompt(content, targetSessionId, {
+          model,
+          thinking,
+          effort: req.params?.effort as string | undefined,
+        });
         sendResponse(ws, req.id, {
           status: "ok",
           sessionId: ccSessionId,
@@ -298,11 +335,16 @@ async function handleSessionMethod(
       }
 
       case "interrupt": {
-        const interrupted = await sessionManager.interrupt();
+        const sessionId = req.params?.sessionId as string;
+        if (!sessionId) {
+          sendError(ws, req.id, "Missing sessionId parameter");
+          return;
+        }
+        const interrupted = await sessionManager.interrupt(sessionId);
         if (interrupted) {
           sendResponse(ws, req.id, { status: "interrupted" });
         } else {
-          sendError(ws, req.id, "No active session");
+          sendError(ws, req.id, `Session not found or not interruptible: ${sessionId}`);
         }
         break;
       }
@@ -323,9 +365,11 @@ async function handleSessionMethod(
       }
 
       case "history": {
-        // Accept explicit session ID (ses_...) for web client,
-        // or fall back to current session for VS Code auto-discover
-        const historySessionId = req.params?.sessionId as string | undefined;
+        const historySessionId = req.params?.sessionId as string;
+        if (!historySessionId) {
+          sendError(ws, req.id, "Missing sessionId parameter");
+          return;
+        }
         const limit = req.params?.limit as number | undefined;
         const offset = req.params?.offset as number | undefined;
         const result = sessionManager.getSessionHistory(
@@ -338,21 +382,21 @@ async function handleSessionMethod(
       }
 
       case "list": {
-        const workspaceId = req.params?.workspaceId as string | undefined;
-        const sessions = sessionManager.listSessions(workspaceId);
-        sendResponse(ws, req.id, { sessions });
-        break;
+        sendError(
+          ws,
+          req.id,
+          "session.list is deprecated; use workspace.listSessions with workspaceId",
+        );
+        return;
       }
 
       case "create": {
-        const workspaceId = req.params?.workspaceId as string | undefined;
-        const title = req.params?.title as string | undefined;
-        const result = await sessionManager.createNewSession(
-          workspaceId,
-          title,
+        sendError(
+          ws,
+          req.id,
+          "session.create is deprecated; use workspace.createSession with workspaceId/model/thinking",
         );
-        sendResponse(ws, req.id, result);
-        break;
+        return;
       }
 
       case "switch": {
@@ -367,11 +411,19 @@ async function handleSessionMethod(
       }
 
       case "reset": {
-        // Archive current session and create a new one
-        const workspace = sessionManager.getCurrentWorkspace();
-        if (workspace) {
-          await sessionManager.createNewSession(workspace.id);
+        const workspaceId = req.params?.workspaceId as string;
+        const model = req.params?.model as string;
+        const thinking = req.params?.thinking as boolean | undefined;
+        if (!workspaceId || !model || thinking === undefined) {
+          sendError(ws, req.id, "Missing required params: workspaceId/model/thinking");
+          return;
         }
+        await sessionManager.createNewSession(workspaceId, undefined, {
+          model,
+          thinking,
+          effort: req.params?.effort as string | undefined,
+          systemPrompt: req.params?.systemPrompt as string | undefined,
+        });
         sendResponse(ws, req.id, { status: "reset" });
         break;
       }

@@ -26,6 +26,11 @@ class GatewayClient: NSObject {
 
     // Pending requests
     private var pendingRequests: [String: (Result<Any, Error>) -> Void] = [:]
+    private var sessionRecordId: String?
+    private let model = "claude-opus-4-6"
+    private let thinking = true
+    private let effort = "medium"
+    private let cwd = "/Users/michael/claudia/chat"
 
     // Response accumulator
     private var responseText = ""
@@ -68,7 +73,17 @@ class GatewayClient: NSObject {
         sendRequest(method: "subscribe", params: ["events": ["session.*", "voice.*"]]) { _ in }
 
         // Send the prompt with speakResponse flag for voice extension
-        var params: [String: Any] = ["content": content]
+        guard let sessionRecordId else {
+            onError?("No session initialized yet")
+            return
+        }
+        var params: [String: Any] = [
+            "content": content,
+            "sessionId": sessionRecordId,
+            "model": model,
+            "thinking": thinking,
+            "effort": effort,
+        ]
         if withVoice {
             params["speakResponse"] = true
         }
@@ -165,6 +180,24 @@ class GatewayClient: NSObject {
         }
 
         if json["ok"] as? Bool == true {
+            if let payload = json["payload"] as? [String: Any],
+               let session = payload["session"] as? [String: Any],
+               let sid = session["id"] as? String {
+                sessionRecordId = sid
+            } else if let payload = json["payload"] as? [String: Any],
+                      let workspace = payload["workspace"] as? [String: Any],
+                      let wsId = workspace["id"] as? String {
+                if let active = workspace["activeSessionId"] as? String {
+                    sessionRecordId = active
+                } else {
+                    sendRequest(method: "workspace.createSession", params: [
+                        "workspaceId": wsId,
+                        "model": model,
+                        "thinking": thinking,
+                        "effort": effort,
+                    ]) { _ in }
+                }
+            }
             completion(.success(json["payload"] ?? [:]))
         } else {
             let error = json["error"] as? String ?? "Unknown error"
@@ -232,6 +265,7 @@ extension GatewayClient: URLSessionWebSocketDelegate {
     func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didOpenWithProtocol protocol: String?) {
         print("[Gateway] Connected!")
         isConnecting = false
+        sendRequest(method: "workspace.getOrCreate", params: ["cwd": cwd, "name": "Voice Mode"]) { _ in }
         onConnected?()
         receiveMessage()
     }

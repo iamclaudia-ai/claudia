@@ -44,6 +44,13 @@ export interface SessionConfigInfo {
   systemPrompt: string | null;
 }
 
+const DEFAULT_SESSION_CONFIG: SessionConfigInfo = {
+  model: "claude-opus-4-6",
+  thinking: true,
+  effort: "medium",
+  systemPrompt: null,
+};
+
 // ─── Options ─────────────────────────────────────────────────
 
 export interface UseGatewayOptions {
@@ -509,11 +516,16 @@ export function useGateway(
               } else {
                 // No active session — auto-create first session for this workspace
                 console.log("[Workspace] No active session — creating first session");
-                sendRequest("session.create", { workspaceId: ws.id });
+                sendRequest("workspace.createSession", {
+                  workspaceId: ws.id,
+                  model: DEFAULT_SESSION_CONFIG.model,
+                  thinking: DEFAULT_SESSION_CONFIG.thinking,
+                  effort: DEFAULT_SESSION_CONFIG.effort,
+                });
               }
 
               // Load session list for this workspace
-              sendRequest("session.list", { workspaceId: ws.id });
+              sendRequest("workspace.listSessions", { workspaceId: ws.id });
             }
           }
 
@@ -530,7 +542,7 @@ export function useGateway(
               // (this happens in web explicit-session flow)
               if (sessionRecord.workspaceId) {
                 sendRequest("workspace.get", { workspaceId: sessionRecord.workspaceId });
-                sendRequest("session.list", { workspaceId: sessionRecord.workspaceId });
+                sendRequest("workspace.listSessions", { workspaceId: sessionRecord.workspaceId });
               }
             }
           }
@@ -544,8 +556,8 @@ export function useGateway(
             }
           }
 
-          // ── session.list ──
-          if (method === "session.list") {
+          // ── workspace.listSessions ──
+          if (method === "workspace.listSessions") {
             const sessionList = payload.sessions as SessionInfo[] | undefined;
             if (sessionList) {
               setSessions(sessionList);
@@ -553,8 +565,8 @@ export function useGateway(
             }
           }
 
-          // ── session.create ──
-          if (method === "session.create") {
+          // ── workspace.createSession ──
+          if (method === "workspace.createSession") {
             const newSession = payload.session as SessionInfo | undefined;
             if (newSession) {
               setSessionId(newSession.ccSessionId);
@@ -566,7 +578,9 @@ export function useGateway(
               setHasMore(false);
               historyLoadedRef.current = false;
               console.log(`[Session] Created: ${newSession.id}`);
-              sendRequest("session.list");
+              if (newSession.workspaceId) {
+                sendRequest("workspace.listSessions", { workspaceId: newSession.workspaceId });
+              }
             }
           }
 
@@ -584,7 +598,7 @@ export function useGateway(
               historyLoadedRef.current = false;
               console.log(`[Session] Switched to: ${switched.id}`);
               sendRequest("session.history", { sessionId: switched.id, limit: 50 });
-              sendRequest("session.list");
+              sendRequest("workspace.listSessions", { workspaceId: switched.workspaceId });
             }
           }
 
@@ -724,30 +738,56 @@ export function useGateway(
       }
 
       // Pass session record ID so the gateway targets the right session
-      const params: Record<string, unknown> = { content };
-      if (sessionRecordIdRef.current) params.sessionId = sessionRecordIdRef.current;
+      const sid = sessionRecordIdRef.current;
+      if (!sid) {
+        console.warn("[sendPrompt] missing sessionRecordId");
+        return;
+      }
+      const cfg = sessionConfig || DEFAULT_SESSION_CONFIG;
+      const params: Record<string, unknown> = {
+        content,
+        sessionId: sid,
+        model: cfg.model,
+        thinking: cfg.thinking,
+        effort: cfg.effort,
+      };
       sendRequest("session.prompt", params);
     },
-    [sendRequest, setMessages],
+    [sendRequest, setMessages, sessionConfig],
   );
 
   const sendInterrupt = useCallback(() => {
     if (!isQueryingRef.current) return;
-    sendRequest("session.interrupt");
+    if (!sessionRecordIdRef.current) return;
+    sendRequest("session.interrupt", { sessionId: sessionRecordIdRef.current });
   }, [sendRequest]);
 
   const loadEarlierMessages = useCallback(() => {
     if (!hasMore) return;
+    if (!sessionRecordIdRef.current) return;
     // Request next page of older messages from the server
     const offset = messages.length;
-    const params: Record<string, unknown> = { limit: 50, offset };
-    if (sessionRecordIdRef.current) params.sessionId = sessionRecordIdRef.current;
+    const params: Record<string, unknown> = {
+      sessionId: sessionRecordIdRef.current,
+      limit: 50,
+      offset,
+    };
     sendRequest("session.history", params);
   }, [hasMore, messages.length, sendRequest]);
 
   const createNewSession = useCallback(
-    (title?: string) => { sendRequest("session.create", title ? { title } : undefined); },
-    [sendRequest],
+    (title?: string) => {
+      if (!workspace?.id) return;
+      const cfg = sessionConfig || DEFAULT_SESSION_CONFIG;
+      sendRequest("workspace.createSession", {
+        workspaceId: workspace.id,
+        model: cfg.model,
+        thinking: cfg.thinking,
+        effort: cfg.effort,
+        ...(title ? { title } : {}),
+      });
+    },
+    [sendRequest, workspace?.id, sessionConfig],
   );
 
   const switchSession = useCallback(

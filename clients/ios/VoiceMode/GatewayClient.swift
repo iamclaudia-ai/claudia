@@ -7,6 +7,9 @@ import Foundation
 /// - Receives: { type: "res", id, ok, payload/error }
 /// - Receives: { type: "event", event, payload }
 class GatewayClient: NSObject, @unchecked Sendable {
+    private let model = "claude-opus-4-6"
+    private let thinking = true
+    private let effort = "medium"
     private var webSocket: URLSessionWebSocketTask?
     private var session: URLSession!
     private var isConnecting = false
@@ -98,7 +101,12 @@ class GatewayClient: NSObject, @unchecked Sendable {
                     }
 
                     func createSession() {
-                        self.sendRequest(method: "session.create", params: ["workspaceId": workspaceId]) { [weak self] result in
+                        self.sendRequest(method: "workspace.createSession", params: [
+                            "workspaceId": workspaceId,
+                            "model": self.model,
+                            "thinking": self.thinking,
+                            "effort": self.effort
+                        ]) { [weak self] result in
                             guard let self = self else { return }
                             switch result {
                             case .success(let payload):
@@ -112,7 +120,7 @@ class GatewayClient: NSObject, @unchecked Sendable {
                     }
 
                     func switchToMostRecentSession() {
-                        self.sendRequest(method: "session.list", params: ["workspaceId": workspaceId]) { result in
+                        self.sendRequest(method: "workspace.listSessions", params: ["workspaceId": workspaceId]) { result in
                             switch result {
                             case .success(let payload):
                                 guard let dict = payload as? [String: Any],
@@ -188,10 +196,16 @@ class GatewayClient: NSObject, @unchecked Sendable {
     func sendPrompt(_ content: String) {
         var params: [String: Any] = [
             "content": content,
-            "speakResponse": true
+            "speakResponse": true,
+            "model": model,
+            "thinking": thinking,
+            "effort": effort
         ]
         if let sessionRecordId = activeSessionRecordId {
             params["sessionId"] = sessionRecordId
+        } else {
+            onError?("Missing sessionId for prompt")
+            return
         }
         sendRequest(method: "session.prompt", params: params) { [weak self] result in
             if case .failure(let error) = result {
@@ -201,7 +215,8 @@ class GatewayClient: NSObject, @unchecked Sendable {
     }
 
     func sendInterrupt() {
-        sendRequest(method: "session.interrupt", params: [:]) { _ in }
+        guard let sessionRecordId = activeSessionRecordId else { return }
+        sendRequest(method: "session.interrupt", params: ["sessionId": sessionRecordId]) { _ in }
     }
 
     func sendVoiceStop() {
