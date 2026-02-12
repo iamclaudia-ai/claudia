@@ -233,10 +233,11 @@ export function useGateway(
     (eventType: string, payload: Record<string, unknown>) => {
       setEventCount((c) => c + 1);
 
-      // Auto-enable thinking for any streaming event (mid-turn recovery after HMR/refresh)
-      // Skip for non-content events
+      // Auto-enable thinking for streaming content events (mid-turn recovery after HMR/refresh)
+      // Only after history has loaded — otherwise stale events during reconnect cause false positives
       if (!isQueryingRef.current &&
-          !["ping", "turn_start", "turn_stop", "api_warning", "api_error", "process_started", "process_ended"].includes(eventType)) {
+          historyLoadedRef.current &&
+          !["ping", "turn_start", "turn_stop", "api_warning", "api_error", "process_started", "process_ended", "session_stale", "process_died"].includes(eventType)) {
         setIsQuerying(true);
         setEventCount(0);
       }
@@ -478,9 +479,13 @@ export function useGateway(
                 // Initial load — replace all messages
                 setMessages(() => historyMessages);
                 setVisibleCount(historyMessages.length);
-                setTimeout(() => { historyLoadedRef.current = true; }, 100);
               }
               console.log(`[History] Loaded ${historyMessages.length}/${total} messages (offset: ${offset}, hasMore: ${more})`);
+            }
+            // Mark history as loaded (even if empty) so streaming auto-recovery can activate.
+            // Brief delay lets any stale events from reconnect settle first.
+            if (offset === 0) {
+              setTimeout(() => { historyLoadedRef.current = true; }, 100);
             }
             setTotalMessages(total);
             setHasMore(more);
