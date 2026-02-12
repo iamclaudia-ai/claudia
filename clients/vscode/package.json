@@ -109,6 +109,7 @@
     "build": "tsc -p ./ && bun run build-webview.ts",
     "build:webview": "bun run build-webview.ts",
     "compile": "tsc -p ./",
+    "typecheck": "tsc -p ./ --noEmit",
     "watch": "tsc -watch -p ./",
     "package": "vsce package",
     "lint": "eslint src --ext ts"

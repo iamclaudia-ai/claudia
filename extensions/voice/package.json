@@ -5,7 +5,8 @@
   "main": "src/index.ts",
   "scripts": {
     "build": "bun build src/index.ts --outdir dist --target bun",
-    "test": "bun test"
+    "test": "bun test",
+    "typecheck": "tsc --noEmit -p ../../tsconfig.json"
   },
   "dependencies": {
     "@claudia/shared": "workspace:*",

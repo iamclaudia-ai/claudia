@@ -5,7 +5,8 @@
   "private": true,
   "scripts": {
     "build": "bun build src/index.ts src/routes.ts --outdir dist --target bun",
-    "test": "bun test"
+    "test": "bun test",
+    "typecheck": "tsc --noEmit -p ../../tsconfig.json"
   },
   "exports": {
     "./routes": "./src/routes.ts",

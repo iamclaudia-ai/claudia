@@ -10,7 +10,8 @@
   },
   "scripts": {
     "build": "bun build src/index.ts --outdir dist --target bun",
-    "test": "bun test"
+    "test": "bun test",
+    "typecheck": "tsc --noEmit -p ../../tsconfig.json"
   },
   "dependencies": {
     "json5": "2.2.3",

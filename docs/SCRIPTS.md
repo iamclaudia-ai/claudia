@@ -10,9 +10,10 @@ Last updated: 2026-02-12
 
 ## Recommended Standard
 
-Per workspace package/extension:
+Per workspace package/extension/client:
 - `build`: compile/package this workspace.
 - `test`: run local tests for this workspace.
+- `typecheck`: run local TS type checks (or explicit no-op for non-TS apps).
 - `dev`: watch-mode local development (if applicable).
 - `start`: run once (services/tools, if applicable).
 
@@ -21,15 +22,17 @@ Root scripts:
 - `build`: build all workspaces that expose `build`.
 - `test`: broad test runner.
 - `test:unit`, `test:integration`, `test:smoke`, `test:e2e`: focused quality gates.
+- `typecheck`: full repo typecheck via root `tsconfig.json`.
+- `typecheck:all`: per-workspace typecheck scripts.
+- `precommit`: `typecheck` + `lint-staged`.
 
 ## Current Notes
 
-- Core packages and extensions now expose `build`/`test` consistently.
-- iOS workspace includes placeholder `build`/`test` scripts because builds happen via Xcode tooling.
-- Typechecking is still intentionally selective until monorepo TS config is fully standardized.
+- Core packages/extensions/clients expose `build`/`test`/`typecheck` consistently.
+- iOS and menubar clients keep explicit `typecheck` no-op scripts because they are non-TS (Xcode/Swift).
+- Husky pre-commit hook runs root `typecheck` and then `lint-staged`.
 
 ## Suggested Next Cleanup
 
-1. Add `typecheck` script to every TS workspace once shared TS config is stabilized.
-2. Add root `typecheck:all` that runs per-workspace typechecks instead of one global `tsc`.
-3. Add per-workspace `lint` only where config exists, then optional root `lint:all`.
+1. Add per-workspace `lint` only where config exists, then optional root `lint:all`.
+2. Decide whether pre-commit should run full root `typecheck` (strict) or per-workspace `typecheck:all` (more granular).

@@ -8,7 +8,8 @@
     "dev": "bun run --watch src/start.ts",
     "start": "bun run src/start.ts",
     "build": "bun build src/start.ts --outdir dist --target bun",
-    "test": "bun test"
+    "test": "bun test",
+    "typecheck": "tsc --noEmit -p ../../tsconfig.json"
   },
   "dependencies": {
     "@claudia/shared": "workspace:*",
