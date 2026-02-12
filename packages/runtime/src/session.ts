@@ -101,6 +101,7 @@ export class RuntimeSession extends EventEmitter {
 
   // Process health monitoring
   private healthCheckInterval?: Timer;
+  private createdAt = Date.now();
   private lastActivityTime = Date.now();
 
   // Session options
@@ -254,21 +255,27 @@ export class RuntimeSession extends EventEmitter {
       model: this.model,
       isActive: this.isActive,
       isProcessRunning: this.isProcessRunning,
+      createdAt: new Date(this.createdAt).toISOString(),
       lastActivity: new Date(this.lastActivityTime).toISOString(),
       healthy: this.isHealthy(),
+      stale: this.isStale(),
     };
   }
 
   /**
-   * Check if the session is healthy (process alive and responsive).
+   * Check if the session process is alive.
    */
   private isHealthy(): boolean {
     if (!this.proc) return false;
-    if (this.proc.exitCode !== null) return false;
+    return this.proc.exitCode === null;
+  }
 
-    // Consider session unhealthy if no activity for 5+ minutes
+  /**
+   * Check if the session has had no activity for a while (idle but not broken).
+   */
+  private isStale(): boolean {
     const staleThreshold = 5 * 60 * 1000; // 5 minutes
-    return Date.now() - this.lastActivityTime < staleThreshold;
+    return Date.now() - this.lastActivityTime >= staleThreshold;
   }
 
   // ── Process Management ────────────────────────────────────
@@ -398,8 +405,8 @@ export class RuntimeSession extends EventEmitter {
         return;
       }
 
-      // Check for stale sessions (no activity)
-      if (!this.isHealthy()) {
+      // Check for stale sessions (no activity for a while)
+      if (this.isStale()) {
         const minutesSinceActivity = Math.round((Date.now() - this.lastActivityTime) / 60000);
         console.warn(`[Session ${this.id.slice(0, 8)}] Session appears stale (${minutesSinceActivity}m since last activity)`);
         this.emit("sse", {

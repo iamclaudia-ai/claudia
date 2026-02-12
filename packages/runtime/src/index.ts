@@ -251,6 +251,19 @@ const server = Bun.serve<SocketData>({
       );
     }
 
+    // Kill session endpoint: DELETE /session/:id
+    const sessionMatch = url.pathname.match(/^\/session\/(.+)$/);
+    if (sessionMatch && req.method === "DELETE") {
+      const sessionId = sessionMatch[1];
+      try {
+        await manager.close(sessionId);
+        return globalThis.Response.json({ status: "killed", sessionId });
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : "Unknown error";
+        return globalThis.Response.json({ status: "error", error: msg }, { status: 404 });
+      }
+    }
+
     return new globalThis.Response("Not found", { status: 404 });
   },
   websocket: {
