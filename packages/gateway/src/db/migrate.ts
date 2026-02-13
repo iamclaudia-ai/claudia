@@ -9,7 +9,11 @@
 
 import { readdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { homedir } from "node:os";
 import type { Database } from "bun:sqlite";
+import { createLogger } from "@claudia/shared";
+
+const log = createLogger("DB", join(homedir(), ".claudia", "logs", "gateway.log"));
 
 interface Migration {
   id: number;
@@ -50,12 +54,12 @@ export function migrate(db: Database, options: MigrateOptions = {}): Database {
       }))
       .sort((a, b) => Math.sign(a.id - b.id));
   } catch {
-    console.log(`[DB] No migrations directory found at ${location}`);
+    log.info("No migrations directory found", { location });
     return db;
   }
 
   if (!parsedMigrations.length) {
-    console.log("[DB] No migration files found");
+    log.info("No migration files found");
     return db;
   }
 
@@ -120,7 +124,7 @@ export function migrate(db: Database, options: MigrateOptions = {}): Database {
         db.run(downSql);
         db.query(`DELETE FROM "${table}" WHERE id = ?`).run(migration.id);
         db.run("COMMIT");
-        console.log(`[DB] ⬇️  Rolled back migration ${migration.id}: ${migration.name}`);
+        log.info("Rolled back migration", { id: migration.id, name: migration.name });
         dbMigrations = dbMigrations.filter((x) => x.id !== migration.id);
       } catch (err) {
         db.run("ROLLBACK");
@@ -145,7 +149,7 @@ export function migrate(db: Database, options: MigrateOptions = {}): Database {
           `INSERT INTO "${table}" (id, name, up, down, applied_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)`,
         ).run(migration.id, migration.name, migration.up, migration.down);
         db.run("COMMIT");
-        console.log(`[DB] ⬆️  Applied migration ${migration.id}: ${migration.name}`);
+        log.info("Applied migration", { id: migration.id, name: migration.name });
       } catch (err) {
         db.run("ROLLBACK");
         throw err;
@@ -167,7 +171,7 @@ export function rollback(db: Database, options: { to?: number; table?: string } 
     .all() as Migration[];
 
   if (!dbMigrations.length) {
-    console.log("[DB] No migrations to rollback");
+    log.info("No migrations to rollback");
     return db;
   }
 
@@ -176,13 +180,13 @@ export function rollback(db: Database, options: { to?: number; table?: string } 
   if (to !== undefined) {
     migrationsToRollback = dbMigrations.filter((m) => m.id > to);
     if (!migrationsToRollback.length) {
-      console.log(`[DB] Already at migration ${to} or earlier`);
+      log.info("Already at target migration or earlier", { target: to });
       return db;
     }
   } else {
     const lastMigration = dbMigrations[0];
     if (!lastMigration) {
-      console.log("[DB] No migrations to rollback");
+      log.info("No migrations to rollback");
       return db;
     }
     migrationsToRollback = [lastMigration];
@@ -194,7 +198,7 @@ export function rollback(db: Database, options: { to?: number; table?: string } 
       db.run(migration.down);
       db.query(`DELETE FROM "${table}" WHERE id = ?`).run(migration.id);
       db.run("COMMIT");
-      console.log(`[DB] ⬇️  Rolled back migration ${migration.id}: ${migration.name}`);
+      log.info("Rolled back migration", { id: migration.id, name: migration.name });
     } catch (err) {
       db.run("ROLLBACK");
       throw err;

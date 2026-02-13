@@ -15,7 +15,7 @@ import type {
   Message,
   GatewayEvent,
 } from "@claudia/shared";
-import { loadConfig } from "@claudia/shared";
+import { loadConfig, createLogger } from "@claudia/shared";
 export type { GatewayEvent };
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -33,6 +33,9 @@ import index from "./web/index.html";
 const config = loadConfig();
 const PORT = config.gateway.port;
 const DATA_DIR = process.env.CLAUDIA_DATA_DIR || join(homedir(), ".claudia");
+
+// Structured logger — writes to console + ~/.claudia/logs/gateway.log
+const log = createLogger("Gateway", join(DATA_DIR, "logs", "gateway.log"));
 
 // Ensure data directory exists
 if (!existsSync(DATA_DIR)) {
@@ -91,7 +94,7 @@ extensions.setEmitCallback(async (type, payload, source) => {
       const preview = isMultimodal
         ? `[${req.content.length} content blocks]`
         : `"${String(req.content).substring(0, 50)}..."`;
-      console.log(`[Gateway] Prompt request from ${source}: ${preview}`);
+      log.info("Prompt request", { source, preview });
 
       // Set request context for routing
       sessionManager.currentRequestWantsVoice = false;
@@ -100,8 +103,8 @@ extensions.setEmitCallback(async (type, payload, source) => {
 
       // Send prompt through session manager with explicit session targeting/config.
       if (!req.sessionId || !req.model || req.thinking === undefined || !req.effort) {
-        console.warn(
-          "[Gateway] Ignoring prompt_request with missing required params: sessionId/model/thinking/effort",
+        log.warn(
+          "Ignoring prompt_request with missing required params: sessionId/model/thinking/effort",
         );
         return;
       }
@@ -236,6 +239,18 @@ const BUILTIN_METHODS: GatewayMethodDefinition[] = [
       events: z.array(z.string()).optional(),
     }),
   },
+  {
+    method: "runtime.health-check",
+    description: "Return runtime session health status for Mission Control",
+    inputSchema: z.object({}),
+  },
+  {
+    method: "runtime.kill-session",
+    description: "Kill a Claude process on the runtime",
+    inputSchema: z.object({
+      sessionId: z.string().min(1),
+    }),
+  },
 ];
 
 const BUILTIN_METHODS_BY_NAME = new Map(BUILTIN_METHODS.map((m) => [m.method, m] as const));
@@ -251,7 +266,7 @@ function handleMessage(ws: ServerWebSocket<ClientState>, data: string): void {
       handleRequest(ws, message);
     }
   } catch (error) {
-    console.error("Failed to parse message:", error);
+    log.error("Failed to parse message", { error: String(error) });
     sendError(ws, "unknown", "Invalid message format");
   }
 }
@@ -284,6 +299,9 @@ function handleRequest(ws: ServerWebSocket<ClientState>, req: Request): void {
       break;
     case "extension":
       handleExtensionBuiltin(ws, req, action);
+      break;
+    case "runtime":
+      handleRuntimeMethod(ws, req, action);
       break;
     case "method":
       handleMethodBuiltin(ws, req, action);
@@ -434,12 +452,161 @@ function handleExtensionBuiltin(
 ): void {
   switch (action) {
     case "list": {
-      sendResponse(ws, req.id, { extensions: extensions.getExtensionList() });
+      // Include real extensions + synthetic "runtime" entry for Mission Control discovery
+      const extensionList = [
+        ...extensions.getExtensionList(),
+        {
+          id: "runtime",
+          name: "Runtime Sessions",
+          methods: ["runtime.health-check", "runtime.kill-session"],
+        },
+      ];
+      sendResponse(ws, req.id, { extensions: extensionList });
       break;
     }
     default:
       sendError(ws, req.id, `Unknown extension action: ${action}`);
   }
+}
+
+/**
+ * Handle runtime methods — runtime.health-check, runtime.kill-session
+ * These are "virtual" extension methods that query the runtime service directly.
+ * Mission Control auto-discovers them via the synthetic "runtime" entry in extension.list.
+ */
+async function handleRuntimeMethod(
+  ws: ServerWebSocket<ClientState>,
+  req: Request,
+  action: string,
+): Promise<void> {
+  const runtimeHost = config.runtime?.host || "localhost";
+  const runtimePort = config.runtime?.port || 30087;
+  const runtimeUrl = `http://${runtimeHost}:${runtimePort}`;
+
+  try {
+    switch (action) {
+      case "health-check": {
+        // Query the runtime's /health endpoint
+        let runtimeData: {
+          status: string;
+          clients: number;
+          sessions: Array<{
+            id: string;
+            cwd: string;
+            model: string;
+            isActive: boolean;
+            isProcessRunning: boolean;
+            createdAt?: string;
+            lastActivity?: string;
+            healthy?: boolean;
+            stale?: boolean;
+          }>;
+        };
+
+        try {
+          const res = await fetch(`${runtimeUrl}/health`);
+          runtimeData = await res.json();
+        } catch {
+          // Runtime is unreachable
+          sendResponse(ws, req.id, {
+            ok: false,
+            status: "disconnected",
+            label: "Runtime Sessions",
+            metrics: [{ label: "Status", value: "disconnected" }],
+          });
+          return;
+        }
+
+        const sessions = runtimeData.sessions || [];
+        const activeSessions = sessions.filter((s) => s.isActive);
+
+        // Build health items from runtime sessions
+        const items = sessions.map((s) => {
+          const lastActivity = s.lastActivity ? formatTimeAgo(new Date(s.lastActivity)) : "unknown";
+
+          // Determine status
+          let status: "healthy" | "stale" | "dead" | "inactive" = "inactive";
+          if (s.healthy) status = "healthy";
+          else if (s.stale) status = "stale";
+          else if (s.isActive && !s.isProcessRunning) status = "dead";
+          else if (s.isActive) status = "healthy";
+
+          // Shorten cwd for display
+          const cwdLabel = s.cwd.replace(homedir(), "~");
+          const modelShort = s.model.replace("claude-", "").replace(/-\d+$/, "");
+
+          return {
+            id: s.id,
+            label: `${cwdLabel} (${modelShort})`,
+            status,
+            details: {
+              model: modelShort,
+              lastActivity,
+              process: s.isProcessRunning ? "running" : "stopped",
+            },
+          };
+        });
+
+        sendResponse(ws, req.id, {
+          ok: true,
+          status: activeSessions.length > 0 ? "healthy" : "inactive",
+          label: "Runtime Sessions",
+          metrics: [
+            { label: "Active Sessions", value: activeSessions.length },
+            {
+              label: "Runtime",
+              value: sessionManager.isRuntimeConnected ? "connected" : "disconnected",
+            },
+          ],
+          items,
+          actions: [
+            {
+              method: "runtime.kill-session",
+              label: "Kill",
+              confirm: "Kill this Claude process?",
+              params: [{ name: "sessionId", source: "item.id" }],
+              scope: "item",
+            },
+          ],
+        });
+        break;
+      }
+
+      case "kill-session": {
+        const sessionId = req.params?.sessionId as string;
+        if (!sessionId) {
+          sendError(ws, req.id, "Missing sessionId parameter");
+          return;
+        }
+
+        // Kill via runtime HTTP endpoint
+        const res = await fetch(`${runtimeUrl}/session/${sessionId}`, { method: "DELETE" });
+        const result = await res.json();
+        sendResponse(ws, req.id, result);
+        break;
+      }
+
+      default:
+        sendError(ws, req.id, `Unknown runtime action: ${action}`);
+    }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    sendError(ws, req.id, errorMessage);
+  }
+}
+
+/**
+ * Format a Date as a human-readable "X ago" string
+ */
+function formatTimeAgo(date: Date): string {
+  const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
 }
 
 /**
@@ -740,14 +907,14 @@ const server = Bun.serve<ClientState>({
   websocket: {
     open(ws) {
       clients.set(ws, ws.data);
-      console.log(`Client connected: ${ws.data.id} (${clients.size} total)`);
+      log.info(`Client connected: ${ws.data.id} (${clients.size} total)`);
     },
     message(ws, message) {
       handleMessage(ws, message.toString());
     },
     close(ws) {
       clients.delete(ws);
-      console.log(`Client disconnected: ${ws.data.id} (${clients.size} total)`);
+      log.info(`Client disconnected: ${ws.data.id} (${clients.size} total)`);
     },
   },
   development: {
@@ -756,7 +923,7 @@ const server = Bun.serve<ClientState>({
   },
 });
 
-console.log(`
+log.info(`
 ╔═══════════════════════════════════════════════════════════╗
 ║                                                           ║
 ║   💙 Claudia running on http://localhost:${PORT}           ║
@@ -773,13 +940,13 @@ console.log(`
 
 // Graceful shutdown — handle all termination signals
 async function shutdown(signal: string) {
-  console.log(`\n[Gateway] ${signal} received, shutting down...`);
+  log.info(`${signal} received, shutting down...`);
   try {
     server.stop();
     await sessionManager.close();
     closeDb();
   } catch (e) {
-    console.error("[Gateway] Error during shutdown:", e);
+    log.error("Error during shutdown", { error: String(e) });
   }
   process.exit(0);
 }
@@ -791,7 +958,7 @@ process.on("SIGHUP", () => shutdown("SIGHUP"));
 // HMR cleanup — dispose managers when module reloads during development
 if (import.meta.hot) {
   import.meta.hot.dispose(async () => {
-    console.log("[HMR] Disposing managers...");
+    log.info("HMR: Disposing managers...");
     server.stop();
     await sessionManager.close();
     closeDb();

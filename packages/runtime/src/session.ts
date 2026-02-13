@@ -18,6 +18,7 @@ import { spawn, type Subprocess } from "bun";
 import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, appendFileSync } from "node:fs";
+import { createLogger } from "@claudia/shared";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import type {
@@ -116,10 +117,15 @@ export class RuntimeSession extends EventEmitter {
 
   // Logging
   private logFile?: string;
+  private logger;
 
   constructor(id: string, options: CreateSessionOptions | ResumeSessionOptions, isResume: boolean) {
     super();
     this.id = id;
+    this.logger = createLogger(
+      `Session:${id.slice(0, 8)}`,
+      join(homedir(), ".claudia", "logs", "runtime.log"),
+    );
     this.cwd = options.cwd;
     this.model = options.model || DEFAULT_MODEL;
     this.systemPrompt = "systemPrompt" in options ? options.systemPrompt : undefined;
@@ -146,7 +152,7 @@ export class RuntimeSession extends EventEmitter {
     this._isStarted = true;
     this._isClosed = false;
 
-    console.log(`[Session ${this.id.slice(0, 8)}] Started`);
+    this.logger.info("Started");
     this.emit("ready", { sessionId: this.id });
   }
 
@@ -178,7 +184,7 @@ export class RuntimeSession extends EventEmitter {
   interrupt(): void {
     if (!this.proc) return;
 
-    console.log(`[Session ${this.id.slice(0, 8)}] Sending graceful interrupt`);
+    this.logger.info("Sending graceful interrupt");
 
     const message = JSON.stringify({
       type: "control_request",
@@ -230,7 +236,7 @@ export class RuntimeSession extends EventEmitter {
     this.cleanup();
     this._isStarted = false;
     this.emit("closed");
-    console.log(`[Session ${this.id.slice(0, 8)}] Closed`);
+    this.logger.info("Closed");
   }
 
   // ── Getters ────────────────────────────────────────────────
@@ -328,9 +334,7 @@ export class RuntimeSession extends EventEmitter {
     const stdioLogFile = join(stdioLogDir, `stdio-${this.id.slice(0, 8)}.log`);
     this.stdioLogFile = stdioLogFile;
 
-    console.log(`[Session ${this.id.slice(0, 8)}] Spawning: claude (stdio mode)`);
-    console.log(`[Session ${this.id.slice(0, 8)}]   cwd: ${this.cwd}`);
-    console.log(`[Session ${this.id.slice(0, 8)}]   log: ${stdioLogFile}`);
+    this.logger.info("Spawning: claude (stdio mode)", { cwd: this.cwd, log: stdioLogFile });
 
     const proc = spawn({
       cmd,
@@ -340,7 +344,9 @@ export class RuntimeSession extends EventEmitter {
       cwd: this.cwd,
       env: {
         ...(process.env as Record<string, string>),
-        CLAUDECODE: "1",
+        // Remove nesting detection vars so spawned Claude doesn't think it's nested
+        CLAUDECODE: "",
+        CLAUDE_CODE_ENTRYPOINT: "",
       },
     });
 
@@ -363,7 +369,7 @@ export class RuntimeSession extends EventEmitter {
     }
 
     proc.exited.then((exitCode) => {
-      console.log(`[Session ${this.id.slice(0, 8)}] Process exited (code: ${exitCode})`);
+      this.logger.info("Process exited", { exitCode });
       this.stopHealthCheck();
       this.proc = null;
       this.emit("process_ended");
@@ -396,9 +402,7 @@ export class RuntimeSession extends EventEmitter {
 
       // Check if process has died
       if (this.proc.exitCode !== null) {
-        console.error(
-          `[Session ${this.id.slice(0, 8)}] Process died unexpectedly (exit code: ${this.proc.exitCode})`,
-        );
+        this.logger.error("Process died unexpectedly", { exitCode: this.proc.exitCode });
         this.emit("sse", {
           type: "process_died",
           timestamp: new Date().toISOString(),
@@ -412,9 +416,7 @@ export class RuntimeSession extends EventEmitter {
       // Check for stale sessions (no activity for a while)
       if (this.isStale()) {
         const minutesSinceActivity = Math.round((Date.now() - this.lastActivityTime) / 60000);
-        console.warn(
-          `[Session ${this.id.slice(0, 8)}] Session appears stale (${minutesSinceActivity}m since last activity)`,
-        );
+        this.logger.warn("Session appears stale", { minutesSinceActivity });
         this.emit("sse", {
           type: "session_stale",
           timestamp: new Date().toISOString(),
@@ -480,7 +482,7 @@ export class RuntimeSession extends EventEmitter {
         if (done) break;
         const text = decoder.decode(value, { stream: true });
         if (text.trim()) {
-          console.log(`[Session ${this.id.slice(0, 8)}] stderr: ${text.trim().substring(0, 200)}`);
+          this.logger.warn("stderr", { text: text.trim().substring(0, 200) });
         }
       }
     } catch {
@@ -507,7 +509,7 @@ export class RuntimeSession extends EventEmitter {
       const msg = JSON.parse(line);
       this.routeMessage(msg);
     } catch {
-      console.warn(`[Session ${this.id.slice(0, 8)}] Failed to parse: ${line.substring(0, 200)}`);
+      this.logger.warn("Failed to parse NDJSON line", { line: line.substring(0, 200) });
     }
   }
 
@@ -539,7 +541,7 @@ export class RuntimeSession extends EventEmitter {
         break;
 
       case "control_response":
-        console.log(`[Session ${this.id.slice(0, 8)}] control_response: ${msg.response.subtype}`);
+        this.logger.info("control_response", { subtype: msg.response.subtype });
         break;
 
       case "system":
@@ -632,30 +634,29 @@ export class RuntimeSession extends EventEmitter {
   private handleSystemMessage(msg: Record<string, unknown>): void {
     const subtype = msg.subtype as string | undefined;
 
-    console.log(
-      `[Session ${this.id.slice(0, 8)}] system: ${JSON.stringify(msg).substring(0, 200)}`,
-    );
+    this.logger.info("system message", { subtype, raw: JSON.stringify(msg).substring(0, 200) });
     this.log({ ...msg, logged_as: "system" });
 
     if (subtype === "status") {
       const status = msg.status as string | null;
       if (status === "compacting") {
-        console.log(`[Session ${this.id.slice(0, 8)}] ⚡ Compaction started`);
+        this.logger.info("Compaction started");
         this.emit("sse", {
           type: "compaction_start",
           timestamp: new Date().toISOString(),
         });
       } else if (status === null) {
         // status: null means compaction finished (or other status cleared)
-        console.log(`[Session ${this.id.slice(0, 8)}] ✓ Compaction status cleared`);
+        this.logger.info("Compaction status cleared");
       }
     } else if (subtype === "compact_boundary") {
       const metadata = msg.compact_metadata as
         | { trigger?: string; pre_tokens?: number }
         | undefined;
-      console.log(
-        `[Session ${this.id.slice(0, 8)}] 🔖 Compaction boundary (trigger: ${metadata?.trigger}, pre_tokens: ${metadata?.pre_tokens})`,
-      );
+      this.logger.info("Compaction boundary", {
+        trigger: metadata?.trigger,
+        pre_tokens: metadata?.pre_tokens,
+      });
       this.emit("sse", {
         type: "compaction_end",
         timestamp: new Date().toISOString(),
@@ -673,7 +674,7 @@ export class RuntimeSession extends EventEmitter {
   private sendToStdin(message: string): void {
     const stdin = this.proc?.stdin;
     if (!stdin || typeof stdin === "number") {
-      console.warn(`[Session ${this.id.slice(0, 8)}] Cannot write to stdin: no process`);
+      this.logger.warn("Cannot write to stdin: no process");
       return;
     }
 
@@ -689,7 +690,7 @@ export class RuntimeSession extends EventEmitter {
     try {
       stdin.write(message + "\n");
     } catch (error) {
-      console.error(`[Session ${this.id.slice(0, 8)}] Failed to write to stdin:`, error);
+      this.logger.error("Failed to write to stdin", { error: String(error) });
     }
   }
 
@@ -699,9 +700,7 @@ export class RuntimeSession extends EventEmitter {
    */
   private sendThinkingConfig(effort: ThinkingEffort): void {
     const maxTokens = THINKING_TOKENS[effort];
-    console.log(
-      `[Session ${this.id.slice(0, 8)}] Configuring thinking: ${effort} (${maxTokens} tokens)`,
-    );
+    this.logger.info("Configuring thinking", { effort, maxTokens });
 
     const message = JSON.stringify({
       type: "control_request",

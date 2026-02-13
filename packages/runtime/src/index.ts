@@ -17,7 +17,11 @@
 
 import type { ServerWebSocket } from "bun";
 import type { Request, Response, Event, Message, ThinkingEffort } from "@claudia/shared";
-import { loadConfig } from "@claudia/shared";
+import { loadConfig, createLogger } from "@claudia/shared";
+import { join } from "node:path";
+import { homedir } from "node:os";
+
+const log = createLogger("Runtime", join(homedir(), ".claudia", "logs", "runtime.log"));
 import { RuntimeSessionManager } from "./manager";
 
 // ── Configuration ────────────────────────────────────────────
@@ -51,7 +55,7 @@ function handleMessage(ws: ServerWebSocket<SocketData>, data: string): void {
       handleRequest(ws, message);
     }
   } catch (error) {
-    console.error("[Runtime] Failed to parse message:", error);
+    log.error(" Failed to parse message:", error);
     sendError(ws, "unknown", "Invalid message format");
   }
 }
@@ -269,22 +273,20 @@ const server = Bun.serve<SocketData>({
   websocket: {
     open(ws) {
       clients.set(ws, ws.data);
-      console.log(`[Runtime] Gateway connected: ${ws.data.id.slice(0, 8)} (${clients.size} total)`);
+      log.info(` Gateway connected: ${ws.data.id.slice(0, 8)} (${clients.size} total)`);
     },
     message(ws, message) {
       handleMessage(ws, message.toString());
     },
     close(ws) {
       clients.delete(ws);
-      console.log(
-        `[Runtime] Gateway disconnected: ${ws.data.id.slice(0, 8)} (${clients.size} total)`,
-      );
+      log.info("Gateway disconnected", { id: ws.data.id.slice(0, 8), total: clients.size });
     },
   },
 });
 
 const sessionConfig = config.session || {};
-console.log(`
+log.info(`
 ╔═══════════════════════════════════════════════════════════╗
 ║                                                           ║
 ║   ⚡ Claudia Runtime on http://localhost:${PORT}           ║
@@ -299,7 +301,7 @@ console.log(`
 
 // Graceful shutdown
 process.on("SIGINT", async () => {
-  console.log("\n[Runtime] Shutting down...");
+  log.info("Shutting down...");
   await manager.closeAll();
   server.stop();
   process.exit(0);

@@ -13,9 +13,12 @@
 import type { Database } from "bun:sqlite";
 import type { Workspace, SessionRecord, GatewayEvent, ClaudiaConfig } from "@claudia/shared";
 import type { Request, Event, Message } from "@claudia/shared";
+import { createLogger } from "@claudia/shared";
 import { existsSync, readFileSync, readdirSync, unlinkSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
+
+const log = createLogger("SessionManager", join(homedir(), ".claudia", "logs", "gateway.log"));
 
 import * as workspaceModel from "./db/models/workspace";
 import * as sessionModel from "./db/models/session";
@@ -103,12 +106,12 @@ export class SessionManager {
     const port = this.config.runtime?.port || 30087;
     const url = `ws://${host}:${port}/ws`;
 
-    console.log(`[SessionManager] Connecting to runtime: ${url}`);
+    log.info(` Connecting to runtime: ${url}`);
 
     const ws = new WebSocket(url);
 
     ws.onopen = () => {
-      console.log("[SessionManager] Connected to runtime ✓");
+      log.info(" Connected to runtime ✓");
       this.runtimeConnected = true;
       this.runtimeWs = ws;
 
@@ -129,12 +132,12 @@ export class SessionManager {
         const message: Message = JSON.parse(event.data as string);
         this.handleRuntimeMessage(message);
       } catch (error) {
-        console.error("[SessionManager] Failed to parse runtime message:", error);
+        log.error(" Failed to parse runtime message:", error);
       }
     };
 
     ws.onclose = () => {
-      console.log("[SessionManager] Runtime disconnected");
+      log.info(" Runtime disconnected");
       this.runtimeConnected = false;
       this.runtimeWs = null;
 
@@ -150,7 +153,7 @@ export class SessionManager {
     };
 
     ws.onerror = (error) => {
-      console.error("[SessionManager] Runtime WebSocket error:", error);
+      log.error(" Runtime WebSocket error:", error);
     };
   }
 
@@ -237,26 +240,26 @@ export class SessionManager {
 
     // ── Streaming event logging ──
     if (eventType === "message_start") {
-      console.log(`[Stream] ▶ message_start (session: ${sessionId?.slice(0, 8)}…)`);
+      log.info(`[Stream] ▶ message_start (session: ${sessionId?.slice(0, 8)}…)`);
     } else if (eventType === "message_stop") {
-      console.log(`[Stream] ■ message_stop`);
+      log.info(`[Stream] ■ message_stop`);
     } else if (eventType === "content_block_start") {
       const block = eventPayload.content_block as { type: string; name?: string } | undefined;
       const label =
         block?.type === "tool_use" ? `tool_use(${block.name})` : block?.type || "unknown";
-      console.log(`[Stream]   ┌ content_block_start: ${label}`);
+      log.info(`[Stream]   ┌ content_block_start: ${label}`);
     } else if (eventType === "content_block_stop") {
-      console.log(`[Stream]   └ content_block_stop`);
+      log.info(`[Stream]   └ content_block_stop`);
     } else if (eventType === "api_error") {
-      console.error(`[Stream] ✖ API ERROR ${eventPayload.status}: ${eventPayload.message}`);
+      log.error(`[Stream] ✖ API ERROR ${eventPayload.status}: ${eventPayload.message}`);
     } else if (eventType === "api_warning") {
-      console.warn(
+      log.warn(
         `[Stream] ⚠ API RETRY attempt ${eventPayload.attempt}/${eventPayload.maxRetries}: ${eventPayload.message}`,
       );
     } else if (eventType === "compaction_start") {
-      console.log(`[Stream] ⚡ compaction_start (session: ${sessionId?.slice(0, 8)}…)`);
+      log.info(`[Stream] ⚡ compaction_start (session: ${sessionId?.slice(0, 8)}…)`);
     } else if (eventType === "compaction_end") {
-      console.log(
+      log.info(
         `[Stream] ✓ compaction_end (trigger: ${eventPayload.trigger}, pre_tokens: ${eventPayload.pre_tokens})`,
       );
     }
@@ -317,11 +320,11 @@ export class SessionManager {
         sessions: Array<{ id: string }>;
       };
       if (result.sessions?.length > 0) {
-        console.log(`[SessionManager] Runtime has ${result.sessions.length} active session(s)`);
+        log.info(` Runtime has ${result.sessions.length} active session(s)`);
         // TODO: reconcile with SQLite records
       }
     } catch (error) {
-      console.warn("[SessionManager] Failed to reconcile runtime sessions:", error);
+      log.warn(" Failed to reconcile runtime sessions:", error);
     }
   }
 
@@ -407,9 +410,7 @@ export class SessionManager {
     if (!cwd) throw new Error(`Workspace not found for session: ${record.workspaceId}`);
 
     // Resume in runtime with explicit per-request config.
-    console.log(
-      `[SessionManager] Resuming session via runtime: ${record.ccSessionId} (cwd: ${cwd})`,
-    );
+    log.info(`[SessionManager] Resuming session via runtime: ${record.ccSessionId} (cwd: ${cwd})`);
     await this.runtimeRequest("session.resume", {
       sessionId: record.ccSessionId,
       cwd,
@@ -466,7 +467,7 @@ export class SessionManager {
     const effort = runtimeConfig.effort;
     const model = runtimeConfig.model;
 
-    console.log(
+    log.info(
       `[SessionManager] Creating new session via runtime (model: ${model}, thinking: ${thinking}, effort: ${effort}, cwd: ${workspace.cwd})...`,
     );
 
@@ -495,7 +496,7 @@ export class SessionManager {
     // Clear pending config
     this.pendingSessionConfig = {};
 
-    console.log(`[SessionManager] Created session: ${result.sessionId} (${record.id})`);
+    log.info(` Created session: ${result.sessionId} (${record.id})`);
     return { session: record, previousSessionId };
   }
 
@@ -520,7 +521,7 @@ export class SessionManager {
     if (!workspace) throw new Error(`Workspace not found: ${record.workspaceId}`);
 
     // Resume in runtime
-    console.log(
+    log.info(
       `[SessionManager] Switching to session via runtime: ${record.ccSessionId} (cwd: ${workspace.cwd})`,
     );
     await this.runtimeRequest("session.resume", {
@@ -560,7 +561,7 @@ export class SessionManager {
 
     const sessionPath = resolveSessionPath(ccSessionId);
     if (!sessionPath) {
-      console.warn(`[SessionManager] Session JSONL not found for: ${ccSessionId}`);
+      log.warn(`[SessionManager] Session JSONL not found for: ${ccSessionId}`);
       return { messages: [], usage: null, total: 0, hasMore: false };
     }
 
@@ -572,17 +573,17 @@ export class SessionManager {
           limit: options.limit,
           offset: options.offset || 0,
         });
-        console.log(
+        log.info(
           `[SessionManager] Loaded ${messages.length}/${total} messages (offset: ${options.offset || 0}, hasMore: ${hasMore})`,
         );
         return { messages, usage, total, hasMore };
       }
 
       const messages = parseSessionFile(sessionPath);
-      console.log(`[SessionManager] Loaded ${messages.length} messages from history`);
+      log.info(` Loaded ${messages.length} messages from history`);
       return { messages, usage, total: messages.length, hasMore: false };
     } catch (err) {
-      console.error("[SessionManager] Failed to parse session history:", err);
+      log.error(" Failed to parse session history:", err);
       return { messages: [], usage: null, total: 0, hasMore: false };
     }
   }
@@ -668,7 +669,7 @@ export class SessionManager {
 
     const existing = sessionModel.getSessionByCcId(this.db, ccSessionId);
     if (existing) {
-      console.log(`[SessionManager] Legacy session already migrated: ${ccSessionId}`);
+      log.info(` Legacy session already migrated: ${ccSessionId}`);
       unlinkSync(sessionFile);
       return;
     }
@@ -685,7 +686,7 @@ export class SessionManager {
     this.currentWorkspace = workspaceModel.getWorkspace(this.db, workspace.id);
     this.currentSessionRecord = record;
 
-    console.log(`[SessionManager] Migrated legacy session: ${ccSessionId} → ${record.id}`);
+    log.info(` Migrated legacy session: ${ccSessionId} → ${record.id}`);
     unlinkSync(sessionFile);
   }
 
@@ -751,7 +752,7 @@ export class SessionManager {
 
       if (files.length === 0) return;
 
-      console.log(
+      log.info(
         `[SessionManager] Discovered ${files.length} existing session(s) for ${workspace.name}`,
       );
 
@@ -769,16 +770,16 @@ export class SessionManager {
           ccSessionId: file.ccSessionId,
         });
 
-        console.log(`[SessionManager] Imported session: ${file.ccSessionId} → ${record.id}`);
+        log.info(` Imported session: ${file.ccSessionId} → ${record.id}`);
         latestRecord = record;
       }
 
       if (latestRecord && !workspace.activeSessionId) {
         workspaceModel.setActiveSession(this.db, workspace.id, latestRecord.id);
-        console.log(`[SessionManager] Set active session: ${latestRecord.id}`);
+        log.info(` Set active session: ${latestRecord.id}`);
       }
     } catch (err) {
-      console.error(`[SessionManager] Error discovering sessions:`, err);
+      log.error(` Error discovering sessions:`, err);
     }
   }
 }

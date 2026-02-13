@@ -12,7 +12,11 @@
  */
 
 import { extensions } from "./index";
-import { getEnabledExtensions } from "@claudia/shared";
+import { getEnabledExtensions, createLogger } from "@claudia/shared";
+import { join } from "node:path";
+import { homedir } from "node:os";
+
+const log = createLogger("Startup", join(homedir(), ".claudia", "logs", "gateway.log"));
 
 // Import available extensions
 import { createVoiceExtension } from "@claudia/voice";
@@ -55,16 +59,16 @@ async function loadExtensions(): Promise<void> {
   const enabledExtensions = getEnabledExtensions();
 
   if (enabledExtensions.length === 0) {
-    console.log("[Startup] No extensions enabled");
+    log.info("No extensions enabled");
     return;
   }
 
-  console.log(`[Startup] Loading extensions: ${enabledExtensions.map(([id]) => id).join(", ")}`);
+  log.info("Loading extensions", { extensions: enabledExtensions.map(([id]) => id) });
 
   for (const [id, ext] of enabledExtensions) {
     const factory = EXTENSION_FACTORIES[id];
     if (!factory) {
-      console.warn(`[Startup] Unknown extension: ${id}`);
+      log.warn("Unknown extension", { id });
       continue;
     }
 
@@ -78,7 +82,7 @@ async function loadExtensions(): Promise<void> {
 
       await extensions.register(extension);
     } catch (error) {
-      console.error(`[Startup] Failed to load extension ${id}:`, error);
+      log.error("Failed to load extension", { id, error: String(error) });
     }
   }
 }
@@ -89,11 +93,11 @@ async function loadBuiltinExtensions(): Promise<void> {
     await extensions.register(createChatExtension());
     await extensions.register(createMissionControlExtension());
   } catch (error) {
-    console.error("[Startup] Failed to load builtin extensions:", error);
+    log.error("Failed to load builtin extensions", { error: String(error) });
   }
 }
 
 // Load extensions on startup
 loadBuiltinExtensions()
   .then(() => loadExtensions())
-  .catch(console.error);
+  .catch((err) => log.error("Extension startup failed", { error: String(err) }));

@@ -10,6 +10,9 @@ import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { migrate } from "./migrate";
+import { createLogger } from "@claudia/shared";
+
+const log = createLogger("DB", join(homedir(), ".claudia", "logs", "gateway.log"));
 
 const CLAUDIA_DIR = join(homedir(), ".claudia");
 const DB_PATH = join(CLAUDIA_DIR, "claudia.db");
@@ -36,7 +39,7 @@ export function getDb(): Database {
   // Run pending migrations
   migrate(db);
 
-  console.log(`[DB] Opened ${DB_PATH}`);
+  log.info("Opened database", { path: DB_PATH });
   return db;
 }
 

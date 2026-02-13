@@ -19,7 +19,12 @@ import {
   type ResumeSessionOptions,
   type StreamEvent,
 } from "./session";
+import { createLogger } from "@claudia/shared";
 import type { ClaudiaConfig, ThinkingEffort } from "@claudia/shared";
+import { join } from "node:path";
+import { homedir } from "node:os";
+
+const log = createLogger("Manager", join(homedir(), ".claudia", "logs", "runtime.log"));
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -84,7 +89,7 @@ export class RuntimeSessionManager extends EventEmitter {
     this.sessions.set(session.id, session);
     this.wireSession(session);
 
-    console.log(`[Manager] Created session: ${session.id.slice(0, 8)}`);
+    log.info("Created session", { sessionId: session.id.slice(0, 8) });
     return { sessionId: session.id };
   }
 
@@ -96,7 +101,7 @@ export class RuntimeSessionManager extends EventEmitter {
     // Check if already active
     const existing = this.sessions.get(params.sessionId);
     if (existing?.isActive) {
-      console.log(`[Manager] Session already active: ${params.sessionId.slice(0, 8)}`);
+      log.info("Session already active", { sessionId: params.sessionId.slice(0, 8) });
       return { sessionId: existing.id };
     }
 
@@ -113,7 +118,7 @@ export class RuntimeSessionManager extends EventEmitter {
     this.sessions.set(session.id, session);
     this.wireSession(session);
 
-    console.log(`[Manager] Resumed session: ${session.id.slice(0, 8)}`);
+    log.info("Resumed session", { sessionId: session.id.slice(0, 8) });
     return { sessionId: session.id };
   }
 
@@ -130,9 +135,11 @@ export class RuntimeSessionManager extends EventEmitter {
         throw new Error(`Session not found and no cwd provided for auto-resume: ${sessionId}`);
       }
       const sessionConfig = this.config?.session;
-      console.log(
-        `[Manager] Auto-resuming session: ${sessionId.slice(0, 8)} (cwd: ${cwd}, model: ${sessionConfig?.model || "default"})`,
-      );
+      log.info("Auto-resuming session", {
+        sessionId: sessionId.slice(0, 8),
+        cwd,
+        model: sessionConfig?.model || "default",
+      });
       await this.resume({
         sessionId,
         cwd,
@@ -165,7 +172,7 @@ export class RuntimeSessionManager extends EventEmitter {
 
     await session.close();
     this.sessions.delete(sessionId);
-    console.log(`[Manager] Closed session: ${sessionId.slice(0, 8)}`);
+    log.info("Closed session", { sessionId: sessionId.slice(0, 8) });
   }
 
   /**
