@@ -380,6 +380,12 @@ export function MissionControlPage() {
             {lastUpdated && (
               <span className="text-xs text-zinc-600">Updated {formatTimeAgo(lastUpdated)}</span>
             )}
+            <Link
+              to="/logs"
+              className="text-xs px-3 py-1.5 rounded-md bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-300 transition-colors"
+            >
+              View Logs
+            </Link>
             <button
               onClick={refresh}
               className="text-xs px-3 py-1.5 rounded-md bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-300 transition-colors"
