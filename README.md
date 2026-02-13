@@ -6,11 +6,11 @@
 
 A personal AI assistant platform built around Claude Code CLI. One gateway, one port, every interface.
 
-## Overview
+## What is Claudia?
 
-Claudia is a gateway-centric architecture for interacting with Claude through multiple interfaces — web, CLI, macOS menubar, iOS, iMessage, and voice. Unlike approaches that wrap the CLI for "remote control," Claudia's gateway IS the control plane. Sessions can be created from any client, anywhere.
+Claudia is a gateway-centric platform for interacting with Claude through any interface you want — web browser, CLI, iOS, macOS menubar, VS Code, iMessage, and voice. Instead of wrapping the CLI for remote control, Claudia's gateway **is** the control plane. Sessions can be created from any client, anywhere.
 
-**Port 30086** — SHA256("Claudia") → `7586...` → `30086`. Claudia's port.
+**Port 30086** — SHA256("Claudia") = `7586...` = `30086`
 
 ```
 ┌──────────────────────────────────────────────────────────┐
@@ -56,161 +56,87 @@ bun run dev
 
 That's it. One command, one port, everything works.
 
-## Architecture
+## Interfaces
 
-### Single Server
+| Interface         | Description                                               |
+| ----------------- | --------------------------------------------------------- |
+| **Web UI**        | Browser-based chat at `http://localhost:30086`            |
+| **CLI**           | Schema-driven client with method discovery and validation |
+| **iOS App**       | Native Swift voice mode app with streaming audio          |
+| **macOS Menubar** | Quick-access menubar app (SwiftUI, icon: 💋)              |
+| **VS Code**       | Sidebar chat with workspace auto-discovery                |
+| **iMessage**      | Text-based interaction via Messages app                   |
+| **Voice**         | Cartesia Sonic 3.0 real-time streaming TTS                |
 
-The gateway serves everything on port 30086:
+## Everything is an Extension
 
-- **WebSocket** (`/ws`) — all client communication (req/res/event protocol)
-- **Web UI** (`/*`) — SPA with client-side routing, served as fallback
-- **Health** (`/health`) — JSON status endpoint
+Every feature — including the web chat UI — is an extension that plugs into the gateway:
 
-### Everything is an Extension
+| Extension         | What it does                                           |
+| ----------------- | ------------------------------------------------------ |
+| `chat`            | Web chat pages — workspace list, session list, chat UI |
+| `voice`           | Cartesia TTS streaming, auto-speak, audio saving       |
+| `imessage`        | iMessage bridge, auto-reply to allowed contacts        |
+| `mission-control` | System dashboard with extension health monitoring      |
 
-Every feature — including the web chat UI — is an extension:
-
-| Extension  | Type            | What it does                                    |
-| ---------- | --------------- | ----------------------------------------------- |
-| `chat`     | Client routes   | Workspace list, session list, chat pages        |
-| `voice`    | Server + client | ElevenLabs TTS, auto-speak responses            |
-| `imessage` | Server          | iMessage bridge, auto-reply to allowed contacts |
-
-Extensions can provide:
-
-- **Server methods** — `voice.speak`, `imessage.send` (handled via WebSocket)
-- **Web pages** — React components in `pages/` with route declarations in `routes.ts`
-- **Event handlers** — subscribe to session events, emit their own
-
-### Client-Side Routing
-
-Zero-dependency pushState router (~75 lines). Extensions declare routes:
-
-```typescript
-// extensions/chat/src/routes.ts
-export const chatRoutes: Route[] = [
-  { path: "/", component: WorkspacesPage },
-  { path: "/workspace/:workspaceId", component: WorkspacePage },
-  { path: "/session/:sessionId", component: SessionPage },
-];
-```
-
-The web shell (`packages/gateway/src/web/`) just collects routes from all extensions and renders a `<Router>`.
-
-### Session Management
-
-- **Workspaces** — map to project directories (CWD-based)
-- **Sessions** — Claude Code CLI sessions, tracked in SQLite
-- **History** — parsed from JSONL files with server-side pagination (limit/offset)
-- **Multi-client** — VS Code auto-discovers by CWD, web client navigates explicitly
-
-### WebSocket Protocol
-
-```typescript
-// Client → Gateway (request)
-{ type: "req", id: "abc", method: "session.prompt", params: { content: "Hello" } }
-
-// Gateway → Client (response)
-{ type: "res", id: "abc", ok: true, payload: { sessionId: "..." } }
-
-// Gateway → Client (streaming event)
-{ type: "event", event: "session.content_block_delta", payload: { delta: { text: "Hi!" } } }
-```
+Extensions provide server methods (RPC over WebSocket), web pages (React components with routes), event handlers, and structured health checks. All methods use schema-driven validation at the gateway boundary.
 
 ## Project Structure
 
 ```
 claudia/
 ├── packages/
-│   ├── gateway/          # Core server — sessions, events, extensions, web serving
-│   ├── sdk/              # claudia-sdk — Claude Code CLI wrapper
-│   ├── shared/           # Shared types and utilities
-│   └── ui/               # Shared React components + router
+│   ├── gateway/          # Core server — single port serves everything
+│   ├── runtime/          # Session runtime — manages CLI processes via stdio
+│   ├── cli/              # Schema-driven CLI with method discovery
+│   ├── shared/           # Shared types, config, and protocol definitions
+│   ├── ui/               # Shared React components + pushState router
+│   └── memory-mcp/       # MCP server for persistent memory system
 ├── clients/
-│   ├── web/              # SPA shell (index.html + route collector, ~30 lines)
-│   ├── menubar/          # macOS "Hey babe" app (SwiftUI) 💋
-│   └── ios/              # React Native mobile client
+│   ├── ios/              # Native Swift iOS voice mode app
+│   ├── menubar/          # macOS menubar app (SwiftUI) 💋
+│   └── vscode/           # VS Code extension with sidebar chat
 ├── extensions/
 │   ├── chat/             # Web chat pages (workspaces, sessions, chat)
-│   ├── voice/            # ElevenLabs TTS + auto-speak
-│   └── imessage/         # iMessage bridge + auto-reply
-└── docs/
-    └── ARCHITECTURE.md   # Detailed architecture docs
+│   ├── voice/            # Cartesia TTS + auto-speak + audio store
+│   ├── imessage/         # iMessage bridge + auto-reply
+│   └── mission-control/  # System dashboard + health checks
+├── skills/               # Claude Code skills (meditation, stories, TTS tools)
+└── docs/                 # Architecture, API reference, testing guides
 ```
-
-## Creating an Extension
-
-Extensions follow a simple convention:
-
-```
-extensions/<name>/
-  package.json
-  src/
-    index.ts              # Server-side: methods, events, lifecycle
-    routes.ts             # Client-side: page routes (optional)
-    pages/                # React page components (optional)
-      SettingsPage.tsx
-```
-
-**Server-side** (methods + events):
-
-```typescript
-export function createMyExtension(): ClaudiaExtension {
-  return {
-    id: "my-ext",
-    name: "My Extension",
-    methods: ["my-ext.doSomething"],
-    events: ["my-ext.happened"],
-    async start(ctx) {
-      /* subscribe to events, init resources */
-    },
-    async stop() {
-      /* cleanup */
-    },
-    async handleMethod(method, params) {
-      /* handle RPC calls */
-    },
-    health() {
-      return { ok: true };
-    },
-  };
-}
-```
-
-**Client-side** (web pages):
-
-```typescript
-// extensions/<name>/src/routes.ts
-export const myRoutes: Route[] = [
-  { path: "/ext/my-ext", component: MyPage, label: "My Extension" },
-];
-```
-
-Import in `packages/gateway/src/web/index.tsx` and add to `allRoutes`.
-
-## Configuration
-
-Gateway reads from `claudia.json` or environment variables:
-
-| Variable             | Description              | Default                    |
-| -------------------- | ------------------------ | -------------------------- |
-| `CLAUDIA_PORT`       | Gateway port             | `30086`                    |
-| `CLAUDIA_EXTENSIONS` | Extensions to load       | `voice,imessage`           |
-| `ELEVENLABS_API_KEY` | ElevenLabs API key       | required for voice         |
-| `CLAUDIA_THINKING`   | Enable extended thinking | `true`                     |
-| `CLAUDIA_MODEL`      | Claude model             | `claude-sonnet-4-20250514` |
 
 ## Development
 
 ```bash
-bun run dev          # Start gateway (serves everything)
-bun test             # Run tests
-bun run typecheck    # Type check
+bun run dev              # Start gateway (serves everything)
+bun test                 # Run tests
+bun run typecheck        # Type check (canonical)
+bun run typecheck:fast   # Fast type check via tsgo (used in pre-commit)
 ```
 
-## Networking
+See [DEVELOPMENT.md](./DEVELOPMENT.md) for the full guide including git hooks, testing strategy, and workspace conventions.
 
-Claudia uses **Tailscale** for secure remote access. The gateway is accessible from any device on the tailnet via `claudia-gateway.kiliman.dev`. Caddy handles TLS termination.
+## Documentation
+
+| Doc                                         | Description                      |
+| ------------------------------------------- | -------------------------------- |
+| [ARCHITECTURE.md](./docs/ARCHITECTURE.md)   | Detailed system architecture     |
+| [API-REFERENCE.md](./docs/API-REFERENCE.md) | Complete API contract reference  |
+| [TESTING.md](./docs/TESTING.md)             | Testing strategy and commands    |
+| [DEVELOPMENT.md](./DEVELOPMENT.md)          | Development setup and tooling    |
+| [HEALTHCHECKS.md](./docs/HEALTHCHECKS.md)   | Extension health check contracts |
+
+## Tech Stack
+
+- **Runtime**: [Bun](https://bun.sh)
+- **Language**: TypeScript (strict)
+- **Server**: Bun.serve (HTTP + WebSocket on single port)
+- **Database**: SQLite (workspaces + sessions)
+- **Sessions**: Claude Code CLI via stdio pipes (Agent SDK protocol)
+- **TTS**: Cartesia Sonic 3.0 (real-time) + ElevenLabs v3 (pre-generated content)
+- **Router**: Hand-rolled pushState router (~75 lines, zero deps)
+- **Network**: Tailscale for secure remote access
+- **Tooling**: oxfmt + oxlint, Husky git hooks, tsgo fast checks
 
 ## License
 

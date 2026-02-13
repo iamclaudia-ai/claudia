@@ -5,11 +5,12 @@
 Claudia is a personal AI assistant platform built around Claude Code CLI. A single gateway on port 30086 serves everything — WebSocket, web UI, and extensions — providing a unified control plane for interacting with Claude through multiple interfaces:
 
 - **Web UI** — Browser-based chat at `http://localhost:30086`
+- **CLI** — Schema-driven client with method discovery and validation
 - **VS Code Extension** — Sidebar chat with workspace auto-discovery
-- **macOS Menubar App** — "Hey babe" wake word activation (icon: 💋)
-- **iOS App** — React Native mobile client
+- **macOS Menubar App** — Quick-access menubar app (SwiftUI, icon: 💋)
+- **iOS App** — Native Swift voice mode app with streaming audio
 - **iMessage** — Text-based interaction via Messages
-- **Voice** — ElevenLabs TTS with auto-speak
+- **Voice** — Cartesia Sonic 3.0 real-time streaming TTS
 
 ## Architecture
 
@@ -34,15 +35,20 @@ Claudia is a personal AI assistant platform built around Claude Code CLI. A sing
 
 The gateway IS the control plane. Sessions can be created from ANY client — web, mobile, CLI, iMessage. You don't need to start locally first.
 
+### Schema-First API Design
+
+All API methods declare Zod schemas for input validation. The gateway validates at the boundary before dispatching — handlers can assume valid input. Use `method.list` for runtime introspection of all available methods and their schemas.
+
 ### Everything is an Extension
 
 Every feature — including the web chat UI — is an extension with routes and pages:
 
-| Extension  | Location               | Server methods                    | Web pages                             |
-| ---------- | ---------------------- | --------------------------------- | ------------------------------------- |
-| `chat`     | `extensions/chat/`     | —                                 | `/`, `/workspace/:id`, `/session/:id` |
-| `voice`    | `extensions/voice/`    | `voice.speak`, `voice.stop`       | —                                     |
-| `imessage` | `extensions/imessage/` | `imessage.send`, `imessage.chats` | —                                     |
+| Extension         | Location                      | Server methods                    | Web pages                             |
+| ----------------- | ----------------------------- | --------------------------------- | ------------------------------------- |
+| `chat`            | `extensions/chat/`            | `chat.health-check`               | `/`, `/workspace/:id`, `/session/:id` |
+| `voice`           | `extensions/voice/`           | `voice.speak`, `voice.stop`       | —                                     |
+| `imessage`        | `extensions/imessage/`        | `imessage.send`, `imessage.chats` | —                                     |
+| `mission-control` | `extensions/mission-control/` | `mission-control.health-check`    | `/mission-control`                    |
 
 ## Tech Stack
 
@@ -52,8 +58,10 @@ Every feature — including the web chat UI — is an extension with routes and 
 - **Database**: SQLite (workspaces + sessions)
 - **Session Management**: Claude Code CLI via stdio pipes (official Agent SDK protocol)
 - **Client-side Router**: Hand-rolled pushState router (~75 lines, zero deps)
-- **TTS**: ElevenLabs API (streaming)
+- **TTS**: Cartesia Sonic 3.0 (real-time streaming) + ElevenLabs v3 (pre-generated content via text-to-dialogue API)
 - **Network**: Tailscale for secure remote access
+- **Formatting/Linting**: oxfmt + oxlint
+- **Type checking**: tsc (canonical) + tsgo (fast pre-commit)
 
 ## Monorepo Structure
 
@@ -62,16 +70,22 @@ claudia/
 ├── packages/
 │   ├── gateway/          # Core server — single port serves everything
 │   ├── runtime/          # Session runtime — manages CLI processes via stdio
-│   ├── shared/           # Shared types and config utilities
-│   └── ui/               # Shared React components + router
+│   ├── cli/              # Schema-driven CLI with method discovery
+│   ├── shared/           # Shared types, config, and protocol definitions
+│   ├── ui/               # Shared React components + router
+│   └── memory-mcp/       # MCP server for persistent memory system
 ├── clients/
-│   └── web/              # SPA shell (index.html + route collector, ~30 lines)
+│   ├── ios/              # Native Swift iOS voice mode app
+│   ├── menubar/          # macOS menubar app (SwiftUI) 💋
+│   └── vscode/           # VS Code extension with sidebar chat
 ├── extensions/
 │   ├── chat/             # Web chat pages (workspaces, sessions, chat)
-│   ├── voice/            # ElevenLabs TTS + auto-speak
-│   └── imessage/         # iMessage bridge + auto-reply
-└── docs/
-    └── ARCHITECTURE.md   # Detailed architecture
+│   ├── voice/            # Cartesia TTS + auto-speak + audio store
+│   ├── imessage/         # iMessage bridge + auto-reply
+│   └── mission-control/  # System dashboard + health checks
+├── skills/               # Claude Code skills (meditation, stories, TTS tools)
+├── scripts/              # Smoke tests, E2E tests, watchdog
+└── docs/                 # Architecture, API reference, testing guides
 ```
 
 ## Key Components
@@ -86,11 +100,12 @@ The heart of Claudia. Single Bun.serve instance on port 30086:
 
 Key files:
 
-- `src/index.ts` — Server setup, WebSocket handlers, request routing
+- `src/index.ts` — Server setup, WebSocket handlers, request routing, schema validation
 - `src/session-manager.ts` — Workspace/session lifecycle, history pagination
-- `src/extensions.ts` — Extension registration, method/event routing
+- `src/extensions.ts` — Extension registration, method/event routing, param validation
 - `src/parse-session.ts` — JSONL parser with paginated history (load-all-then-slice)
 - `src/db/` — SQLite schema and models for workspaces + sessions
+- `src/web/` — SPA shell (index.html + route collector)
 
 ### Runtime (`packages/runtime`)
 
@@ -103,6 +118,15 @@ Persistent service (port 30087) that manages Claude CLI processes:
 - Graceful interrupt via `control_request` with `subtype: "interrupt"` — process stays alive
 - Survives gateway restarts — keeps Claude processes running
 
+### CLI (`packages/cli`)
+
+Schema-driven command-line client:
+
+- Discovers methods via `method.list` — auto-generates help and examples
+- Validates params against Zod schemas before sending
+- Type coercion for CLI args (strings → booleans, numbers, objects)
+- Supports `--help` and `--examples` for any method
+
 ### UI (`packages/ui`)
 
 Shared React components and router:
@@ -111,22 +135,29 @@ Shared React components and router:
 - `WorkspaceList`, `SessionList` — Navigation components
 - `router.tsx` — Client-side pushState router (`Router`, `Link`, `useRouter`, `navigate`, `matchPath`)
 - `useGateway` hook — WebSocket connection + message/session state management
+- `useAudioPlayback` hook — Timeline-based audio scheduling with Web Audio API
 
 ### Extensions
 
-Extensions plug into the gateway's event bus:
+Extensions plug into the gateway's event bus. Methods are schema-driven:
 
 ```typescript
+interface ExtensionMethodDefinition {
+  name: string;
+  description: string;
+  inputSchema: ZodTypeAny;
+}
+
 interface ClaudiaExtension {
   id: string;
   name: string;
-  methods: string[]; // e.g., ["voice.speak", "voice.stop"]
-  events: string[]; // e.g., ["voice.speaking", "voice.done"]
-  sourceRoutes?: string[]; // e.g., ["imessage"] for response routing
+  methods: ExtensionMethodDefinition[];
+  events: string[];
+  sourceRoutes?: string[];
   start(ctx: ExtensionContext): Promise<void>;
   stop(): Promise<void>;
   handleMethod(method: string, params: Record<string, unknown>): Promise<unknown>;
-  health(): { ok: boolean; details?: Record<string, unknown> };
+  health(): HealthCheckResponse;
 }
 ```
 
@@ -143,7 +174,7 @@ extensions/<name>/src/
 
 ```typescript
 // Client → Gateway
-{ type: "req", id: "abc123", method: "session.prompt", params: { content: "Hello" } }
+{ type: "req", id: "abc123", method: "session.prompt", params: { sessionId, content, model, thinking, effort } }
 
 // Gateway → Client (response)
 { type: "res", id: "abc123", ok: true, payload: { sessionId: "..." } }
@@ -152,11 +183,13 @@ extensions/<name>/src/
 { type: "event", event: "session.content_block_delta", payload: { ... } }
 ```
 
-**Session methods**: `session.prompt`, `session.history`, `session.create`, `session.switch`, `session.list`, `session.info`, `session.interrupt`, `session.reset`
+**Session methods**: `session.prompt`, `session.history`, `session.switch`, `session.list`, `session.info`, `session.interrupt`, `session.reset`
 
-**Workspace methods**: `workspace.list`, `workspace.get`, `workspace.getOrCreate`
+**Workspace methods**: `workspace.list`, `workspace.get`, `workspace.getOrCreate`, `workspace.createSession`, `workspace.listSessions`
 
-**Extension methods**: `voice.speak`, `voice.stop`, `voice.status`, `imessage.send`, `imessage.status`, `imessage.chats`
+**Discovery**: `method.list` — returns all methods with schemas
+
+**Extension methods**: `voice.speak`, `voice.stop`, `voice.health-check`, `imessage.send`, `imessage.chats`, `imessage.health-check`, `chat.health-check`, `mission-control.health-check`
 
 ## Development
 
@@ -165,11 +198,20 @@ extensions/<name>/src/
 bun run dev
 
 # Run tests
-bun test
+bun test                 # All tests
+bun run test:unit        # Unit tests only
+bun run test:smoke       # Quick smoke test (health + method.list)
+bun run test:e2e         # Full E2E with model call
 
 # Type check
-bun run typecheck
+bun run typecheck        # Canonical (tsc)
+bun run typecheck:fast   # Fast (tsgo, used in pre-commit)
 ```
+
+### Git Hooks (Husky)
+
+- **Pre-commit**: Fast typecheck (`tsgo`) + lint-staged (`oxfmt` + `oxlint` on staged files)
+- **Pre-push**: Canonical typecheck (`tsc`) + unit tests
 
 ## Code Style
 
@@ -178,6 +220,8 @@ bun run typecheck
 - **Clean and concise** — Prefer clarity over cleverness
 - **~500 LOC per file** — Split when it improves clarity
 - **Extensions are the pattern** — New features go in `extensions/`, not core
+- **Schema-first** — All methods declare Zod schemas, validated at gateway boundary
+- **Explicit params** — No implicit defaults, every request carries its own config
 - **Temp files in `./tmp/`** — All test files, scratch scripts, audio samples, and temporary artifacts go in the `tmp/` directory (gitignored). Never leave temp files in the project root.
 
 ## Important Notes

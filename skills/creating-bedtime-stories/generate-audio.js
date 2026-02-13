@@ -11,10 +11,13 @@ const fs = require("fs");
 const path = require("path");
 
 const API_KEY = process.env.ELEVENLABS_API_KEY;
-const VOICE_ID = process.env.ELEVENLABS_VOICE_ID || "JBFqnCBsd6RMkjVDRZzb";
+const VOICE_ID = process.env.ELEVENLABS_VOICE_ID;
 
-if (!API_KEY) {
-  console.error("❌ Error: ELEVENLABS_API_KEY environment variable not set");
+if (!API_KEY || !VOICE_ID) {
+  console.error(
+    "❌ Error: ELEVENLABS_API_KEY and ELEVENLABS_VOICE_ID environment variables are required",
+  );
+  console.error("   Get your API key from: https://elevenlabs.io/app/speech-synthesis");
   process.exit(1);
 }
 
