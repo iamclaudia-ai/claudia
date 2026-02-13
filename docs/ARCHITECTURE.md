@@ -7,7 +7,7 @@ Claudia is a two-tier system: a **Gateway** that serves clients and a **Runtime*
 ```
 ┌────────────────────────────────────────────────────────────────────┐
 │                     Clients                                        │
-│  Web UI · VS Code · macOS Menubar · iOS · iMessage                 │
+│  Web UI · CLI · VS Code · macOS Menubar · iOS · iMessage           │
 └──────────────────────────┬─────────────────────────────────────────┘
                            │ WebSocket (req/res/event protocol)
 ┌──────────────────────────▼─────────────────────────────────────────┐
@@ -48,13 +48,13 @@ Claudia is a two-tier system: a **Gateway** that serves clients and a **Runtime*
 │   Claude Code CLI     │              │    Anthropic API       │
 │                       │──────────────│                        │
 │  stdin:  NDJSON in    │  Direct API  │  CLI talks to API      │
-│  stdout: NDJSON out   │  calls       │  directly (no proxy)   │
+│  stdout: NDJSON out   │  calls       │  directly              │
 │                       │              │                        │
 │  Flags:               │              │  Thinking enabled via  │
 │  --print              │              │  control_request on    │
-│  --output-format      │              │  stdin, not HTTP       │
-│    stream-json        │              │  interception          │
-│  --input-format       │              └────────────────────────┘
+│  --output-format      │              │  stdin                 │
+│    stream-json        │              └────────────────────────┘
+│  --input-format       │
 │    stream-json        │
 │  --include-partial-   │
 │    messages            │
@@ -62,9 +62,6 @@ Claudia is a two-tier system: a **Gateway** that serves clients and a **Runtime*
 │  --permission-mode    │
 │    bypassPermissions  │
 │  --session-id / --resume │
-│                       │
-│  No ANTHROPIC_BASE_URL│
-│  No --sdk-url         │
 └───────────────────────┘
 ```
 
@@ -92,7 +89,7 @@ The gateway runs as a single Bun.serve instance handling HTTP, WebSocket, and st
 │                                                                │
 │  websocket:                                                    │
 │    open    → register client, assign ID                        │
-│    message → parse JSON → route to handler                     │
+│    message → parse JSON → validate schema → route to handler   │
 │    close   → cleanup client                                    │
 │                                                                │
 │  development:                                                  │
@@ -124,17 +121,22 @@ Client ──req──► Gateway ──res──► Client     (request/respons
 { type: "event", event: string, payload: unknown }
 ```
 
+#### Schema Validation
+
+All methods declare Zod schemas for input validation. The gateway validates params at the boundary before dispatching to handlers. Invalid requests receive clear error messages listing missing or invalid params.
+
 #### Method Routing
 
 Methods are namespaced. The gateway routes by prefix:
 
-| Prefix        | Handler          | Methods                                                                    |
-| ------------- | ---------------- | -------------------------------------------------------------------------- |
-| `session.*`   | SessionManager   | prompt, history, create, switch, list, info, interrupt, reset, get, config |
-| `workspace.*` | SessionManager   | list, get, getOrCreate                                                     |
-| `subscribe`   | Client state     | Subscribe to event patterns                                                |
-| `unsubscribe` | Client state     | Remove subscriptions                                                       |
-| `*`           | ExtensionManager | Any method registered by an extension                                      |
+| Prefix        | Handler          | Methods                                               |
+| ------------- | ---------------- | ----------------------------------------------------- |
+| `session.*`   | SessionManager   | prompt, history, switch, list, info, interrupt, reset |
+| `workspace.*` | SessionManager   | list, get, getOrCreate, createSession, listSessions   |
+| `method.*`    | Gateway          | list (returns all methods with schemas)               |
+| `subscribe`   | Client state     | Subscribe to event patterns                           |
+| `unsubscribe` | Client state     | Remove subscriptions                                  |
+| `*`           | ExtensionManager | Any method registered by an extension                 |
 
 #### Event Subscriptions
 
@@ -155,8 +157,6 @@ Events are broadcast only to clients whose subscriptions match.
 The Runtime is a persistent Bun.serve instance managing Claude Code CLI processes. It accepts a single type of WebSocket connection:
 
 - **Gateway connections** (`/ws`) — Control plane using the same req/res/event protocol
-
-That's it. No CLI WebSocket path, no HTTP proxy. The CLI communicates exclusively via stdin/stdout pipes managed by each `RuntimeSession` instance.
 
 ### Stdio Architecture
 
@@ -212,7 +212,7 @@ while ((newlineIndex = this.stdoutBuffer.indexOf("\n")) !== -1) {
 
 ### Thinking Configuration
 
-Thinking is enabled via `control_request` messages sent on stdin immediately after process spawn — no HTTP proxy needed. The CLI uses its default Anthropic API connection directly.
+Thinking is enabled via `control_request` messages sent on stdin immediately after process spawn. The CLI uses its default Anthropic API connection directly.
 
 ```
 Session spawns CLI → sendThinkingConfig(effort) → stdin control_request
@@ -250,7 +250,7 @@ After the CLI executes tools, it sends results as `type: "user"` messages with `
 
 ### Session Lifecycle
 
-1. **Create**: Gateway sends `session.create` → Runtime creates session (lazy start — no process spawned yet)
+1. **Create**: Gateway sends `workspace.createSession` → Runtime creates session (lazy start — no process spawned yet)
 2. **First prompt**: `session.prompt` → `ensureProcess()` spawns CLI with `--session-id`
 3. **Resume**: `session.prompt` to existing session → `ensureProcess()` spawns CLI with `--resume`
 4. **Auto-resume**: If session not running (runtime restarted), auto-spawns on next prompt with `cwd` from gateway
@@ -352,20 +352,26 @@ Response:  { messages: [...50], total: 4077, hasMore: true, offset: 50 }
 
 ### Server-Side Extensions
 
-Extensions register methods and events, subscribe to the event bus:
+Extensions register schema-driven methods and events, subscribe to the event bus:
 
 ```typescript
+interface ExtensionMethodDefinition {
+  name: string;
+  description: string;
+  inputSchema: ZodTypeAny;
+}
+
 interface ClaudiaExtension {
   id: string;
   name: string;
-  methods: string[]; // RPC methods this extension handles
-  events: string[]; // Events this extension emits
-  sourceRoutes?: string[]; // Source prefixes for response routing
+  methods: ExtensionMethodDefinition[];
+  events: string[];
+  sourceRoutes?: string[];
   start(ctx: ExtensionContext): Promise<void>;
   stop(): Promise<void>;
   handleMethod(method: string, params: Record<string, unknown>): Promise<unknown>;
   handleSourceResponse?(source: string, event: GatewayEvent): Promise<void>;
-  health(): { ok: boolean; details?: Record<string, unknown> };
+  health(): HealthCheckResponse;
 }
 ```
 
@@ -375,6 +381,21 @@ interface ClaudiaExtension {
 - `emit(type, payload)` — emit events to the bus
 - `config` — extension configuration
 - `log` — scoped logger
+
+### Health Checks
+
+Every extension exposes a `{id}.health-check` method returning structured status:
+
+```typescript
+interface HealthCheckResponse {
+  ok: boolean;
+  status: "healthy" | "degraded" | "disconnected" | "error";
+  label: string;
+  metrics?: Array<{ label: string; value: string | number }>;
+  actions?: Array<{ label: string; method: string; params?: Record<string, unknown> }>;
+  items?: Array<{ id: string; label: string; status: string }>;
+}
+```
 
 ### Client-Side Extensions (Routes)
 
@@ -421,18 +442,20 @@ The gateway's `"/*": index` route serves `index.html` for all paths, enabling cl
 packages/
   gateway/
     src/
-      index.ts              # Bun.serve, WS handlers, request routing
+      index.ts              # Bun.serve, WS handlers, request routing, schema validation
       start.ts              # Extension loading, startup
       session-manager.ts    # Workspace/session lifecycle, history
-      extensions.ts         # Extension registration, method/event dispatch
+      extensions.ts         # Extension registration, method/event dispatch, param validation
       parse-session.ts      # JSONL → Message[] with pagination
+      web/
+        index.html          # SPA shell (imported by gateway)
+        index.tsx           # Route collector (~30 lines)
       db/
         index.ts            # SQLite connection
         schema.ts           # Table definitions
         models/
           workspace.ts      # Workspace CRUD
           session.ts        # Session CRUD
-    bunfig.toml             # Tailwind plugin for SPA serving
 
   runtime/
     src/
@@ -440,15 +463,23 @@ packages/
       manager.ts            # Session lifecycle, event forwarding, auto-resume
       session.ts            # CLI process spawn (stdio), NDJSON routing, thinking config
 
+  cli/
+    src/
+      index.ts              # Schema-driven CLI, method discovery, param validation
+
   shared/
     src/
-      types.ts              # Shared protocol types
-      config.ts             # claudia.json loader
+      types.ts              # Shared types (extensions, sessions, workspaces)
+      protocol.ts           # WebSocket protocol types (req/res/event)
+      config.ts             # claudia.json loader with env var interpolation
+      index.ts              # Re-exports
 
   ui/
     src/
       router.tsx            # Client-side pushState router
-      hooks/useGateway.ts   # WebSocket connection + state management
+      hooks/
+        useGateway.ts       # WebSocket connection + state management
+        useAudioPlayback.ts # Timeline-based audio scheduling (Web Audio API)
       components/
         ClaudiaChat.tsx     # Main chat interface
         MessageList.tsx     # Message rendering with pagination
@@ -457,17 +488,38 @@ packages/
       contexts/
         WorkspaceContext.tsx # CWD context for path stripping
 
-packages/gateway/src/web/
-  index.html              # SPA shell (imported by gateway)
-  index.tsx               # Route collector (~30 lines)
+  memory-mcp/
+    src/
+      index.ts              # MCP server for persistent memory system
 
 extensions/
-  chat/src/               # Web chat pages
-    routes.ts             # /, /workspace/:id, /session/:id
-    pages/                # WorkspacesPage, WorkspacePage, SessionPage
-    app.ts                # GATEWAY_URL + PlatformBridge
-  voice/src/index.ts      # ElevenLabs TTS extension
-  imessage/src/index.ts   # iMessage bridge extension
+  chat/src/                 # Web chat pages
+    routes.ts               # /, /workspace/:id, /session/:id
+    pages/                  # WorkspacesPage, WorkspacePage, SessionPage
+    app.ts                  # GATEWAY_URL + PlatformBridge
+  voice/src/
+    index.ts                # Cartesia TTS extension (streaming)
+    cartesia-stream.ts      # Cartesia Sonic 3.0 WebSocket client
+    elevenlabs-stream.ts    # ElevenLabs WebSocket client (legacy)
+    sentence-chunker.ts     # Text → sentence queue for TTS
+    audio-store.ts          # Audio saving + PCM-to-WAV conversion
+  imessage/src/
+    index.ts                # iMessage bridge extension
+    imsg-client.ts          # imsg CLI wrapper
+  mission-control/src/
+    index.ts                # System dashboard extension
+    routes.ts               # /mission-control
+    pages/                  # MissionControlPage
+
+scripts/
+  smoke.ts                  # Quick smoke test (health + method.list)
+  e2e-smoke.ts              # Full E2E test with model call
+  watchdog.ts               # Process health watchdog
+
+skills/
+  creating-bedtime-stories/ # Bedtime story generation + ElevenLabs TTS
+  guiding-meditation/       # Guided meditation generation + ElevenLabs TTS
+  chunking-text-for-tts/    # Text chunking for TTS processing
 ```
 
 ## Ports
