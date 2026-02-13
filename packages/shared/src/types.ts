@@ -139,11 +139,11 @@ export interface ExtensionContext {
   emit(type: string, payload: unknown): void;
   /** Extension configuration */
   config: Record<string, unknown>;
-  /** Logger */
+  /** Logger — writes to console + file at ~/.claudia/logs/{extensionId}.log */
   log: {
-    info(msg: string, ...args: unknown[]): void;
-    warn(msg: string, ...args: unknown[]): void;
-    error(msg: string, ...args: unknown[]): void;
+    info(msg: string, meta?: unknown): void;
+    warn(msg: string, meta?: unknown): void;
+    error(msg: string, meta?: unknown): void;
   };
 }
 

@@ -11,6 +11,11 @@ import type {
   ExtensionMethodDefinition,
   GatewayEvent,
 } from "@claudia/shared";
+import { createLogger } from "@claudia/shared";
+import { join } from "node:path";
+import { homedir } from "node:os";
+
+const log = createLogger("ExtensionManager", join(homedir(), ".claudia", "logs", "gateway.log"));
 
 type EventHandler = (event: GatewayEvent) => void | Promise<void>;
 
@@ -37,7 +42,7 @@ export class ExtensionManager {
       throw new Error(`Extension ${extension.id} already registered`);
     }
 
-    console.log(`[ExtensionManager] Registering extension: ${extension.id}`);
+    log.info("Registering extension", { id: extension.id });
 
     // Create context for this extension
     const ctx = this.createContext(extension.id);
@@ -51,11 +56,11 @@ export class ExtensionManager {
     if (extension.sourceRoutes?.length) {
       for (const prefix of extension.sourceRoutes) {
         this.sourceRoutes.set(prefix, extension.id);
-        console.log(`[ExtensionManager] Registered source route: ${prefix}/* -> ${extension.id}`);
+        log.info("Registered source route", { prefix, extensionId: extension.id });
       }
     }
 
-    console.log(`[ExtensionManager] Extension ${extension.id} started`);
+    log.info("Extension started", { id: extension.id });
   }
 
   /**
@@ -67,7 +72,7 @@ export class ExtensionManager {
       return;
     }
 
-    console.log(`[ExtensionManager] Stopping extension: ${extensionId}`);
+    log.info("Stopping extension", { id: extensionId });
     await extension.stop();
     this.extensions.delete(extensionId);
 
@@ -138,7 +143,7 @@ export class ExtensionManager {
 
     const extension = this.extensions.get(extensionId);
     if (!extension?.handleSourceResponse) {
-      console.warn(`[ExtensionManager] Extension ${extensionId} has no handleSourceResponse`);
+      log.warn("Extension has no handleSourceResponse", { extensionId });
       return false;
     }
 
@@ -146,7 +151,7 @@ export class ExtensionManager {
       await extension.handleSourceResponse(source, event);
       return true;
     } catch (error) {
-      console.error(`[ExtensionManager] Failed to route to source ${source}:`, error);
+      log.error("Failed to route to source", { source, error: String(error) });
       return false;
     }
   }
@@ -265,17 +270,7 @@ export class ExtensionManager {
 
       config: {}, // TODO: Load from config file
 
-      log: {
-        info: (msg: string, ...args: unknown[]) => {
-          console.log(`[${extensionId}] ${msg}`, ...args);
-        },
-        warn: (msg: string, ...args: unknown[]) => {
-          console.warn(`[${extensionId}] ${msg}`, ...args);
-        },
-        error: (msg: string, ...args: unknown[]) => {
-          console.error(`[${extensionId}] ${msg}`, ...args);
-        },
-      },
+      log: createLogger(extensionId, join(homedir(), ".claudia", "logs", `${extensionId}.log`)),
     };
   }
 
