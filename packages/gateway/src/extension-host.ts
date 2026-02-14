@@ -168,6 +168,15 @@ export class ExtensionHostProcess {
   async kill(): Promise<void> {
     this.killed = true;
     if (this.proc) {
+      // Close stdin first — the host process exits cleanly when stdin closes
+      try {
+        const stdin = this.proc.stdin;
+        if (stdin && typeof stdin !== "number") {
+          (stdin as unknown as { close?: () => void }).close?.();
+        }
+      } catch {
+        // Ignore stdin close errors
+      }
       this.proc.kill("SIGTERM");
       this.proc = null;
     }
@@ -176,6 +185,21 @@ export class ExtensionHostProcess {
       clearTimeout(pending.timer);
       pending.reject(new Error("Extension host killed"));
       this.pendingRequests.delete(id);
+    }
+  }
+
+  /**
+   * Synchronous force-kill (for process "exit" handler where async isn't possible).
+   */
+  forceKill(): void {
+    this.killed = true;
+    if (this.proc) {
+      try {
+        this.proc.kill("SIGKILL");
+      } catch {
+        // Process may already be dead
+      }
+      this.proc = null;
     }
   }
 

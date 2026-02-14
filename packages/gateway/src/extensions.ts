@@ -358,6 +358,15 @@ export class ExtensionManager {
   }
 
   /**
+   * Synchronous force-kill for process "exit" handler (last resort).
+   */
+  forceKillRemoteHosts(): void {
+    for (const [, host] of this.remoteHosts) {
+      host.forceKill();
+    }
+  }
+
+  /**
    * Create an extension context
    */
   private createContext(extensionId: string): ExtensionContext {

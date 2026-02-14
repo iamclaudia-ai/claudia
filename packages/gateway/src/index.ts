@@ -1195,6 +1195,12 @@ process.on("SIGINT", () => shutdown("SIGINT"));
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 process.on("SIGHUP", () => shutdown("SIGHUP"));
 
+// Last-resort synchronous cleanup: force-kill extension hosts on process exit
+// This catches cases where async shutdown didn't complete (e.g. bun --watch)
+process.on("exit", () => {
+  extensions.forceKillRemoteHosts();
+});
+
 // HMR cleanup — dispose managers when module reloads during development
 if (import.meta.hot) {
   import.meta.hot.dispose(async () => {
