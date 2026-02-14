@@ -661,7 +661,7 @@ async function handleRuntimeMethod(
 
           // Shorten cwd for display
           const cwdLabel = s.cwd.replace(homedir(), "~");
-          const modelShort = s.model.replace("claude-", "").replace(/-\d+$/, "");
+          const modelShort = s.model;
 
           return {
             id: s.id,
