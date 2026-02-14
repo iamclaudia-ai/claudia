@@ -18,6 +18,7 @@ export interface ManagedService {
   tmuxSession: string;
   command: string;
   healthUrl: string;
+  port: number;
   restartBackoff: number;
   lastRestart: number;
   consecutiveFailures: number;
@@ -32,6 +33,7 @@ export const services: Record<string, ManagedService> = {
     tmuxSession: "claudia-gateway",
     command: "bun run --watch packages/gateway/src/start.ts",
     healthUrl: "http://localhost:30086/health",
+    port: 30086,
     restartBackoff: 1000,
     lastRestart: 0,
     consecutiveFailures: 0,
@@ -42,6 +44,7 @@ export const services: Record<string, ManagedService> = {
     tmuxSession: "claudia-runtime",
     command: "bun run --watch packages/runtime/src/index.ts",
     healthUrl: "http://localhost:30087/health",
+    port: 30087,
     restartBackoff: 1000,
     lastRestart: 0,
     consecutiveFailures: 0,
@@ -60,27 +63,65 @@ export async function tmuxSessionExists(session: string): Promise<boolean> {
   return code === 0;
 }
 
+async function tmuxSendKeys(session: string, keys: string): Promise<void> {
+  const proc = Bun.spawn(["tmux", "send-keys", "-t", session, keys], {
+    stdout: "ignore",
+    stderr: "ignore",
+  });
+  await proc.exited;
+}
+
+async function tmuxNewSession(session: string, command: string): Promise<void> {
+  const proc = Bun.spawn(["tmux", "new-session", "-d", "-s", session, command], {
+    cwd: PROJECT_DIR,
+    stdout: "ignore",
+    stderr: "inherit",
+  });
+  await proc.exited;
+}
+
+async function killOrphanProcesses(port: number): Promise<void> {
+  const proc = Bun.spawn(["lsof", "-ti", `tcp:${port}`], {
+    stdout: "pipe",
+    stderr: "ignore",
+  });
+  const output = await new Response(proc.stdout).text();
+  await proc.exited;
+
+  const pids = output
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .map(Number)
+    .filter((n) => !isNaN(n));
+
+  for (const pid of pids) {
+    log("WARN", `Killing orphan process on port ${port}: PID ${pid}`);
+    try {
+      process.kill(pid, "SIGTERM");
+    } catch {}
+  }
+  if (pids.length > 0) {
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+}
+
 export async function startService(service: ManagedService): Promise<void> {
+  // Kill any orphan processes already bound to this port
+  await killOrphanProcesses(service.port);
+
   const exists = await tmuxSessionExists(service.tmuxSession);
 
   if (exists) {
-    const kill = Bun.spawn(["tmux", "kill-session", "-t", service.tmuxSession], {
-      stdout: "ignore",
-      stderr: "ignore",
-    });
-    await kill.exited;
+    // Restart process inside existing session (preserve the session)
+    await tmuxSendKeys(service.tmuxSession, "C-c");
     await new Promise((r) => setTimeout(r, 500));
+    await tmuxSendKeys(service.tmuxSession, service.command);
+    await tmuxSendKeys(service.tmuxSession, "Enter");
+  } else {
+    // Session doesn't exist — create it
+    await tmuxNewSession(service.tmuxSession, service.command);
   }
-
-  const proc = Bun.spawn(
-    ["tmux", "new-session", "-d", "-s", service.tmuxSession, service.command],
-    {
-      cwd: PROJECT_DIR,
-      stdout: "ignore",
-      stderr: "inherit",
-    },
-  );
-  await proc.exited;
 
   service.lastRestart = Date.now();
   service.consecutiveFailures = 0;

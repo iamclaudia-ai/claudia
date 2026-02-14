@@ -152,6 +152,8 @@ export function MessageList({
                       );
                     }
                     if (block.type === "tool_use") {
+                      const isInteractiveTool =
+                        block.name === "ExitPlanMode" || block.name === "EnterPlanMode";
                       return (
                         <ToolCallBlock
                           key={block.id}
@@ -160,8 +162,12 @@ export function MessageList({
                           result={block.result}
                           isLoading={!block.result && isQuerying}
                           toolUseId={block.id}
-                          onSendMessage={isLatestRow ? onSendMessage : undefined}
-                          onSendToolResult={isLatestRow ? onSendToolResult : undefined}
+                          onSendMessage={
+                            isLatestRow || isInteractiveTool ? onSendMessage : undefined
+                          }
+                          onSendToolResult={
+                            isLatestRow || isInteractiveTool ? onSendToolResult : undefined
+                          }
                         />
                       );
                     }
