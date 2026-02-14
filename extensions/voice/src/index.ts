@@ -51,6 +51,8 @@ function fileLog(level: string, msg: string): void {
 export interface VoiceConfig {
   /** Cartesia API key */
   apiKey?: string;
+  /** Cartesia pronunciation dictionary ID */
+  dictionaryId?: string;
   /** Voice ID to use */
   voiceId?: string;
   /** Model to use (default: sonic-3) */
@@ -69,6 +71,7 @@ export interface VoiceConfig {
 
 const DEFAULT_CONFIG: Required<VoiceConfig> = {
   apiKey: "",
+  dictionaryId: "",
   voiceId: "a0e99841-438c-4a64-b679-ae501e7d6091", // Barbershop - Man
   model: "sonic-3",
   autoSpeak: false,
@@ -170,6 +173,7 @@ async function batchSpeak(text: string, cfg: Required<VoiceConfig>): Promise<Buf
         encoding: "pcm_s16le",
         sample_rate: 24000,
       },
+      ...(cfg.dictionaryId ? { pronunciation_dict_id: cfg.dictionaryId } : {}),
     }),
   });
 
@@ -255,6 +259,7 @@ export function createVoiceExtension(config: VoiceConfig = {}): ClaudiaExtension
         apiKey: cfg.apiKey,
         voiceId: cfg.voiceId,
         model: cfg.model,
+        dictionaryId: cfg.dictionaryId,
         emotions: cfg.emotions,
         speed: cfg.speed,
         log: fileLog,
@@ -556,7 +561,7 @@ export function createVoiceExtension(config: VoiceConfig = {}): ClaudiaExtension
       ctx = context;
       fileLog(
         "INFO",
-        `Voice extension starting (autoSpeak=${cfg.autoSpeak}, streaming=${cfg.streaming}, apiKey=${!!cfg.apiKey}, voice=${cfg.voiceId})`,
+        `Voice extension starting (autoSpeak=${cfg.autoSpeak}, streaming=${cfg.streaming}, apiKey=${!!cfg.apiKey}, voice=${cfg.voiceId}, dictionaryId=${cfg.dictionaryId || "none"})`,
       );
       ctx.log.info("Starting voice extension...");
 

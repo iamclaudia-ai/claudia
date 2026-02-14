@@ -35,6 +35,7 @@ const EXTENSION_FACTORIES: Record<string, ExtensionFactory> = {
   voice: (config) =>
     createVoiceExtension({
       apiKey: config.apiKey as string,
+      dictionaryId: config.dictionaryId as string,
       voiceId: config.voiceId as string,
       model: config.model as string,
       autoSpeak: config.autoSpeak as boolean,

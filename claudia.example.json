@@ -21,6 +21,7 @@
       "enabled": true,
       "config": {
         "apiKey": "${ELEVENLABS_API_KEY}",
+        "dictionaryId": "${CARTESIA_DICTIONARY_ID}",
         "voiceId": "${ELEVENLABS_VOICE_ID}",
         "model": "eleven_turbo_v2_5",
         "autoSpeak": false,

@@ -16,6 +16,8 @@ export interface CartesiaStreamOptions {
   apiKey: string;
   voiceId: string;
   model?: string;
+  /** Cartesia pronunciation dictionary ID */
+  dictionaryId?: string;
   outputFormat?: {
     container: string;
     encoding: string;
@@ -179,6 +181,7 @@ export class CartesiaStream {
         sample_rate: 24000,
       },
       context_id: this.contextId,
+      ...(this.options.dictionaryId ? { pronunciation_dict_id: this.options.dictionaryId } : {}),
     };
 
     this.log("INFO", `📢 SENDING TO CARTESIA (${text.length} chars): "${text}"`);
