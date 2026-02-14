@@ -16,6 +16,20 @@
   },
 
   "extensions": {
+    // Core Chat extension (workspace/session UI + health)
+    "chat": {
+      "enabled": true,
+      "outOfProcess": true,
+      "config": {}
+    },
+
+    // Mission Control extension (health dashboard + logs)
+    "mission-control": {
+      "enabled": true,
+      "outOfProcess": true,
+      "config": {}
+    },
+
     // Voice Extension - ElevenLabs TTS
     "voice": {
       "enabled": true,

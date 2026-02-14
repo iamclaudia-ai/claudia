@@ -2,135 +2,103 @@
 /**
  * Gateway Startup Script
  *
- * Loads the gateway and registers configured extensions.
- * Extensions with `outOfProcess: true` in config are spawned as child processes
- * via the extension host shim. Others load in-process as before.
- *
- * Configuration sources (in order of precedence):
- *   1. CLAUDIA_CONFIG env var (explicit path)
- *   2. ./claudia.json in working directory
- *   3. Environment variables (backward compatibility)
+ * Extension loading is config-driven and out-of-process by default.
+ * Each enabled extension runs in its own host process via stdio NDJSON.
  */
 
 import { extensions, broadcastEvent } from "./index";
 import { getEnabledExtensions, createLogger } from "@claudia/shared";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { homedir } from "node:os";
-import { ExtensionHostProcess } from "./extension-host";
+import { ExtensionHostProcess, type ExtensionRegistration } from "./extension-host";
 
 const log = createLogger("Startup", join(homedir(), ".claudia", "logs", "gateway.log"));
+const ROOT_DIR = join(import.meta.dir, "..", "..", "..");
 
-// Import available extensions (for in-process loading)
-import { createVoiceExtension } from "@claudia/voice";
-import { createIMessageExtension } from "@claudia/ext-imessage";
-import { createChatExtension } from "@claudia/ext-chat/extension";
-import { createMissionControlExtension } from "@claudia/ext-mission-control/extension";
+const startedExtensions = new Set<string>();
 
-// Extension factory registry (only used for in-process extensions)
-type ExtensionFactory = (
+function resolveExtensionEntrypoint(extensionId: string): string | null {
+  const entryPath = join(ROOT_DIR, "extensions", extensionId, "src", "index.ts");
+  if (!existsSync(entryPath)) {
+    return null;
+  }
+  return pathToFileURL(entryPath).href;
+}
+
+async function spawnOutOfProcessExtension(
+  id: string,
   config: Record<string, unknown>,
-) => ReturnType<typeof createVoiceExtension>;
+  sourceRoutes?: string[],
+): Promise<void> {
+  if (startedExtensions.has(id)) {
+    return;
+  }
 
-const EXTENSION_FACTORIES: Record<string, ExtensionFactory> = {
-  voice: (config) =>
-    createVoiceExtension({
-      apiKey: config.apiKey as string,
-      dictionaryId: config.dictionaryId as string,
-      voiceId: config.voiceId as string,
-      model: config.model as string,
-      autoSpeak: config.autoSpeak as boolean,
-      summarizeThreshold: config.summarizeThreshold as number,
-      streaming: config.streaming as boolean,
-    }),
-  imessage: (config) =>
-    createIMessageExtension({
-      cliPath: config.cliPath as string,
-      dbPath: config.dbPath as string,
-      allowedSenders: config.allowedSenders as string[],
-      includeAttachments: config.includeAttachments as boolean,
-      historyLimit: config.historyLimit as number,
-    }),
-};
+  const moduleSpec = resolveExtensionEntrypoint(id);
+  if (!moduleSpec) {
+    log.warn("Extension entrypoint not found", {
+      id,
+      expected: `extensions/${id}/src/index.ts`,
+    });
+    return;
+  }
 
-// Maps extension IDs to their module specifiers (for out-of-process loading)
-const MODULE_SPECIFIERS: Record<string, string> = {
-  voice: "@claudia/voice",
-  imessage: "@claudia/ext-imessage",
-};
+  log.info("Spawning out-of-process extension", { id, module: moduleSpec });
+
+  const host = new ExtensionHostProcess(
+    id,
+    moduleSpec,
+    config,
+    (type, payload) => broadcastEvent(type, payload, `extension:${id}`),
+    (registration: ExtensionRegistration) => {
+      // Allow config-level sourceRoutes to augment extension-declared routes.
+      if (sourceRoutes?.length) {
+        registration.sourceRoutes = Array.from(
+          new Set([...(registration.sourceRoutes || []), ...sourceRoutes]),
+        );
+      }
+      extensions.registerRemote(registration, host);
+    },
+  );
+
+  const registration = await host.spawn();
+  log.info("Out-of-process extension ready", {
+    id: registration.id,
+    methods: registration.methods.map((m) => m.name),
+  });
+
+  startedExtensions.add(id);
+}
 
 /**
- * Load configured extensions from config file or env vars.
- * Extensions with `outOfProcess: true` are spawned as child processes.
+ * Load configured extensions from config.
+ * Extensions run out-of-process by default.
  */
 async function loadExtensions(): Promise<void> {
   const enabledExtensions = getEnabledExtensions();
 
   if (enabledExtensions.length === 0) {
-    log.info("No extensions enabled");
+    log.info("No configured extensions enabled");
     return;
   }
 
-  log.info("Loading extensions", { extensions: enabledExtensions.map(([id]) => id) });
+  log.info("Loading configured extensions", {
+    extensions: enabledExtensions.map(([id]) => id),
+  });
 
   for (const [id, ext] of enabledExtensions) {
     try {
-      if (ext.outOfProcess) {
-        // Out-of-process: spawn via extension host
-        const moduleSpec = MODULE_SPECIFIERS[id];
-        if (!moduleSpec) {
-          log.warn("No module specifier for out-of-process extension", { id });
-          continue;
-        }
-
-        log.info("Spawning out-of-process extension", { id, module: moduleSpec });
-
-        const host = new ExtensionHostProcess(
-          id,
-          moduleSpec,
-          ext.config,
-          (type, payload) => broadcastEvent(type, payload, `extension:${id}`),
-          (registration) => extensions.registerRemote(registration, host),
-        );
-
-        const registration = await host.spawn();
-        log.info("Out-of-process extension ready", {
-          id: registration.id,
-          methods: registration.methods.map((m) => m.name),
-        });
-      } else {
-        // In-process: existing behavior
-        const factory = EXTENSION_FACTORIES[id];
-        if (!factory) {
-          log.warn("Unknown extension", { id });
-          continue;
-        }
-
-        const extension = factory(ext.config);
-
-        // Add source routes from config if specified
-        if (ext.sourceRoutes?.length) {
-          extension.sourceRoutes = ext.sourceRoutes;
-        }
-
-        await extensions.register(extension);
+      if (ext.outOfProcess === false) {
+        log.warn("Ignoring in-process request: extensions run out-of-process", { id });
       }
+
+      await spawnOutOfProcessExtension(id, ext.config, ext.sourceRoutes);
     } catch (error) {
       log.error("Failed to load extension", { id, error: String(error) });
     }
   }
 }
 
-// Always-on extensions (no config needed)
-async function loadBuiltinExtensions(): Promise<void> {
-  try {
-    await extensions.register(createChatExtension());
-    await extensions.register(createMissionControlExtension());
-  } catch (error) {
-    log.error("Failed to load builtin extensions", { error: String(error) });
-  }
-}
-
-// Load extensions on startup
-loadBuiltinExtensions()
-  .then(() => loadExtensions())
-  .catch((err) => log.error("Extension startup failed", { error: String(err) }));
+loadExtensions().catch((err) => log.error("Extension startup failed", { error: String(err) }));

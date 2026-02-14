@@ -4,11 +4,11 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./routes": "./src/routes.ts",
-    "./extension": "./src/extension.ts"
+    ".": "./src/index.ts",
+    "./routes": "./src/routes.ts"
   },
   "scripts": {
-    "build": "bun build src/extension.ts src/routes.ts --outdir dist --target bun",
+    "build": "bun build src/index.ts src/routes.ts --outdir dist --target bun",
     "test": "bun test",
     "typecheck": "tsc --noEmit -p ../../tsconfig.json"
   },

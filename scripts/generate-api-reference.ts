@@ -7,7 +7,7 @@ import { join } from "node:path";
 
 import { createVoiceExtension } from "../extensions/voice/src/index";
 import { createIMessageExtension } from "../extensions/imessage/src/index";
-import { createChatExtension } from "../extensions/chat/src/extension";
+import { createChatExtension } from "../extensions/chat/src/index";
 import { createMissionControlExtension } from "../extensions/mission-control/src/index";
 
 type MethodDef = {
