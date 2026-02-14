@@ -462,6 +462,7 @@ packages/
       index.ts              # Bun.serve, single WS path (/ws), health endpoint
       manager.ts            # Session lifecycle, event forwarding, auto-resume
       session.ts            # CLI process spawn (stdio), NDJSON routing, thinking config
+      SYSTEM_PROMPT.md      # Headless mode addendum appended to every session prompt
 
   cli/
     src/
@@ -487,6 +488,22 @@ packages/
         SessionList.tsx     # Session browser
       contexts/
         WorkspaceContext.tsx # CWD context for path stripping
+
+  watchdog/
+    src/
+      index.ts              # Bun.serve on port 30085, health monitor loop, startup
+      services.ts           # Bun.spawn child processes, health checks, auto-restart
+      constants.ts          # Ports, intervals, paths
+      logger.ts             # Log rotation
+      status.ts             # Status aggregation
+      client-health.ts      # Web UI error monitoring
+      diagnose.ts           # Auto-fix with Claude CLI
+      logs.ts               # Log file API
+      dashboard/            # Vanilla TypeScript dashboard UI
+
+  extension-host/
+    src/
+      index.ts              # Generic shim: dynamic import, NDJSON stdio, parent PID watchdog
 
   memory-mcp/
     src/
@@ -514,7 +531,6 @@ extensions/
 scripts/
   smoke.ts                  # Quick smoke test (health + method.list)
   e2e-smoke.ts              # Full E2E test with model call
-  watchdog.ts               # Process health watchdog
 
 skills/
   creating-bedtime-stories/ # Bedtime story generation + ElevenLabs TTS
@@ -522,11 +538,44 @@ skills/
   chunking-text-for-tts/    # Text chunking for TTS processing
 ```
 
+## Watchdog (port 30085)
+
+The watchdog is a standalone process supervisor that manages gateway and runtime as direct child processes via `Bun.spawn`. It provides health monitoring, auto-restart with exponential backoff, and a web dashboard.
+
+```
+Watchdog (port 30085)
+  ├── Bun.spawn → Gateway (port 30086)  stdout/stderr → ~/.claudia/logs/gateway.log
+  ├── Bun.spawn → Runtime (port 30087)  stdout/stderr → ~/.claudia/logs/runtime.log
+  ├── Health monitor (5s interval, 6 consecutive failures → restart)
+  ├── Orphan detection via lsof before restarts
+  ├── Web dashboard with log viewer + service status
+  └── Diagnose & Fix (spawns Claude to auto-fix errors)
+```
+
+### Key Design Decisions
+
+- **Direct child processes** — No tmux, no screen. Watchdog owns the full process lifecycle.
+- **SIGINT/SIGTERM** kills children — clean shutdown, no orphans.
+- **Zero monorepo imports** — watchdog is self-contained so it keeps running even when gateway/shared packages have build errors.
+- **Orphan port detection** — Before starting a service, `lsof` checks for processes already bound to the port and kills them.
+
+### HTTP API
+
+| Endpoint              | Method | Description                            |
+| --------------------- | ------ | -------------------------------------- |
+| `/status`             | GET    | JSON status of all services            |
+| `/api/logs`           | GET    | List log files                         |
+| `/api/logs/:filename` | GET    | Tail a log file (supports pagination)  |
+| `/restart/:id`        | POST   | Restart a service (gateway or runtime) |
+| `/diagnose`           | POST   | Start autonomous diagnosis with Claude |
+| `/*`                  | GET    | Dashboard SPA                          |
+
 ## Ports
 
-| Port  | Service | Description                                        |
-| ----- | ------- | -------------------------------------------------- |
-| 30086 | Gateway | HTTP + WebSocket + SPA serving                     |
-| 30087 | Runtime | Gateway WS + health check (stdio to CLI processes) |
+| Port  | Service  | Description                                        |
+| ----- | -------- | -------------------------------------------------- |
+| 30085 | Watchdog | Process supervisor + dashboard                     |
+| 30086 | Gateway  | HTTP + WebSocket + SPA serving                     |
+| 30087 | Runtime  | Gateway WS + health check (stdio to CLI processes) |
 
 Port 30086 = SHA256("Claudia") → x7586 → 30086

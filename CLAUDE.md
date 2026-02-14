@@ -71,6 +71,8 @@ claudia/
 ├── packages/
 │   ├── gateway/          # Core server — single port serves everything
 │   ├── runtime/          # Session runtime — manages CLI processes via stdio
+│   ├── watchdog/         # Process supervisor — spawns gateway + runtime, health checks
+│   ├── extension-host/   # Generic shim for out-of-process extensions (NDJSON stdio)
 │   ├── cli/              # Schema-driven CLI with method discovery
 │   ├── shared/           # Shared types, config, and protocol definitions
 │   ├── ui/               # Shared React components + router
@@ -85,7 +87,7 @@ claudia/
 │   ├── imessage/         # iMessage bridge + auto-reply
 │   └── mission-control/  # System dashboard + health checks
 ├── skills/               # Claude Code skills (meditation, stories, TTS tools)
-├── scripts/              # Smoke tests, E2E tests, watchdog
+├── scripts/              # Smoke tests, E2E tests
 └── docs/                 # Architecture, API reference, testing guides
 ```
 
@@ -118,6 +120,7 @@ Persistent service (port 30087) that manages Claude CLI processes:
 - Thinking via `control_request` with `set_max_thinking_tokens` on stdin
 - Graceful interrupt via `control_request` with `subtype: "interrupt"` — process stays alive
 - Survives gateway restarts — keeps Claude processes running
+- `SYSTEM_PROMPT.md` — headless mode addendum appended to every session's system prompt
 
 ### CLI (`packages/cli`)
 
@@ -195,7 +198,10 @@ extensions/<name>/src/
 ## Development
 
 ```bash
-# Start gateway (serves web UI + WebSocket + extensions on port 30086)
+# Start everything via watchdog (spawns gateway + runtime as child processes)
+bun run watchdog
+
+# Or start gateway directly (serves web UI + WebSocket + extensions on port 30086)
 bun run dev
 
 # Run tests
