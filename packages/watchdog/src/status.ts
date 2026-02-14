@@ -3,19 +3,19 @@
  */
 
 import { HEALTH_HISTORY_SIZE } from "./constants";
-import { services, tmuxSessionExists, checkHealth } from "./services";
+import { services, isProcessAlive, checkHealth } from "./services";
 import { lastClientHealth } from "./client-health";
 
 export async function getStatus(): Promise<Record<string, unknown>> {
   const status: Record<string, unknown> = {};
 
   for (const [id, service] of Object.entries(services)) {
-    const tmuxAlive = await tmuxSessionExists(service.tmuxSession);
-    const healthy = tmuxAlive ? await checkHealth(service) : false;
+    const processAlive = isProcessAlive(service);
+    const healthy = processAlive ? await checkHealth(service) : false;
     status[id] = {
       name: service.name,
-      tmuxSession: service.tmuxSession,
-      tmuxAlive,
+      pid: service.proc?.pid ?? null,
+      processAlive,
       healthy,
       consecutiveFailures: service.consecutiveFailures,
       lastRestart: service.lastRestart ? new Date(service.lastRestart).toISOString() : null,

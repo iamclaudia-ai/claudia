@@ -1,28 +1,40 @@
 /**
- * Service management — tmux helpers, health checks, auto-restart.
+ * Service management — direct process supervision, health checks, auto-restart.
+ *
+ * Manages gateway and runtime as direct child processes (Bun.spawn).
+ * No tmux — stdout/stderr pipe to log files, watchdog owns the process lifecycle.
  */
 
-import { PROJECT_DIR, HEALTH_HISTORY_SIZE, UNHEALTHY_RESTART_THRESHOLD } from "./constants";
+import {
+  PROJECT_DIR,
+  LOGS_DIR,
+  HEALTH_HISTORY_SIZE,
+  UNHEALTHY_RESTART_THRESHOLD,
+} from "./constants";
 import { log } from "./logger";
+import { existsSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
+import type { Subprocess } from "bun";
 
 // ── Types ────────────────────────────────────────────────
 
 export interface HealthSnapshot {
   timestamp: number;
-  tmuxAlive: boolean;
+  processAlive: boolean;
   healthy: boolean;
 }
 
 export interface ManagedService {
   name: string;
-  tmuxSession: string;
-  command: string;
+  id: string;
+  command: string[];
   healthUrl: string;
   port: number;
   restartBackoff: number;
   lastRestart: number;
   consecutiveFailures: number;
   history: HealthSnapshot[];
+  proc: Subprocess | null;
 }
 
 // ── Service Definitions ─────────────────────────────────
@@ -30,54 +42,36 @@ export interface ManagedService {
 export const services: Record<string, ManagedService> = {
   gateway: {
     name: "Gateway",
-    tmuxSession: "claudia-gateway",
-    command: "bun run --watch packages/gateway/src/start.ts",
+    id: "gateway",
+    command: ["bun", "run", "--watch", "packages/gateway/src/start.ts"],
     healthUrl: "http://localhost:30086/health",
     port: 30086,
     restartBackoff: 1000,
     lastRestart: 0,
     consecutiveFailures: 0,
     history: [],
+    proc: null,
   },
   runtime: {
     name: "Runtime",
-    tmuxSession: "claudia-runtime",
-    command: "bun run --watch packages/runtime/src/index.ts",
+    id: "runtime",
+    command: ["bun", "run", "--watch", "packages/runtime/src/index.ts"],
     healthUrl: "http://localhost:30087/health",
     port: 30087,
     restartBackoff: 1000,
     lastRestart: 0,
     consecutiveFailures: 0,
     history: [],
+    proc: null,
   },
 };
 
-// ── Tmux Helpers ─────────────────────────────────────────
+// ── Process Helpers ─────────────────────────────────────
 
-export async function tmuxSessionExists(session: string): Promise<boolean> {
-  const proc = Bun.spawn(["tmux", "has-session", "-t", session], {
-    stdout: "ignore",
-    stderr: "ignore",
-  });
-  const code = await proc.exited;
-  return code === 0;
-}
-
-async function tmuxSendKeys(session: string, keys: string): Promise<void> {
-  const proc = Bun.spawn(["tmux", "send-keys", "-t", session, keys], {
-    stdout: "ignore",
-    stderr: "ignore",
-  });
-  await proc.exited;
-}
-
-async function tmuxNewSession(session: string, command: string): Promise<void> {
-  const proc = Bun.spawn(["tmux", "new-session", "-d", "-s", session, command], {
-    cwd: PROJECT_DIR,
-    stdout: "ignore",
-    stderr: "inherit",
-  });
-  await proc.exited;
+export function isProcessAlive(service: ManagedService): boolean {
+  if (!service.proc) return false;
+  // Bun subprocess: exitCode is null while running
+  return service.proc.exitCode === null;
 }
 
 async function killOrphanProcesses(port: number): Promise<void> {
@@ -107,25 +101,43 @@ async function killOrphanProcesses(port: number): Promise<void> {
 }
 
 export async function startService(service: ManagedService): Promise<void> {
+  // Kill existing process if still alive
+  if (service.proc && service.proc.exitCode === null) {
+    log("INFO", `Stopping ${service.name} (PID ${service.proc.pid})...`);
+    service.proc.kill("SIGTERM");
+    // Give it a moment to die
+    await new Promise((r) => setTimeout(r, 1000));
+    // Force kill if still alive
+    if (service.proc.exitCode === null) {
+      service.proc.kill("SIGKILL");
+      await new Promise((r) => setTimeout(r, 500));
+    }
+  }
+
   // Kill any orphan processes already bound to this port
   await killOrphanProcesses(service.port);
 
-  const exists = await tmuxSessionExists(service.tmuxSession);
+  // Ensure log dir exists
+  if (!existsSync(LOGS_DIR)) mkdirSync(LOGS_DIR, { recursive: true });
 
-  if (exists) {
-    // Restart process inside existing session (preserve the session)
-    await tmuxSendKeys(service.tmuxSession, "C-c");
-    await new Promise((r) => setTimeout(r, 500));
-    await tmuxSendKeys(service.tmuxSession, service.command);
-    await tmuxSendKeys(service.tmuxSession, "Enter");
-  } else {
-    // Session doesn't exist — create it
-    await tmuxNewSession(service.tmuxSession, service.command);
-  }
+  const logPath = join(LOGS_DIR, `${service.id}.log`);
+
+  // Spawn as direct child process, pipe stdout+stderr to log file
+  service.proc = Bun.spawn(service.command, {
+    cwd: PROJECT_DIR,
+    stdout: Bun.file(logPath),
+    stderr: Bun.file(logPath),
+    env: { ...process.env, FORCE_COLOR: "0" },
+  });
 
   service.lastRestart = Date.now();
   service.consecutiveFailures = 0;
-  log("INFO", `Started ${service.name} in tmux session: ${service.tmuxSession}`);
+  log("INFO", `Started ${service.name} (PID ${service.proc.pid})`);
+
+  // Monitor for unexpected exit
+  service.proc.exited.then((code) => {
+    log("WARN", `${service.name} exited with code ${code}`);
+  });
 }
 
 export async function restartService(id: string): Promise<{ ok: boolean; message: string }> {
@@ -136,7 +148,7 @@ export async function restartService(id: string): Promise<{ ok: boolean; message
 
   log("INFO", `Restarting ${service.name}...`);
   await startService(service);
-  return { ok: true, message: `${service.name} restarted` };
+  return { ok: true, message: `${service.name} restarted (PID ${service.proc?.pid})` };
 }
 
 export async function checkHealth(service: ManagedService): Promise<boolean> {
@@ -152,26 +164,26 @@ export async function checkHealth(service: ManagedService): Promise<boolean> {
 
 export async function monitorServices(): Promise<void> {
   for (const [_id, service] of Object.entries(services)) {
-    const tmuxAlive = await tmuxSessionExists(service.tmuxSession);
-    const healthy = tmuxAlive ? await checkHealth(service) : false;
+    const processAlive = isProcessAlive(service);
+    const healthy = processAlive ? await checkHealth(service) : false;
 
     // Record snapshot
-    service.history.push({ timestamp: Date.now(), tmuxAlive, healthy });
+    service.history.push({ timestamp: Date.now(), processAlive, healthy });
     if (service.history.length > HEALTH_HISTORY_SIZE) {
       service.history = service.history.slice(-HEALTH_HISTORY_SIZE);
     }
 
-    if (!tmuxAlive) {
-      // Tmux session gone — restart with backoff
+    if (!processAlive) {
+      // Process died — restart with backoff
       service.consecutiveFailures++;
       const timeSinceRestart = Date.now() - service.lastRestart;
       if (timeSinceRestart < service.restartBackoff) continue;
 
-      log("WARN", `${service.name} tmux session gone — restarting...`);
+      log("WARN", `${service.name} process dead — restarting...`);
       await startService(service);
       service.restartBackoff = Math.min(service.restartBackoff * 2, 30000);
     } else if (!healthy) {
-      // Tmux alive but health check failing
+      // Process alive but health check failing
       service.consecutiveFailures++;
       if (service.consecutiveFailures >= UNHEALTHY_RESTART_THRESHOLD) {
         const timeSinceRestart = Date.now() - service.lastRestart;
@@ -190,6 +202,17 @@ export async function monitorServices(): Promise<void> {
       if (Date.now() - service.lastRestart > 60000) {
         service.restartBackoff = 1000;
       }
+    }
+  }
+}
+
+// ── Graceful Shutdown ───────────────────────────────────
+
+export function stopAllServices(): void {
+  for (const [, service] of Object.entries(services)) {
+    if (service.proc && service.proc.exitCode === null) {
+      log("INFO", `Stopping ${service.name} (PID ${service.proc.pid})...`);
+      service.proc.kill("SIGTERM");
     }
   }
 }

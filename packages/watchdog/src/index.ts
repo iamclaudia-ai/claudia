@@ -1,8 +1,9 @@
 /**
  * Claudia Watchdog
  *
- * Standalone process supervisor + dashboard that manages gateway and runtime via tmux.
- * Provides health monitoring, log viewing, and restart capabilities independent of the gateway.
+ * Standalone process supervisor + dashboard that manages gateway and runtime
+ * as direct child processes. Provides health monitoring, log viewing, and
+ * restart capabilities independent of the gateway.
  *
  * ZERO monorepo imports — this file is completely self-contained so it keeps running
  * even when the gateway or shared packages have build errors.
@@ -15,20 +16,17 @@
  *   curl localhost:30085/api/logs/gateway.log?lines=50  # Tail logs
  *   curl -X POST localhost:30085/restart/gateway        # Restart gateway
  *   curl -X POST localhost:30085/restart/runtime        # Restart runtime
- *
- * Tmux sessions:
- *   claudia-gateway  — gateway process
- *   claudia-runtime  — runtime process
  */
 
 import { WATCHDOG_PORT, STARTED_AT, HEALTH_CHECK_INTERVAL } from "./constants";
 import { log } from "./logger";
 import {
   services,
-  tmuxSessionExists,
+  isProcessAlive,
   startService,
   restartService,
   monitorServices,
+  stopAllServices,
 } from "./services";
 import { checkClientHealth } from "./client-health";
 import { startDiagnose, clearDiagnose, getDiagnoseStatus } from "./diagnose";
@@ -132,20 +130,22 @@ console.log(`
 ╚═══════════════════════════════════════════════════════════════╝
 `);
 
-// Start services that aren't already running
+// Start services — spawn as direct child processes
 for (const [_id, service] of Object.entries(services)) {
-  const exists = await tmuxSessionExists(service.tmuxSession);
-  if (!exists) {
-    await startService(service);
-  } else {
-    log("INFO", `${service.name} already running in tmux: ${service.tmuxSession}`);
-    service.lastRestart = Date.now();
-  }
+  await startService(service);
 }
 
-// Graceful shutdown — do NOT kill tmux sessions (they should survive watchdog restarts)
+// Graceful shutdown — kill child processes
 process.on("SIGINT", () => {
-  log("INFO", "Shutting down (tmux sessions left running)...");
+  log("INFO", "Shutting down — stopping all services...");
+  stopAllServices();
+  server.stop();
+  process.exit(0);
+});
+
+process.on("SIGTERM", () => {
+  log("INFO", "Received SIGTERM — stopping all services...");
+  stopAllServices();
   server.stop();
   process.exit(0);
 });

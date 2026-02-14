@@ -7,12 +7,12 @@
 
 interface ServiceStatus {
   name: string;
-  tmuxSession: string;
-  tmuxAlive: boolean;
+  pid: number | null;
+  processAlive: boolean;
   healthy: boolean;
   consecutiveFailures: number;
   lastRestart: string | null;
-  history: { timestamp: number; tmuxAlive: boolean; healthy: boolean }[];
+  history: { timestamp: number; processAlive: boolean; healthy: boolean }[];
 }
 
 interface ClientStatus {
@@ -245,12 +245,12 @@ async function refreshStatus(): Promise<void> {
     for (const [id, s] of Object.entries(data)) {
       if (id === "client") continue;
       const svc = s as ServiceStatus;
-      const statusColor = svc.healthy ? "#22c55e" : svc.tmuxAlive ? "#eab308" : "#ef4444";
-      const statusText = svc.healthy ? "Healthy" : svc.tmuxAlive ? "Unhealthy" : "Down";
+      const statusColor = svc.healthy ? "#22c55e" : svc.processAlive ? "#eab308" : "#ef4444";
+      const statusText = svc.healthy ? "Healthy" : svc.processAlive ? "Unhealthy" : "Down";
       const sparkline = (svc.history || [])
         .slice(-30)
         .map((h) => {
-          const c = h.healthy ? "#22c55e" : h.tmuxAlive ? "#eab308" : "#ef4444";
+          const c = h.healthy ? "#22c55e" : h.processAlive ? "#eab308" : "#ef4444";
           return `<span style="display:inline-block;width:4px;height:12px;background:${c};margin-right:1px;border-radius:1px;"></span>`;
         })
         .join("");
@@ -266,7 +266,7 @@ async function refreshStatus(): Promise<void> {
         `<span class="status-text" style="color:${statusColor}">${statusText}</span>` +
         `</div>` +
         `<div class="card-body">` +
-        `<div class="metric"><span class="label">tmux</span><span>${svc.tmuxAlive ? "running" : "stopped"}</span></div>` +
+        `<div class="metric"><span class="label">PID</span><span>${svc.pid ?? "—"}</span></div>` +
         `<div class="metric"><span class="label">failures</span><span>${svc.consecutiveFailures}</span></div>` +
         `<div class="metric"><span class="label">last restart</span><span>${lastRestart}</span></div>` +
         `<div class="sparkline">${sparkline}</div>` +
