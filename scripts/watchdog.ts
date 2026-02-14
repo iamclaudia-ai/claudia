@@ -32,6 +32,8 @@ import {
 } from "node:fs";
 import { join, basename } from "node:path";
 import { homedir } from "node:os";
+import { randomUUID } from "node:crypto";
+import { spawn, type Subprocess } from "bun";
 
 // ── Constants ────────────────────────────────────────────
 
@@ -317,6 +319,229 @@ async function monitorServices(): Promise<void> {
 setInterval(monitorServices, HEALTH_CHECK_INTERVAL);
 setInterval(checkClientHealth, HEALTH_CHECK_INTERVAL);
 
+// ── Diagnose & Fix (Self-Healing) ────────────────────────
+
+const CLAUDE_PATH = join(homedir(), ".local", "bin", "claude");
+const DIAGNOSE_TIMEOUT = 180_000; // 3 minute max
+const DIAGNOSE_COOLDOWN = 10_000; // 10s between runs
+const DIAGNOSE_LOG_DIR = join(LOGS_DIR, "diagnose");
+
+interface DiagnoseTurn {
+  role: "user" | "claude";
+  text: string;
+  timestamp: string;
+}
+
+interface DiagnoseState {
+  status: "idle" | "running" | "done" | "error";
+  sessionId: string | null;
+  currentOutput: string; // stdout buffer for current turn
+  history: DiagnoseTurn[];
+  startedAt: number | null;
+  finishedAt: number | null;
+  exitCode: number | null;
+}
+
+const diagnose: DiagnoseState = {
+  status: "idle",
+  sessionId: null,
+  currentOutput: "",
+  history: [],
+  startedAt: null,
+  finishedAt: null,
+  exitCode: null,
+};
+
+let diagnoseProc: Subprocess | null = null;
+let diagnoseTimer: ReturnType<typeof setTimeout> | null = null;
+
+function writeDiagnoseLog(): void {
+  if (!diagnose.sessionId || diagnose.history.length === 0) return;
+  try {
+    if (!existsSync(DIAGNOSE_LOG_DIR)) mkdirSync(DIAGNOSE_LOG_DIR, { recursive: true });
+    const logPath = join(DIAGNOSE_LOG_DIR, `${diagnose.sessionId.slice(0, 8)}.md`);
+    let content = `# Diagnose Session ${diagnose.sessionId.slice(0, 8)}\n`;
+    content += `Started: ${new Date(diagnose.startedAt || 0).toISOString()}\n\n`;
+    for (const turn of diagnose.history) {
+      const label = turn.role === "user" ? "## 🧑 Michael" : "## 🤖 Claude";
+      content += `${label}\n_${turn.timestamp}_\n\n${turn.text}\n\n---\n\n`;
+    }
+    Bun.write(logPath, content);
+  } catch (e) {
+    log("WARN", `Failed to write diagnose log: ${e}`);
+  }
+}
+
+async function startDiagnose(customPrompt?: string): Promise<{ ok: boolean; message: string }> {
+  // Guard: already running
+  if (diagnose.status === "running") {
+    return { ok: false, message: "Already diagnosing — wait for current run to finish" };
+  }
+
+  // Guard: cooldown
+  if (diagnose.finishedAt && Date.now() - diagnose.finishedAt < DIAGNOSE_COOLDOWN) {
+    const wait = Math.ceil((DIAGNOSE_COOLDOWN - (Date.now() - diagnose.finishedAt)) / 1000);
+    return { ok: false, message: `Cooldown — wait ${wait}s before retrying` };
+  }
+
+  // Determine if this is a new session or a resume
+  const isResume = !!customPrompt && !!diagnose.sessionId;
+  const sessionId = isResume ? diagnose.sessionId! : randomUUID();
+
+  // Build the prompt
+  let prompt: string;
+  if (customPrompt) {
+    prompt = customPrompt;
+  } else {
+    // Fetch current error details from gateway
+    let errorDetails = "Unknown error";
+    try {
+      const res = await fetch("http://localhost:30086/health", {
+        signal: AbortSignal.timeout(2000),
+      });
+      if (res.ok) {
+        const data = (await res.json()) as {
+          client?: { errors: { type: string; message: string }[]; healthy: boolean };
+        };
+        if (data.client?.errors?.length) {
+          errorDetails = data.client.errors.map((e) => `[${e.type}] ${e.message}`).join("\n");
+        }
+      }
+    } catch {
+      if (lastClientHealth?.errors?.length) {
+        errorDetails = lastClientHealth.errors.map((e) => `[${e.type}] ${e.message}`).join("\n");
+      }
+    }
+
+    prompt = `The Claudia web client has a build/render error. Here are the details:
+
+Error:
+${errorDetails}
+
+The project is at ${PROJECT_DIR}.
+Find the broken file, understand the error, and fix it.
+The fix should be minimal — just fix what's broken, don't refactor.
+After fixing, verify by reading the file to confirm the fix looks correct.`;
+  }
+
+  // Build command
+  const cmd = [CLAUDE_PATH, "-p", "--dangerously-skip-permissions", "--model", "sonnet"];
+  if (isResume) {
+    cmd.push("--resume", sessionId);
+  } else {
+    cmd.push("--session-id", sessionId);
+  }
+  cmd.push(prompt);
+
+  log(
+    "INFO",
+    `Starting diagnose (${isResume ? "resume" : "new"} session: ${sessionId.slice(0, 8)})`,
+  );
+
+  // Update state
+  diagnose.status = "running";
+  diagnose.sessionId = sessionId;
+  diagnose.currentOutput = "";
+  diagnose.startedAt = diagnose.startedAt || Date.now();
+  diagnose.finishedAt = null;
+  diagnose.exitCode = null;
+  if (!isResume) {
+    diagnose.history = [];
+  }
+
+  // Record the user's prompt in history
+  diagnose.history.push({
+    role: "user",
+    text: prompt,
+    timestamp: new Date().toISOString(),
+  });
+
+  try {
+    diagnoseProc = spawn({
+      cmd,
+      cwd: PROJECT_DIR,
+      stdout: "pipe",
+      stderr: "pipe",
+      env: {
+        ...process.env,
+        CLAUDECODE: "", // Bypass nested session guard
+      },
+    });
+
+    // Collect stdout
+    collectStream(diagnoseProc.stdout, (text) => {
+      diagnose.currentOutput += text;
+    });
+
+    // Collect stderr (for debugging)
+    collectStream(diagnoseProc.stderr, (text) => {
+      diagnose.currentOutput += text;
+    });
+
+    // Timeout guard
+    diagnoseTimer = setTimeout(() => {
+      if (diagnoseProc) {
+        log("WARN", "Diagnose process timed out — killing");
+        diagnoseProc.kill("SIGTERM");
+      }
+    }, DIAGNOSE_TIMEOUT);
+
+    // Wait for exit
+    diagnoseProc.exited.then((exitCode) => {
+      if (diagnoseTimer) {
+        clearTimeout(diagnoseTimer);
+        diagnoseTimer = null;
+      }
+      diagnose.exitCode = exitCode ?? -1;
+      diagnose.status = exitCode === 0 ? "done" : "error";
+      diagnose.finishedAt = Date.now();
+
+      // Record Claude's response in history
+      diagnose.history.push({
+        role: "claude",
+        text: diagnose.currentOutput,
+        timestamp: new Date().toISOString(),
+      });
+      diagnoseProc = null;
+
+      // Write to log file
+      writeDiagnoseLog();
+
+      const duration = Date.now() - (diagnose.startedAt || 0);
+      log(
+        exitCode === 0 ? "INFO" : "WARN",
+        `Diagnose finished (exit=${exitCode}, ${Math.round(duration / 1000)}s, ${diagnose.currentOutput.length} chars)`,
+      );
+    });
+
+    return { ok: true, message: "Diagnosis started" };
+  } catch (error) {
+    diagnose.status = "error";
+    diagnose.currentOutput = `Failed to spawn claude: ${error}`;
+    diagnose.finishedAt = Date.now();
+    log("ERROR", `Failed to spawn diagnose: ${error}`);
+    return { ok: false, message: `Failed to start: ${error}` };
+  }
+}
+
+async function collectStream(
+  stream: ReadableStream<Uint8Array> | number | null,
+  onText: (text: string) => void,
+): Promise<void> {
+  if (!stream || typeof stream === "number") return;
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      onText(decoder.decode(value, { stream: true }));
+    }
+  } catch {
+    // Stream closed
+  }
+}
+
 // ── Log File API ─────────────────────────────────────────
 
 function listLogFiles(): { name: string; size: number; modified: string }[] {
@@ -463,6 +688,24 @@ function buildDashboardHtml(statusData: Record<string, unknown>): string {
     .log-line.info { color: #a1a1aa; }
 
     .log-footer { display: flex; justify-content: space-between; margin-top: 8px; font-size: 11px; color: #52525b; }
+
+    .diagnose-section { padding: 0 24px 24px; display: none; }
+    .diagnose-section.visible { display: block; }
+    .diagnose-header { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+    .diagnose-header h2 { font-size: 15px; font-weight: 600; }
+    .diagnose-status { font-size: 12px; padding: 3px 10px; border-radius: 12px; }
+    .diagnose-status.running { background: #1e3a5f; color: #60a5fa; }
+    .diagnose-status.done { background: #064e3b; color: #6ee7b7; }
+    .diagnose-status.error { background: #7f1d1d; color: #fca5a5; }
+    .diagnose-output { background: #09090b; border: 1px solid #27272a; border-radius: 8px; max-height: 400px; overflow-y: auto; padding: 12px; font-family: "SF Mono", "Fira Code", monospace; font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-all; color: #a1a1aa; }
+    .diagnose-actions { margin-top: 12px; display: flex; gap: 8px; align-items: center; }
+    .btn-diagnose { background: #7c3aed; color: #fff; border: none; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 500; }
+    .btn-diagnose:hover { background: #6d28d9; }
+    .btn-diagnose:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-continue { background: #3f3f46; color: #e4e4e7; border: none; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 12px; }
+    .btn-continue:hover { background: #52525b; }
+    .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid #3f3f46; border-top-color: #60a5fa; border-radius: 50%; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
   </style>
 </head>
 <body>
@@ -473,6 +716,15 @@ function buildDashboardHtml(statusData: Record<string, unknown>): string {
 
   <div class="services" id="serviceCards">
     ${serviceCards}
+  </div>
+
+  <div class="diagnose-section" id="diagnoseSection">
+    <div class="diagnose-header">
+      <h2>🔧 Diagnose & Fix</h2>
+      <span class="diagnose-status" id="diagnoseStatus"></span>
+    </div>
+    <div class="diagnose-output" id="diagnoseOutput"></div>
+    <div class="diagnose-actions" id="diagnoseActions"></div>
   </div>
 
   <div class="log-section">
@@ -663,7 +915,9 @@ function buildDashboardHtml(statusData: Record<string, unknown>): string {
               '<div class="metric"><span class="label">last seen</span><span>' + heartbeatText + '</span></div>' +
               '<div class="metric"><span class="label">errors (5m)</span><span>' + c.recentErrors + '</span></div>' +
               (errorList ? '<div style="margin-top:8px;border-top:1px solid #3f3f46;padding-top:6px;">' + errorList + '</div>' : '') +
-            '</div></div>';
+            '</div>' +
+            (!c.healthy ? '<div class="card-actions"><button onclick="launchDiagnose()" class="btn-diagnose" id="diagnoseBtn">🔧 Diagnose & Fix</button></div>' : '') +
+            '</div>';
         }
 
         container.innerHTML = html;
@@ -683,10 +937,157 @@ function buildDashboardHtml(statusData: Record<string, unknown>): string {
     }
     setInterval(updateUptime, 1000);
 
+    // ── Diagnose & Fix ──────────────────────────────────────
+    let diagnosePollTimer = null;
+
+    async function launchDiagnose() {
+      if (!confirm('Launch Claude to diagnose and fix the client error?')) return;
+      const btn = document.getElementById('diagnoseBtn');
+      if (btn) btn.disabled = true;
+
+      try {
+        const res = await fetch('/diagnose', { method: 'POST' });
+        const data = await res.json();
+        if (!data.ok) { alert(data.message); if (btn) btn.disabled = false; return; }
+        showDiagnosePanel();
+        pollDiagnose();
+      } catch (e) {
+        alert('Failed to start: ' + e.message);
+        if (btn) btn.disabled = false;
+      }
+    }
+
+    async function sendDiagnoseMessage() {
+      var input = document.getElementById('diagnoseInput');
+      var prompt = input ? input.value.trim() : '';
+      if (!prompt) return;
+      input.value = '';
+
+      try {
+        const res = await fetch('/diagnose/continue', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt: prompt })
+        });
+        const data = await res.json();
+        if (!data.ok) { alert(data.message); return; }
+        pollDiagnose();
+      } catch (e) {
+        alert('Failed: ' + e.message);
+      }
+    }
+
+    async function clearDiagnose() {
+      try {
+        await fetch('/diagnose/clear', { method: 'POST' });
+        var section = document.getElementById('diagnoseSection');
+        if (section) section.classList.remove('visible');
+      } catch {}
+    }
+
+    function showDiagnosePanel() {
+      var section = document.getElementById('diagnoseSection');
+      if (section) section.classList.add('visible');
+    }
+
+    async function pollDiagnose() {
+      try {
+        const res = await fetch('/diagnose');
+        const data = await res.json();
+        renderDiagnosePanel(data);
+
+        if (data.status === 'running') {
+          if (diagnosePollTimer) clearTimeout(diagnosePollTimer);
+          diagnosePollTimer = setTimeout(pollDiagnose, 2000);
+        }
+      } catch {}
+    }
+
+    function renderDiagnosePanel(data) {
+      showDiagnosePanel();
+      var statusEl = document.getElementById('diagnoseStatus');
+      var outputEl = document.getElementById('diagnoseOutput');
+      var actionsEl = document.getElementById('diagnoseActions');
+
+      // Status badge
+      if (statusEl) {
+        statusEl.className = 'diagnose-status ' + data.status;
+        if (data.status === 'running') {
+          var elapsed = Math.round((Date.now() - new Date(data.startedAt).getTime()) / 1000);
+          statusEl.innerHTML = '<span class="spinner"></span> Running (' + elapsed + 's)';
+        } else if (data.status === 'done') {
+          statusEl.textContent = '✅ Done (exit ' + data.exitCode + ')';
+        } else if (data.status === 'error') {
+          statusEl.textContent = '❌ Error (exit ' + data.exitCode + ')';
+        }
+      }
+
+      // Chat-style output: user prompts + claude responses
+      if (outputEl) {
+        var content = '';
+
+        // Render completed history turns
+        for (var i = 0; i < (data.history || []).length; i++) {
+          var turn = data.history[i];
+          if (turn.role === 'user') {
+            content += '<div style="color:#60a5fa;margin:8px 0 4px;font-weight:600;">🧑 You</div>';
+            content += '<div style="color:#94a3b8;margin-bottom:8px;padding:6px 10px;background:#1e293b;border-radius:6px;">' + escapeHtml(turn.text) + '</div>';
+          } else {
+            content += '<div style="color:#a78bfa;margin:8px 0 4px;font-weight:600;">🤖 Claude</div>';
+            content += '<div style="margin-bottom:8px;">' + escapeHtml(turn.text) + '</div>';
+          }
+        }
+
+        // If running, show current output being collected
+        if (data.status === 'running' && data.currentOutput) {
+          content += '<div style="color:#a78bfa;margin:8px 0 4px;font-weight:600;">🤖 Claude <span class="spinner" style="vertical-align:middle;"></span></div>';
+          content += '<div>' + escapeHtml(data.currentOutput) + '</div>';
+        } else if (data.status === 'running' && !data.currentOutput) {
+          content += '<div style="color:#52525b;margin:8px 0;">🤖 Claude is thinking... <span class="spinner"></span></div>';
+        }
+
+        outputEl.innerHTML = content || '<span style="color:#52525b">No diagnosis session active</span>';
+        outputEl.scrollTop = outputEl.scrollHeight;
+      }
+
+      // Actions: text input + buttons
+      if (actionsEl) {
+        if (data.status === 'running') {
+          actionsEl.innerHTML = '<span class="spinner"></span> <span style="color:#71717a;font-size:12px;">Claude is working...</span>';
+        } else if (data.status === 'done' || data.status === 'error') {
+          actionsEl.innerHTML =
+            '<div style="display:flex;gap:8px;flex:1;align-items:center;">' +
+              '<input id="diagnoseInput" type="text" placeholder="Tell Claude what to do next..." ' +
+                'style="flex:1;background:#09090b;color:#e4e4e7;border:1px solid #3f3f46;padding:8px 12px;border-radius:6px;font-size:13px;font-family:inherit;" ' +
+                'onkeydown="if(event.key===\\'Enter\\')sendDiagnoseMessage()" />' +
+              '<button onclick="sendDiagnoseMessage()" class="btn-continue">Send</button>' +
+            '</div>' +
+            '<div style="display:flex;gap:8px;margin-top:8px;align-items:center;">' +
+              '<button onclick="launchDiagnose()" class="btn-diagnose">New Diagnosis</button>' +
+              '<button onclick="clearDiagnose()" class="btn-restart">Clear</button>' +
+              '<span style="color:#52525b;font-size:11px;margin-left:auto;">Session: ' + (data.sessionId || '').slice(0, 8) + '</span>' +
+            '</div>';
+        }
+      }
+    }
+
+    // Check if there's an active diagnose session on page load
+    async function checkDiagnose() {
+      try {
+        const res = await fetch('/diagnose');
+        const data = await res.json();
+        if (data.status !== 'idle') {
+          renderDiagnosePanel(data);
+          if (data.status === 'running') pollDiagnose();
+        }
+      } catch {}
+    }
+
     // Initialize
     loadLogFiles();
     tailLog();
     refreshStatus();
+    checkDiagnose();
     // Poll logs every 2s, status every 5s, file list every 30s
     setInterval(tailLog, 2000);
     setInterval(refreshStatus, 5000);
@@ -749,6 +1150,67 @@ const server = Bun.serve({
         status: result.ok ? 200 : 400,
         headers: JSON_HEADERS,
       });
+    }
+
+    // Diagnose — start new diagnosis
+    if (url.pathname === "/diagnose" && req.method === "POST") {
+      const result = await startDiagnose();
+      return new Response(JSON.stringify(result), {
+        status: result.ok ? 200 : 400,
+        headers: JSON_HEADERS,
+      });
+    }
+
+    // Diagnose — continue with follow-up prompt
+    if (url.pathname === "/diagnose/continue" && req.method === "POST") {
+      let prompt = "Continue fixing the error. Check if it's resolved now.";
+      try {
+        const body = (await req.json()) as { prompt?: string };
+        if (body.prompt) prompt = body.prompt;
+      } catch {}
+      const result = await startDiagnose(prompt);
+      return new Response(JSON.stringify(result), {
+        status: result.ok ? 200 : 400,
+        headers: JSON_HEADERS,
+      });
+    }
+
+    // Diagnose — get current status and output
+    if (url.pathname === "/diagnose" && req.method === "GET") {
+      return new Response(
+        JSON.stringify({
+          status: diagnose.status,
+          sessionId: diagnose.sessionId,
+          currentOutput: diagnose.currentOutput.slice(-10000),
+          history: diagnose.history.map((h) => ({
+            role: h.role,
+            text: h.text.slice(-5000),
+            timestamp: h.timestamp,
+          })),
+          startedAt: diagnose.startedAt,
+          finishedAt: diagnose.finishedAt,
+          exitCode: diagnose.exitCode,
+        }),
+        { headers: JSON_HEADERS },
+      );
+    }
+
+    // Diagnose — clear UI state (doesn't delete log)
+    if (url.pathname === "/diagnose/clear" && req.method === "POST") {
+      if (diagnose.status === "running") {
+        return new Response(JSON.stringify({ ok: false, message: "Can't clear while running" }), {
+          status: 400,
+          headers: JSON_HEADERS,
+        });
+      }
+      diagnose.status = "idle";
+      diagnose.sessionId = null;
+      diagnose.currentOutput = "";
+      diagnose.history = [];
+      diagnose.startedAt = null;
+      diagnose.finishedAt = null;
+      diagnose.exitCode = null;
+      return new Response(JSON.stringify({ ok: true }), { headers: JSON_HEADERS });
     }
 
     // Fallback — redirect to dashboard

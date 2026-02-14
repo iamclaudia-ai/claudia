@@ -1056,6 +1056,9 @@ const server = Bun.serve<ClientState>({
             timestamp: new Date().toISOString(),
             userAgent: req.headers.get("user-agent") || "",
           });
+        } else if (body.rendered) {
+          // Client is rendering successfully — clear any stale errors immediately
+          clientErrors.length = 0;
         }
       } catch {
         lastClientRendered = true;
