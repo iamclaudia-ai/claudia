@@ -9,14 +9,17 @@
         "react-dom": "^19.2.3",
       },
       "devDependencies": {
+        "@tailwindcss/typography": "^0.5.19",
         "@types/bun": "latest",
         "@types/react": "^19.2.9",
         "@types/react-dom": "^19.2.3",
         "@typescript/native-preview": "7.0.0-dev.20260212.1",
+        "bun-plugin-tailwind": "0.1.2",
         "bun-types": "1.3.6",
         "husky": "^9.1.7",
         "lint-staged": "^16.2.1",
         "oxlint": "latest",
+        "tailwindcss": "^4.0.0",
         "typescript": "^5.7.0",
       },
     },
@@ -93,6 +96,13 @@
       "bin": {
         "claudia": "./src/index.ts",
       },
+      "dependencies": {
+        "@claudia/shared": "workspace:*",
+      },
+    },
+    "packages/extension-host": {
+      "name": "@claudia/extension-host",
+      "version": "0.1.0",
       "dependencies": {
         "@claudia/shared": "workspace:*",
       },
@@ -191,6 +201,8 @@
     "@claudia/ext-imessage": ["@claudia/ext-imessage@workspace:extensions/imessage"],
 
     "@claudia/ext-mission-control": ["@claudia/ext-mission-control@workspace:extensions/mission-control"],
+
+    "@claudia/extension-host": ["@claudia/extension-host@workspace:packages/extension-host"],
 
     "@claudia/gateway": ["@claudia/gateway@workspace:packages/gateway"],
 

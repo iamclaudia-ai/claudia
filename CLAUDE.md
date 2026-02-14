@@ -53,6 +53,7 @@ Every feature — including the web chat UI — is an extension with routes and 
 ## Tech Stack
 
 - **Runtime**: Bun
+- **Package Manager**: Bun (`bun install`, `bun add`) — **NEVER use npm, pnpm, or yarn** in this project. All dependencies are managed via `bun.lock`.
 - **Language**: TypeScript (strict)
 - **Server**: Bun.serve (HTTP + WebSocket on single port)
 - **Database**: SQLite (workspaces + sessions)
