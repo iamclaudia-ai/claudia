@@ -51,6 +51,79 @@ interface ClientState {
 // Client connections
 const clients = new Map<ServerWebSocket<ClientState>, ClientState>();
 
+// ── Client Health Beacon ─────────────────────────────────────
+// Tracks client-side errors and heartbeats for the watchdog.
+// Errors are event-driven (pushed immediately), health is inferred
+// from heartbeat freshness + absence of recent errors.
+
+interface ClientErrorReport {
+  type: "react" | "runtime" | "unhandled_rejection";
+  message: string;
+  stack?: string;
+  componentStack?: string;
+  url: string;
+  timestamp: string;
+  userAgent: string;
+  receivedAt: number;
+}
+
+const MAX_CLIENT_ERRORS = 20;
+const CLIENT_ERROR_TTL = 5 * 60 * 1000; // Keep errors for 5 minutes
+const clientErrors: ClientErrorReport[] = [];
+let lastClientHeartbeat: number | null = null;
+let lastClientRendered: boolean | null = null;
+
+function addClientError(error: Omit<ClientErrorReport, "receivedAt">): void {
+  // Deduplicate: if the last error has the same message, just update its timestamp
+  const last = clientErrors[clientErrors.length - 1];
+  if (last && last.message === error.message) {
+    last.receivedAt = Date.now();
+    last.timestamp = error.timestamp;
+    return;
+  }
+
+  clientErrors.push({ ...error, receivedAt: Date.now() });
+  // Trim old errors
+  const cutoff = Date.now() - CLIENT_ERROR_TTL;
+  while (clientErrors.length > 0 && clientErrors[0].receivedAt < cutoff) {
+    clientErrors.shift();
+  }
+  // Cap size
+  while (clientErrors.length > MAX_CLIENT_ERRORS) {
+    clientErrors.shift();
+  }
+  log.warn("Client error reported", { type: error.type, message: error.message.slice(0, 200) });
+}
+
+function getClientHealth(): {
+  healthy: boolean;
+  rendered: boolean | null;
+  lastHeartbeat: string | null;
+  heartbeatAge: number | null;
+  recentErrors: number;
+  errors: ClientErrorReport[];
+} {
+  // Prune stale errors
+  const cutoff = Date.now() - CLIENT_ERROR_TTL;
+  while (clientErrors.length > 0 && clientErrors[0].receivedAt < cutoff) {
+    clientErrors.shift();
+  }
+
+  const heartbeatAge = lastClientHeartbeat ? Date.now() - lastClientHeartbeat : null;
+  const noErrors = clientErrors.length === 0;
+  const heartbeatFresh = heartbeatAge === null || heartbeatAge < 120_000;
+  const rendered = lastClientRendered !== false; // null (no data yet) is OK
+
+  return {
+    healthy: noErrors && heartbeatFresh && rendered,
+    rendered: lastClientRendered,
+    lastHeartbeat: lastClientHeartbeat ? new Date(lastClientHeartbeat).toISOString() : null,
+    heartbeatAge,
+    recentErrors: clientErrors.length,
+    errors: clientErrors,
+  };
+}
+
 // Extension manager
 const extensions = new ExtensionManager();
 
@@ -937,10 +1010,62 @@ const server = Bun.serve<ClientState>({
             : null,
           extensions: extensions.getHealth(),
           sourceRoutes: extensions.getSourceRoutes(),
+          client: getClientHealth(),
         }),
         { headers: { "Content-Type": "application/json" } },
       );
     },
+
+    // Client error beacon — receives crash reports from the web UI
+    "/api/client-error": async (req: globalThis.Request) => {
+      if (req.method !== "POST") {
+        return new globalThis.Response("Method not allowed", { status: 405 });
+      }
+      try {
+        const body = await req.json();
+        addClientError(body);
+        return new globalThis.Response(JSON.stringify({ ok: true }), {
+          headers: { "Content-Type": "application/json" },
+        });
+      } catch {
+        return new globalThis.Response(JSON.stringify({ ok: false, error: "Invalid JSON" }), {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+    },
+
+    // Client health heartbeat — confirms the web UI is rendering successfully
+    "/api/client-health": async (req: globalThis.Request) => {
+      if (req.method !== "POST") {
+        return new globalThis.Response("Method not allowed", { status: 405 });
+      }
+      try {
+        const body = (await req.json()) as {
+          rendered?: boolean;
+          bunHmrError?: string | null;
+        };
+        lastClientRendered = body.rendered ?? true;
+
+        // If the DOM health check found a bun-hmr error overlay, treat it as a client error
+        if (body.bunHmrError) {
+          addClientError({
+            type: "runtime",
+            message: body.bunHmrError,
+            url: req.headers.get("referer") || "",
+            timestamp: new Date().toISOString(),
+            userAgent: req.headers.get("user-agent") || "",
+          });
+        }
+      } catch {
+        lastClientRendered = true;
+      }
+      lastClientHeartbeat = Date.now();
+      return new globalThis.Response(JSON.stringify({ ok: true }), {
+        headers: { "Content-Type": "application/json" },
+      });
+    },
+
     // SPA fallback — serves the web UI for all other paths
     "/*": index,
   },

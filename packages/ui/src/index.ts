@@ -50,3 +50,4 @@ export { ToolCallBlock } from "./components/ToolCallBlock";
 export { InputArea } from "./components/InputArea";
 export { CopyButton } from "./components/CopyButton";
 export { ClaudiaThinking } from "./components/ClaudiaThinking";
+export { ErrorBoundary } from "./components/ErrorBoundary";

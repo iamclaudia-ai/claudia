@@ -8,6 +8,144 @@
   </head>
   <body>
     <div id="root"></div>
+
+    <!--
+      Error Beacon — runs BEFORE React loads.
+      Catches all JS errors (including module load failures) and reports
+      them to the gateway. Heartbeat confirms the app rendered successfully.
+      This script is intentionally inline and vanilla JS — no dependencies.
+    -->
+    <script>
+      (function () {
+        var BEACON_URL = location.protocol + "//" + location.host;
+        var POLL_INTERVAL = 10000; // Check DOM state every 10s
+
+        // ── DOM Health Check ────────────────────────────────────
+        // Every poll, inspect the actual DOM and report what we see.
+        // This is the single source of truth — no event handlers needed
+        // for error detection. The DOM doesn't lie.
+
+        function checkAndReport() {
+          var status = getDOMStatus();
+          try {
+            var xhr = new XMLHttpRequest();
+            xhr.open("POST", BEACON_URL + "/api/client-health", true);
+            xhr.setRequestHeader("Content-Type", "application/json");
+            xhr.send(JSON.stringify(status));
+          } catch (e) {}
+        }
+
+        function getDOMStatus() {
+          var root = document.getElementById("root");
+          var hasContent = root && root.children.length > 0;
+
+          // Check for Bun's HMR error overlay
+          var bunHmr = document.querySelector("bun-hmr");
+          var hmrError = null;
+          if (bunHmr) {
+            try {
+              var shadow = bunHmr.shadowRoot;
+              if (shadow) {
+                // Extract error text from the overlay
+                var errorDesc = shadow.querySelector(".message-desc");
+                var errorName = shadow.querySelector(".r-error code.name");
+                if (errorDesc) {
+                  hmrError =
+                    (errorName ? errorName.textContent + ": " : "") + errorDesc.textContent;
+                } else {
+                  // Fallback: grab any visible text from error content
+                  var errorContent = shadow.querySelector(".error-content");
+                  if (errorContent) hmrError = errorContent.textContent.slice(0, 500);
+                }
+              }
+            } catch (e) {
+              hmrError = "bun-hmr overlay present (shadow DOM inaccessible)";
+            }
+          }
+
+          return {
+            url: location.href,
+            timestamp: new Date().toISOString(),
+            rendered: !!hasContent && !bunHmr,
+            hasContent: !!hasContent,
+            bunHmrError: hmrError,
+          };
+        }
+
+        // Start polling immediately, then every 10s
+        // First check after 3s (give React time to mount)
+        setTimeout(function () {
+          checkAndReport();
+          setInterval(checkAndReport, POLL_INTERVAL);
+        }, 3000);
+
+        // Also catch JS errors and report immediately (best-effort, may not fire if HMR intercepts)
+        window.addEventListener("error", function (event) {
+          try {
+            var xhr = new XMLHttpRequest();
+            xhr.open("POST", BEACON_URL + "/api/client-error", true);
+            xhr.setRequestHeader("Content-Type", "application/json");
+            xhr.send(
+              JSON.stringify({
+                type: "runtime",
+                message: (event.message || "Unknown error").slice(0, 500),
+                stack: (event.error && event.error.stack
+                  ? event.error.stack
+                  : "at " + event.filename + ":" + event.lineno + ":" + event.colno
+                ).slice(0, 2000),
+                url: location.href,
+                timestamp: new Date().toISOString(),
+                userAgent: navigator.userAgent,
+              }),
+            );
+          } catch (e) {}
+        });
+
+        window.addEventListener("unhandledrejection", function (event) {
+          var reason = event.reason;
+          try {
+            var xhr = new XMLHttpRequest();
+            xhr.open("POST", BEACON_URL + "/api/client-error", true);
+            xhr.setRequestHeader("Content-Type", "application/json");
+            xhr.send(
+              JSON.stringify({
+                type: "unhandled_rejection",
+                message: (reason instanceof Error
+                  ? reason.message
+                  : String(reason || "Unknown")
+                ).slice(0, 500),
+                stack: (reason instanceof Error ? reason.stack || "" : "").slice(0, 2000),
+                url: location.href,
+                timestamp: new Date().toISOString(),
+                userAgent: navigator.userAgent,
+              }),
+            );
+          } catch (e) {}
+        });
+
+        // Expose for React ErrorBoundary to report caught render errors
+        window.__claudiaBeacon = {
+          reportError: function (type, message, stack) {
+            try {
+              var xhr = new XMLHttpRequest();
+              xhr.open("POST", BEACON_URL + "/api/client-error", true);
+              xhr.setRequestHeader("Content-Type", "application/json");
+              xhr.send(
+                JSON.stringify({
+                  type: type,
+                  message: (message || "Unknown").slice(0, 500),
+                  stack: (stack || "").slice(0, 2000),
+                  url: location.href,
+                  timestamp: new Date().toISOString(),
+                  userAgent: navigator.userAgent,
+                }),
+              );
+            } catch (e) {}
+          },
+        };
+      })();
+    </script>
+
     <script type="module" src="./index.tsx"></script>
   </body>
 </html>

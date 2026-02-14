@@ -187,6 +187,56 @@ async function checkHealth(service: ManagedService): Promise<boolean> {
   }
 }
 
+// ── Client Health Tracking ──────────────────────────────────
+
+interface ClientHealthStatus {
+  healthy: boolean;
+  lastHeartbeat: string | null;
+  heartbeatAge: number | null;
+  recentErrors: number;
+  errors: { type: string; message: string; timestamp: string }[];
+}
+
+let lastClientHealth: ClientHealthStatus | null = null;
+let clientErrorAlerted = false;
+
+async function checkClientHealth(): Promise<void> {
+  try {
+    const res = await fetch("http://localhost:30086/health", { signal: AbortSignal.timeout(2000) });
+    if (!res.ok) return;
+
+    const data = (await res.json()) as { client?: ClientHealthStatus };
+    if (!data.client) return;
+
+    const prev = lastClientHealth;
+    lastClientHealth = data.client;
+
+    // Log client errors when they appear
+    if (data.client.recentErrors > 0 && !clientErrorAlerted) {
+      clientErrorAlerted = true;
+      const latestError = data.client.errors[data.client.errors.length - 1];
+      log(
+        "ERROR",
+        `Client-side error detected: [${latestError?.type}] ${latestError?.message?.slice(0, 200)} (${data.client.recentErrors} recent errors)`,
+      );
+    } else if (data.client.recentErrors === 0 && clientErrorAlerted) {
+      clientErrorAlerted = false;
+      log("INFO", "Client errors cleared — app healthy again");
+    }
+
+    // Warn if heartbeat is stale (client hasn't reported healthy in 2+ minutes)
+    if (
+      data.client.heartbeatAge !== null &&
+      data.client.heartbeatAge > 120_000 &&
+      (prev === null || (prev.heartbeatAge !== null && prev.heartbeatAge <= 120_000))
+    ) {
+      log("WARN", `Client heartbeat stale (${Math.round(data.client.heartbeatAge / 1000)}s ago)`);
+    }
+  } catch {
+    // Gateway unreachable — already handled by service health checks
+  }
+}
+
 // ── Status ───────────────────────────────────────────────
 
 async function getStatus(): Promise<Record<string, unknown>> {
@@ -202,6 +252,17 @@ async function getStatus(): Promise<Record<string, unknown>> {
       consecutiveFailures: service.consecutiveFailures,
       lastRestart: service.lastRestart ? new Date(service.lastRestart).toISOString() : null,
       history: service.history.slice(-HEALTH_HISTORY_SIZE),
+    };
+  }
+  // Include client health in status
+  if (lastClientHealth) {
+    status.client = {
+      name: "Web Client",
+      healthy: lastClientHealth.healthy,
+      recentErrors: lastClientHealth.recentErrors,
+      lastHeartbeat: lastClientHealth.lastHeartbeat,
+      heartbeatAge: lastClientHealth.heartbeatAge,
+      errors: lastClientHealth.errors,
     };
   }
   return status;
@@ -254,6 +315,7 @@ async function monitorServices(): Promise<void> {
 }
 
 setInterval(monitorServices, HEALTH_CHECK_INTERVAL);
+setInterval(checkClientHealth, HEALTH_CHECK_INTERVAL);
 
 // ── Log File API ─────────────────────────────────────────
 
@@ -310,6 +372,7 @@ function buildDashboardHtml(statusData: Record<string, unknown>): string {
         : `${Math.floor(uptime / 3600)}h ${Math.floor((uptime % 3600) / 60)}m`;
 
   const serviceCards = Object.entries(statusData)
+    .filter(([id]) => id !== "client")
     .map(([id, data]) => {
       const s = data as {
         name: string;
@@ -548,7 +611,12 @@ function buildDashboardHtml(statusData: Record<string, unknown>): string {
         const data = await res.json();
         const container = document.getElementById('serviceCards');
         if (!container) return;
-        container.innerHTML = Object.entries(data).map(([id, s]) => {
+
+        let html = '';
+
+        // Render service cards (gateway, runtime)
+        for (const [id, s] of Object.entries(data)) {
+          if (id === 'client') continue; // handled separately
           const statusColor = s.healthy ? '#22c55e' : s.tmuxAlive ? '#eab308' : '#ef4444';
           const statusText = s.healthy ? 'Healthy' : s.tmuxAlive ? 'Unhealthy' : 'Down';
           const sparkline = (s.history || []).slice(-30).map(h => {
@@ -556,7 +624,7 @@ function buildDashboardHtml(statusData: Record<string, unknown>): string {
             return '<span style="display:inline-block;width:4px;height:12px;background:' + c + ';margin-right:1px;border-radius:1px;"></span>';
           }).join('');
           const lastRestart = s.lastRestart ? new Date(s.lastRestart).toLocaleTimeString() : 'never';
-          return '<div class="card">' +
+          html += '<div class="card">' +
             '<div class="card-header">' +
               '<span class="status-dot" style="background:' + statusColor + '"></span>' +
               '<span class="card-title">' + s.name + '</span>' +
@@ -571,7 +639,34 @@ function buildDashboardHtml(statusData: Record<string, unknown>): string {
             '<div class="card-actions">' +
               '<button onclick="restartService(\\'' + id + '\\')" class="btn-restart">Restart</button>' +
             '</div></div>';
-        }).join('');
+        }
+
+        // Render client health card
+        if (data.client) {
+          const c = data.client;
+          const clientColor = c.healthy ? '#22c55e' : '#ef4444';
+          const clientStatus = c.healthy ? 'Healthy' : c.recentErrors > 0 ? c.recentErrors + ' Error' + (c.recentErrors > 1 ? 's' : '') : 'Stale';
+          const heartbeatText = c.lastHeartbeat ? new Date(c.lastHeartbeat).toLocaleTimeString() : 'never';
+          const heartbeatAge = c.heartbeatAge ? Math.round(c.heartbeatAge / 1000) + 's ago' : 'n/a';
+          const errorList = (c.errors || []).slice(-3).map(e =>
+            '<div style="font-size:11px;color:#f87171;padding:2px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">[' + e.type + '] ' + escapeHtml((e.message || '').slice(0, 80)) + '</div>'
+          ).join('');
+
+          html += '<div class="card">' +
+            '<div class="card-header">' +
+              '<span class="status-dot" style="background:' + clientColor + '"></span>' +
+              '<span class="card-title">' + c.name + '</span>' +
+              '<span class="status-text" style="color:' + clientColor + '">' + clientStatus + '</span>' +
+            '</div>' +
+            '<div class="card-body">' +
+              '<div class="metric"><span class="label">heartbeat</span><span>' + heartbeatAge + '</span></div>' +
+              '<div class="metric"><span class="label">last seen</span><span>' + heartbeatText + '</span></div>' +
+              '<div class="metric"><span class="label">errors (5m)</span><span>' + c.recentErrors + '</span></div>' +
+              (errorList ? '<div style="margin-top:8px;border-top:1px solid #3f3f46;padding-top:6px;">' + errorList + '</div>' : '') +
+            '</div></div>';
+        }
+
+        container.innerHTML = html;
       } catch {}
     }
 

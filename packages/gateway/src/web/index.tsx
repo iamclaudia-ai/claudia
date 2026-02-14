@@ -1,5 +1,5 @@
 import { createRoot } from "react-dom/client";
-import { Router } from "@claudia/ui";
+import { Router, ErrorBoundary } from "@claudia/ui";
 import "@claudia/ui/styles";
 
 import { chatRoutes } from "@claudia/ext-chat/routes";
@@ -19,4 +19,8 @@ if (import.meta.env.DEV) {
 
 const allRoutes = [...missionControlRoutes, ...chatRoutes];
 
-createRoot(document.getElementById("root")!).render(<Router routes={allRoutes} />);
+createRoot(document.getElementById("root")!).render(
+  <ErrorBoundary>
+    <Router routes={allRoutes} />
+  </ErrorBoundary>,
+);
