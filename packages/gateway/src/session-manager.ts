@@ -69,6 +69,7 @@ export class SessionManager {
   // Per-request state
   currentRequestWantsVoice = false;
   currentRequestSource: string | null = null;
+  currentRequestConnectionId: string | null = null;
   currentResponseText = "";
 
   // Session config (can be set before first prompt)

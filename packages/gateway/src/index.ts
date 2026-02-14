@@ -51,6 +51,11 @@ interface ClientState {
 // Client connections
 const clients = new Map<ServerWebSocket<ClientState>, ClientState>();
 
+// Maps streamId → connectionId for connection-scoped voice routing.
+// When a client sends a prompt with speakResponse=true, we record which
+// connection originated the voice stream so audio events route only to it.
+const voiceStreamOrigins = new Map<string, string>();
+
 // ── Client Health Beacon ─────────────────────────────────────
 // Tracks client-side errors and heartbeats for the watchdog.
 // Errors are event-driven (pushed immediately), health is inferred
@@ -148,6 +153,20 @@ sessionManager.connectToRuntime();
 
 // Wire up extension event emitting to broadcast
 extensions.setEmitCallback(async (type, payload, source) => {
+  const payloadObj =
+    payload && typeof payload === "object" ? (payload as Record<string, unknown>) : null;
+
+  // Track voice stream origins for connection-scoped routing
+  if (type === "voice.stream_start" && payloadObj?.streamId) {
+    const connectionId = sessionManager.currentRequestConnectionId;
+    if (connectionId) {
+      voiceStreamOrigins.set(payloadObj.streamId as string, connectionId);
+    }
+  }
+  if (type === "voice.stream_end" && payloadObj?.streamId) {
+    voiceStreamOrigins.delete(payloadObj.streamId as string);
+  }
+
   broadcastEvent(type, payload, source);
 
   // Handle prompt requests from extensions (e.g., iMessage)
@@ -172,6 +191,7 @@ extensions.setEmitCallback(async (type, payload, source) => {
       // Set request context for routing
       sessionManager.currentRequestWantsVoice = false;
       sessionManager.currentRequestSource = req.source || null;
+      sessionManager.currentRequestConnectionId = null;
       sessionManager.currentResponseText = "";
 
       // Send prompt through session manager with explicit session targeting/config.
@@ -743,6 +763,7 @@ async function handleSessionMethod(
         // Track request metadata for routing
         sessionManager.currentRequestWantsVoice = req.params?.speakResponse === true;
         sessionManager.currentRequestSource = (req.params?.source as string) || null;
+        sessionManager.currentRequestConnectionId = req.params?.speakResponse ? ws.data.id : null;
 
         // Send prompt through session manager
         const ccSessionId = await sessionManager.prompt(content, targetSessionId, {
@@ -931,11 +952,29 @@ function broadcastEvent(eventName: string, payload: unknown, _source?: string): 
     payload && typeof payload === "object" ? (payload as Record<string, unknown>) : null;
   const payloadSessionId =
     typeof payloadObj?.sessionId === "string" ? (payloadObj.sessionId as string) : null;
+
+  // Connection-scoped routing: voice events with a known stream origin
+  // route only to the connection that initiated the prompt.
+  const streamId =
+    typeof payloadObj?.streamId === "string" ? (payloadObj.streamId as string) : null;
+  const targetConnectionId = streamId ? (voiceStreamOrigins.get(streamId) ?? null) : null;
+  const isConnectionScoped = eventName.startsWith("voice.") && targetConnectionId !== null;
+
+  if (isConnectionScoped) {
+    for (const [ws, state] of clients) {
+      if (state.id === targetConnectionId) {
+        ws.send(data);
+        break;
+      }
+    }
+    return;
+  }
+
+  // Session-scoped voice events (no known origin — fallback to subscription filtering)
   const isScopedVoiceEvent = eventName.startsWith("voice.") && payloadSessionId !== null;
   const requiredStreamPattern = payloadSessionId ? `stream.${payloadSessionId}.*` : null;
 
   for (const [ws, state] of clients) {
-    // Route session-scoped voice streams only to clients subscribed to that session stream.
     if (isScopedVoiceEvent) {
       const hasGlobal = state.subscriptions.has("*");
       const hasSessionStream =
@@ -1076,12 +1115,27 @@ const server = Bun.serve<ClientState>({
     open(ws) {
       clients.set(ws, ws.data);
       log.info(`Client connected: ${ws.data.id} (${clients.size} total)`);
+
+      // Send the server-authoritative connectionId to the client
+      ws.send(
+        JSON.stringify({
+          type: "event",
+          event: "gateway.welcome",
+          payload: { connectionId: ws.data.id },
+        }),
+      );
     },
     message(ws, message) {
       handleMessage(ws, message.toString());
     },
     close(ws) {
       clients.delete(ws);
+
+      // Clean up voice stream origins for this connection
+      for (const [streamId, connId] of voiceStreamOrigins) {
+        if (connId === ws.data.id) voiceStreamOrigins.delete(streamId);
+      }
+
       log.info(`Client disconnected: ${ws.data.id} (${clients.size} total)`);
     },
   },

@@ -102,6 +102,8 @@ export interface UseGatewayReturn {
   sendRequest(method: string, params?: Record<string, unknown>): void;
   /** Subscribe to raw gateway events. Returns unsubscribe function. */
   onEvent(listener: EventListener): () => void;
+  /** Server-assigned connection ID for this WebSocket session */
+  connectionId: string | null;
   messagesContainerRef: React.RefObject<HTMLDivElement | null>;
   messagesEndRef: React.RefObject<HTMLDivElement | null>;
 }
@@ -127,6 +129,7 @@ export function useGateway(gatewayUrl: string, options: UseGatewayOptions = {}):
   const wsRef = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
+  const connectionIdRef = useRef<string | null>(null);
   const isQueryingRef = useRef(isQuerying);
   const sessionRecordIdRef = useRef(sessionRecordId);
   const historyLoadedRef = useRef(false);
@@ -668,6 +671,15 @@ export function useGateway(gatewayUrl: string, options: UseGatewayOptions = {}):
       }
 
       if (msg.type === "event" && msg.event) {
+        // Capture server-assigned connectionId on connect
+        if (msg.event === "gateway.welcome") {
+          const welcomePayload = msg.payload as { connectionId?: string };
+          if (welcomePayload?.connectionId) {
+            connectionIdRef.current = welcomePayload.connectionId;
+          }
+          return;
+        }
+
         // Streaming events: "stream.{sessionId}.{eventType}"
         // Extract the eventType (everything after "stream.{sessionId}.")
         const parts = msg.event.split(".");
@@ -882,6 +894,7 @@ export function useGateway(gatewayUrl: string, options: UseGatewayOptions = {}):
     switchSession,
     sendRequest,
     onEvent,
+    connectionId: connectionIdRef.current,
     messagesContainerRef,
     messagesEndRef,
   };
