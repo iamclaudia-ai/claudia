@@ -5,3 +5,7 @@ exact = true
 [test]
 # Test configuration
 coverage = true
+
+[serve.static]
+# Tailwind CSS processing for the gateway's fullstack dev server
+plugins = ["bun-plugin-tailwind"]
