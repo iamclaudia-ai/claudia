@@ -6,7 +6,9 @@ How to build, configure, and run Claudia extensions.
 
 Extensions are the primary way to add features to Claudia. Every capability — web chat, voice, iMessage, Mission Control — is an extension. Extensions register schema-driven methods, subscribe to the event bus, and optionally serve web pages.
 
-Extensions can run **in-process** (loaded directly into the gateway) or **out-of-process** (as isolated child processes). Out-of-process extensions survive code changes without restarting the gateway or dropping WebSocket connections.
+Extensions run **out-of-process** as isolated child processes. This survives extension code changes without restarting the gateway or dropping WebSocket connections.
+
+Server entrypoint convention is strict: every extension must expose `extensions/<id>/src/index.ts`. Do not use alternate server entrypoint filenames.
 
 ## Quick Start
 
@@ -26,7 +28,7 @@ extensions/my-feature/
   "private": true,
   "type": "module",
   "exports": {
-    "./extension": "./src/index.ts"
+    ".": "./src/index.ts"
   },
   "dependencies": {
     "@claudia/shared": "workspace:*",
@@ -107,25 +109,16 @@ export function createMyFeatureExtension(config: MyFeatureConfig = {}): ClaudiaE
 export default createMyFeatureExtension;
 ```
 
-### 3. Register in the gateway
+### 3. Add Extension Files
 
-Add to `packages/gateway/src/start.ts`:
+Gateway now resolves extensions dynamically from config keys using this convention:
 
-```typescript
-import { createMyFeatureExtension } from "@claudia/ext-my-feature/extension";
+- `extensions/<extension-id>/src/index.ts` (server entrypoint, required)
+- `extensions/<extension-id>/src/routes.ts` (optional, UI routes)
 
-// In EXTENSION_FACTORIES:
-"my-feature": (config) => createMyFeatureExtension(config),
+Your extension ID in config must match the folder name.
 
-// In MODULE_SPECIFIERS (if supporting out-of-process):
-"my-feature": "@claudia/ext-my-feature",
-```
-
-Add to `packages/gateway/package.json` dependencies:
-
-```json
-"@claudia/ext-my-feature": "workspace:*"
-```
+Server entrypoint must always be `src/index.ts`.
 
 ### 4. Configure in claudia.json
 
@@ -180,7 +173,7 @@ interface ClaudiaExtension {
 
 ### Factory Function
 
-Extensions export a factory function named `createXxxExtension`:
+Extensions define the server entrypoint in `src/index.ts` and export a factory function named `createXxxExtension`:
 
 ```typescript
 export function createVoiceExtension(config: VoiceConfig = {}): ClaudiaExtension { ... }
@@ -207,6 +200,8 @@ Every method declares a Zod input schema. The gateway validates at the boundary 
 Methods are discoverable via `method.list` and auto-generate CLI help.
 
 Naming rule: Multi-word method segments must use kebab-case (for example `workspace.get-or-create`, `session.tool-result`).
+
+Validation note: for out-of-process extensions, remote methods are currently invoked by name through the host process. Keep your `handleMethod` defensive and validate critical params inside the extension until host-side schema validation is added.
 
 ### Events
 
@@ -281,7 +276,9 @@ Extension config lives in `~/.claudia/claudia.json` (JSON5 format):
   extensions: {
     voice: {
       enabled: true,
-      outOfProcess: true, // Run as isolated child process
+      // outOfProcess is optional; extensions run out-of-process by default.
+      // If set to false, gateway logs a warning and still runs it out-of-process.
+      outOfProcess: true,
       sourceRoutes: ["imessage"], // Optional: override source routes
       config: {
         apiKey: "${CARTESIA_API_KEY}", // Env var interpolation
@@ -302,8 +299,8 @@ Extension config lives in `~/.claudia/claudia.json` (JSON5 format):
 ```
 ~/.claudia/claudia.json
   → loadConfig() interpolates ${ENV_VARS} from process.env / .env
-  → gateway start.ts reads extension configs
-  → In-process: factory(config) directly
+  → gateway start.ts enumerates enabled extension IDs
+  → resolves extensions/<id>/src/index.ts
   → Out-of-process: JSON.stringify(config) → extension host → factory(config)
 ```
 
@@ -345,16 +342,18 @@ When developing, `bun --watch` restarts the gateway on any code change. If voice
 
 ```
 Gateway (port 30086)
-  ├── In-process: chat, mission-control (stable, have web pages)
-  └── Child: bun --hot extension-host/src/index.ts @claudia/voice <config>
+  ├── Child: bun --hot extension-host/src/index.ts <file:///.../extensions/<id>/src/index.ts> <config>
+  ├── Child: bun --hot extension-host/src/index.ts <file:///.../extensions/<id>/src/index.ts> <config>
+  └── (one host process per enabled extension)
         └── stdin/stdout NDJSON ←→ gateway
 ```
 
-1. Gateway reads `outOfProcess: true` from config
-2. Spawns `bun --hot packages/extension-host/src/index.ts <module> <config-json>`
-3. Host dynamically imports the module, finds the factory, calls `factory(config)`
-4. Host sends a `register` message with extension metadata (methods, events, sourceRoutes)
-5. Gateway registers the remote extension — methods, events, and source routing work transparently
+1. Gateway reads enabled extensions from config
+2. Resolves each entrypoint as `extensions/<id>/src/index.ts`
+3. Spawns `bun --hot packages/extension-host/src/index.ts <file-url> <config-json>`
+4. Host dynamically imports the entrypoint, finds the factory, calls `factory(config)`
+5. Host sends a `register` message with extension metadata (methods, events, sourceRoutes)
+6. Gateway registers the remote extension — methods, events, and source routing work transparently
 
 ### NDJSON Protocol
 
@@ -391,16 +390,20 @@ Host → Gateway (registration on startup)
 
 If the extension host crashes, the gateway automatically restarts it (up to 5 times with 2-second delays). Pending method calls are rejected with an error.
 
+### Out-of-Process Readiness Checklist
+
+Before enabling an extension, verify all of these:
+
+1. Entry point exists at `extensions/<id>/src/index.ts` (required by gateway loader).
+2. Runtime config comes from the factory `config` argument (or `ctx.config`), not module-level `loadConfig()`/`process.env` reads.
+3. `start()`/`stop()` fully clean up timers, sockets, subprocesses, and event subscriptions so HMR does not leak state.
+4. Keep server logic and route/page logic split: server code runs out-of-process while React routes still load in the gateway web shell.
+
 ### Enabling
 
-Set `outOfProcess: true` in the extension config and add the module specifier to `MODULE_SPECIFIERS` in `start.ts`:
+Extensions are config-driven. Add them under `extensions` in your active config (`~/.claudia/claudia.json` or `CLAUDIA_CONFIG`).
 
-```typescript
-const MODULE_SPECIFIERS: Record<string, string> = {
-  voice: "@claudia/voice",
-  imessage: "@claudia/ext-imessage",
-};
-```
+If `enabled: true` and `extensions/<id>/src/index.ts` exists, gateway spawns that extension in its own host process. `outOfProcess` defaults to true behavior; `false` is ignored with a warning.
 
 ### Console Output
 
@@ -429,8 +432,8 @@ export const myFeatureRoutes: Route[] = [
 ```json
 {
   "exports": {
-    "./routes": "./src/routes.ts",
-    "./extension": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./routes": "./src/routes.ts"
   },
   "dependencies": {
     "@claudia/shared": "workspace:*",
@@ -462,10 +465,10 @@ const allRoutes = [...missionControlRoutes, ...chatRoutes, ...myFeatureRoutes];
 
 | Extension       | ID                | Package                        | Out-of-Process     | Web Pages                             | Source Routes |
 | --------------- | ----------------- | ------------------------------ | ------------------ | ------------------------------------- | ------------- |
-| Chat            | `chat`            | `@claudia/ext-chat`            | No (has web pages) | `/`, `/workspace/:id`, `/session/:id` | —             |
+| Chat            | `chat`            | `@claudia/ext-chat`            | Yes                | `/`, `/workspace/:id`, `/session/:id` | —             |
 | Voice           | `voice`           | `@claudia/voice`               | Yes                | —                                     | —             |
-| iMessage        | `imessage`        | `@claudia/ext-imessage`        | Supported          | —                                     | `imessage`    |
-| Mission Control | `mission-control` | `@claudia/ext-mission-control` | No (has web pages) | `/mission-control`, `/logs`           | —             |
+| iMessage        | `imessage`        | `@claudia/ext-imessage`        | Yes                | —                                     | `imessage`    |
+| Mission Control | `mission-control` | `@claudia/ext-mission-control` | Yes                | `/mission-control`, `/logs`           | —             |
 
 ---
 
@@ -473,7 +476,7 @@ const allRoutes = [...missionControlRoutes, ...chatRoutes, ...myFeatureRoutes];
 
 ```
 extensions/<name>/
-├── package.json           # Exports: ./extension, ./routes (if has UI)
+├── package.json           # Exports: . -> ./src/index.ts, ./routes (if has UI)
 └── src/
     ├── index.ts           # Factory function + implementation
     ├── routes.ts          # Route declarations (if has UI)
@@ -483,7 +486,7 @@ extensions/<name>/
 packages/
 ├── shared/src/types.ts          # ClaudiaExtension, ExtensionContext, etc.
 ├── shared/src/config.ts         # Config loading + env interpolation
-├── gateway/src/start.ts         # Extension factory registry + startup
+├── gateway/src/start.ts         # Config-driven extension startup (out-of-process)
 ├── gateway/src/extensions.ts    # ExtensionManager (routing, events, lifecycle)
 ├── gateway/src/extension-host.ts  # ExtensionHostProcess (child process mgmt)
 ├── gateway/src/web/index.tsx    # SPA shell (route collection)

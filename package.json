@@ -23,11 +23,12 @@
     "typecheck:fast": "tsgo --noEmit -p tsconfig.tsgo.json",
     "typecheck:all": "bun run --filter @claudia/cli typecheck && bun run --filter @claudia/gateway typecheck && bun run --filter @claudia/memory-mcp typecheck && bun run --filter @claudia/runtime typecheck && bun run --filter @claudia/shared typecheck && bun run --filter @claudia/ui typecheck && bun run --filter @claudia/ext-chat typecheck && bun run --filter @claudia/ext-imessage typecheck && bun run --filter @claudia/ext-mission-control typecheck && bun run --filter @claudia/voice typecheck && bun run --filter @claudia/ios typecheck && bun run --filter @claudia/menubar typecheck && bun run --filter claudia typecheck",
     "precommit": "bun run typecheck:fast && bunx lint-staged",
-    "prepush": "bun run typecheck && bun run test:unit",
+    "prepush": "bun run typecheck && bun run test:unit && bun run docs:api:check",
     "prepare": "husky",
     "lint": "oxlint .",
     "format": "bunx oxfmt --write .",
-    "docs:api": "bun run scripts/generate-api-reference.ts"
+    "docs:api": "bun run scripts/generate-api-reference.ts",
+    "docs:api:check": "bun run docs:api && (git diff --quiet -- docs/API-REFERENCE.md && git diff --cached --quiet -- docs/API-REFERENCE.md || (echo \"[prepush] docs/API-REFERENCE.md changed after generation. Commit the regenerated file.\"; exit 1))"
   },
   "dependencies": {
     "react": "^19.2.3",

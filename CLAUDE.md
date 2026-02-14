@@ -41,7 +41,9 @@ All API methods declare Zod schemas for input validation. The gateway validates 
 
 ### Everything is an Extension
 
-Every feature — including the web chat UI — is an extension with routes and pages:
+Every feature — including the web chat UI — is an extension with routes and pages.
+
+Server extension loading is config-driven from `~/.claudia/claudia.json` and out-of-process by default (one extension-host child process per enabled extension). Each extension entrypoint must be `extensions/<id>/src/index.ts`.
 
 | Extension         | Location                      | Server methods                    | Web pages                             |
 | ----------------- | ----------------------------- | --------------------------------- | ------------------------------------- |

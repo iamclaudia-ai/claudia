@@ -132,7 +132,7 @@ Methods are namespaced. The gateway routes by prefix:
 | Prefix        | Handler          | Methods                                               |
 | ------------- | ---------------- | ----------------------------------------------------- |
 | `session.*`   | SessionManager   | prompt, history, switch, list, info, interrupt, reset |
-| `workspace.*` | SessionManager   | list, get, getOrCreate, createSession, listSessions   |
+| `workspace.*` | SessionManager   | list, get, get-or-create, create-session, list-sessions   |
 | `method.*`    | Gateway          | list (returns all methods with schemas)               |
 | `subscribe`   | Client state     | Subscribe to event patterns                           |
 | `unsubscribe` | Client state     | Remove subscriptions                                  |
@@ -350,6 +350,8 @@ Response:  { messages: [...50], total: 4077, hasMore: true, offset: 50 }
 
 ## Extension System
 
+Extensions are loaded from config (`~/.claudia/claudia.json`) by extension ID and run out-of-process via `packages/extension-host`. Gateway resolves `extensions/<id>/src/index.ts` and starts one host child process per enabled extension.
+
 ### Server-Side Extensions
 
 Extensions register schema-driven methods and events, subscribe to the event bus:
@@ -408,7 +410,7 @@ extensions/<name>/src/
   pages/         # React page components
 ```
 
-Routes use the `/ext/<name>` prefix convention (except chat which owns `/`).
+Routes typically use feature paths (for example `/mission-control`); chat owns `/`. There is no required `/ext/<name>` prefix.
 
 The web shell (`packages/gateway/src/web/index.tsx`) imports routes from all extensions and feeds them to the `Router` component from `packages/ui`.
 
@@ -443,7 +445,7 @@ packages/
   gateway/
     src/
       index.ts              # Bun.serve, WS handlers, request routing, schema validation
-      start.ts              # Extension loading, startup
+      start.ts              # Config-driven extension startup (out-of-process)
       session-manager.ts    # Workspace/session lifecycle, history
       extensions.ts         # Extension registration, method/event dispatch, param validation
       parse-session.ts      # JSONL → Message[] with pagination
@@ -510,7 +512,8 @@ packages/
       index.ts              # MCP server for persistent memory system
 
 extensions/
-  chat/src/                 # Web chat pages
+  chat/src/                 # Chat extension (server + web pages)
+    index.ts                # Chat server extension entrypoint
     routes.ts               # /, /workspace/:id, /session/:id
     pages/                  # WorkspacesPage, WorkspacePage, SessionPage
     app.ts                  # GATEWAY_URL + PlatformBridge
