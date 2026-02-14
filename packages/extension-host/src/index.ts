@@ -44,6 +44,18 @@ const hostLog = createLogger(
   join(homedir(), ".claudia", "logs", "extension-host.log"),
 );
 
+// ── Parent liveness check ────────────────────────────────────
+// When bun --watch restarts the gateway, orphan extension hosts get
+// reparented to PID 1 (launchd). Poll to detect this and self-terminate.
+const parentPidAtStart = process.ppid;
+const parentCheckInterval = setInterval(() => {
+  if (process.ppid !== parentPidAtStart) {
+    hostLog.info(`Parent PID changed (${parentPidAtStart} → ${process.ppid}), shutting down`);
+    clearInterval(parentCheckInterval);
+    process.exit(0);
+  }
+}, 2000);
+
 // ── NDJSON I/O ────────────────────────────────────────────────
 
 function write(msg: unknown): void {
