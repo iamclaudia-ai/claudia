@@ -146,6 +146,18 @@ async function handleSessionMethod(
         break;
       }
 
+      case "permissionMode": {
+        const sessionId = req.params?.sessionId as string;
+        const mode = req.params?.mode as string;
+        if (!sessionId || !mode) {
+          sendError(ws, req.id, "Missing sessionId or mode parameter");
+          return;
+        }
+        const ok = manager.setPermissionMode(sessionId, mode);
+        sendResponse(ws, req.id, { status: ok ? "ok" : "not_found", mode });
+        break;
+      }
+
       case "close": {
         const sessionId = req.params?.sessionId as string;
         if (!sessionId) {

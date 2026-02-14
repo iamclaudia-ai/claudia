@@ -695,6 +695,26 @@ export class RuntimeSession extends EventEmitter {
   }
 
   /**
+   * Set the permission mode via control_request.
+   * Used to toggle between bypassPermissions, plan, acceptEdits, etc.
+   */
+  setPermissionMode(mode: string): void {
+    if (!this.proc) return;
+
+    this.logger.info("Setting permission mode", { mode });
+
+    const message = JSON.stringify({
+      type: "control_request",
+      request_id: randomUUID(),
+      request: {
+        subtype: "set_permission_mode",
+        permission_mode: mode,
+      },
+    });
+    this.sendToStdin(message);
+  }
+
+  /**
    * Send thinking configuration via control_request.
    * Maps effort level to max_thinking_tokens.
    */

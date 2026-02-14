@@ -186,6 +186,15 @@ const BUILTIN_METHODS: GatewayMethodDefinition[] = [
     inputSchema: z.object({ sessionId: z.string().min(1) }),
   },
   {
+    method: "session.permissionMode",
+    description:
+      "Set the permission mode for a session (bypassPermissions, acceptEdits, plan, default)",
+    inputSchema: z.object({
+      sessionId: z.string().min(1),
+      mode: z.enum(["bypassPermissions", "acceptEdits", "plan", "default", "delegate", "dontAsk"]),
+    }),
+  },
+  {
     method: "session.get",
     description: "Get one session record by id",
     inputSchema: z.object({ sessionId: z.string().min(1) }),
@@ -672,6 +681,22 @@ async function handleSessionMethod(
           sendResponse(ws, req.id, { status: "interrupted" });
         } else {
           sendError(ws, req.id, `Session not found or not interruptible: ${sessionId}`);
+        }
+        break;
+      }
+
+      case "permissionMode": {
+        const sessionId = req.params?.sessionId as string;
+        const mode = req.params?.mode as string;
+        if (!sessionId || !mode) {
+          sendError(ws, req.id, "Missing sessionId or mode parameter");
+          return;
+        }
+        const ok = await sessionManager.setPermissionMode(sessionId, mode);
+        if (ok) {
+          sendResponse(ws, req.id, { status: "ok", mode });
+        } else {
+          sendError(ws, req.id, `Session not found: ${sessionId}`);
         }
         break;
       }

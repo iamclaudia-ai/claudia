@@ -11,6 +11,8 @@ interface HeaderProps {
   sessionConfig: SessionConfigInfo | null;
   onCreateSession: () => void;
   onSwitchSession: (sessionId: string) => void;
+  /** Send a raw gateway request */
+  sendRequest: (method: string, params?: Record<string, unknown>) => void;
   /** Optional back navigation (web client uses this to go to session list) */
   onBack?: () => void;
 }
@@ -24,6 +26,7 @@ export function Header({
   sessionConfig,
   onCreateSession,
   onSwitchSession,
+  sendRequest,
   onBack,
 }: HeaderProps) {
   const bridge = useBridge();
@@ -205,6 +208,20 @@ export function Header({
           >
             {sessionConfig.thinking ? `🧠 adaptive (${sessionConfig.effort})` : "thinking off"}
           </span>
+          {sessionRecordId && (
+            <button
+              onClick={() =>
+                sendRequest("session.permissionMode", {
+                  sessionId: sessionRecordId,
+                  mode: "bypassPermissions",
+                })
+              }
+              className="px-2 py-0.5 rounded-full font-medium bg-red-50 text-red-600 hover:bg-red-100 transition-colors cursor-pointer"
+              title="Exit plan mode — set permission mode to bypassPermissions (YOLO)"
+            >
+              YOLO
+            </button>
+          )}
         </div>
       )}
     </header>

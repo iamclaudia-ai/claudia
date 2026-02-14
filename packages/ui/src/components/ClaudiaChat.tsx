@@ -95,6 +95,7 @@ function ChatInner({
           sessionConfig={gateway.sessionConfig}
           onCreateSession={gateway.createNewSession}
           onSwitchSession={gateway.switchSession}
+          sendRequest={gateway.sendRequest}
           onBack={onBack}
         />
 

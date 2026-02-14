@@ -164,6 +164,16 @@ export class RuntimeSessionManager extends EventEmitter {
   }
 
   /**
+   * Set the permission mode for a session's CLI process.
+   */
+  setPermissionMode(sessionId: string, mode: string): boolean {
+    const session = this.sessions.get(sessionId);
+    if (!session) return false;
+    session.setPermissionMode(mode);
+    return true;
+  }
+
+  /**
    * Close a session — kill process.
    */
   async close(sessionId: string): Promise<void> {

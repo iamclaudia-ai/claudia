@@ -630,6 +630,24 @@ export class SessionManager {
   }
 
   /**
+   * Set the permission mode for a session's CLI process.
+   */
+  async setPermissionMode(sessionRecordId: string, mode: string): Promise<boolean> {
+    const record = sessionModel.getSession(this.db, sessionRecordId);
+    if (!record) return false;
+
+    try {
+      await this.runtimeRequest("session.permissionMode", {
+        sessionId: record.ccSessionId,
+        mode,
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * Get session info.
    */
   getInfo() {
