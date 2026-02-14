@@ -340,17 +340,32 @@ function handleMethodBuiltin(ws: ServerWebSocket<ClientState>, req: Request, act
         description: m.description,
         inputSchema: zodToJsonSchema(m.inputSchema, m.method),
       }));
-      const extensionMethods = extensions.getMethodDefinitions().map((m) => ({
-        method: m.method.name,
-        source: "extension",
-        extensionId: m.extensionId,
-        extensionName: m.extensionName,
-        description: m.method.description,
-        inputSchema: zodToJsonSchema(m.method.inputSchema, m.method.name),
-        outputSchema: m.method.outputSchema
-          ? zodToJsonSchema(m.method.outputSchema, `${m.method.name}.output`)
-          : undefined,
-      }));
+      const extensionMethods = extensions.getMethodDefinitions().map((m) => {
+        // Remote extensions don't have Zod schemas — their inputSchema is a plain object
+        let inputSchema: unknown;
+        try {
+          inputSchema = zodToJsonSchema(m.method.inputSchema, m.method.name);
+        } catch {
+          inputSchema = m.method.inputSchema ?? {};
+        }
+        let outputSchema: unknown;
+        if (m.method.outputSchema) {
+          try {
+            outputSchema = zodToJsonSchema(m.method.outputSchema, `${m.method.name}.output`);
+          } catch {
+            outputSchema = m.method.outputSchema;
+          }
+        }
+        return {
+          method: m.method.name,
+          source: "extension",
+          extensionId: m.extensionId,
+          extensionName: m.extensionName,
+          description: m.method.description,
+          inputSchema,
+          outputSchema,
+        };
+      });
       sendResponse(ws, req.id, { methods: [...builtin, ...extensionMethods] });
       break;
     }
@@ -968,6 +983,7 @@ async function shutdown(signal: string) {
   log.info(`${signal} received, shutting down...`);
   try {
     server.stop();
+    await extensions.killRemoteHosts();
     await sessionManager.close();
     closeDb();
   } catch (e) {
@@ -985,6 +1001,7 @@ if (import.meta.hot) {
   import.meta.hot.dispose(async () => {
     log.info("HMR: Disposing managers...");
     server.stop();
+    await extensions.killRemoteHosts();
     await sessionManager.close();
     closeDb();
   });

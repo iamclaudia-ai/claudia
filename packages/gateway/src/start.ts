@@ -3,7 +3,8 @@
  * Gateway Startup Script
  *
  * Loads the gateway and registers configured extensions.
- * This is the main entry point for running the gateway with extensions.
+ * Extensions with `outOfProcess: true` in config are spawned as child processes
+ * via the extension host shim. Others load in-process as before.
  *
  * Configuration sources (in order of precedence):
  *   1. CLAUDIA_CONFIG env var (explicit path)
@@ -11,20 +12,21 @@
  *   3. Environment variables (backward compatibility)
  */
 
-import { extensions } from "./index";
+import { extensions, broadcastEvent } from "./index";
 import { getEnabledExtensions, createLogger } from "@claudia/shared";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { ExtensionHostProcess } from "./extension-host";
 
 const log = createLogger("Startup", join(homedir(), ".claudia", "logs", "gateway.log"));
 
-// Import available extensions
+// Import available extensions (for in-process loading)
 import { createVoiceExtension } from "@claudia/voice";
 import { createIMessageExtension } from "@claudia/ext-imessage";
 import { createChatExtension } from "@claudia/ext-chat/extension";
 import { createMissionControlExtension } from "@claudia/ext-mission-control/extension";
 
-// Extension factory registry
+// Extension factory registry (only used for in-process extensions)
 type ExtensionFactory = (
   config: Record<string, unknown>,
 ) => ReturnType<typeof createVoiceExtension>;
@@ -47,13 +49,17 @@ const EXTENSION_FACTORIES: Record<string, ExtensionFactory> = {
       includeAttachments: config.includeAttachments as boolean,
       historyLimit: config.historyLimit as number,
     }),
-  // Add more extensions here as they're created
-  // memory: (config) => createMemoryExtension(config),
-  // browser: (config) => createBrowserExtension(config),
+};
+
+// Maps extension IDs to their module specifiers (for out-of-process loading)
+const MODULE_SPECIFIERS: Record<string, string> = {
+  voice: "@claudia/voice",
+  imessage: "@claudia/ext-imessage",
 };
 
 /**
- * Load configured extensions from config file or env vars
+ * Load configured extensions from config file or env vars.
+ * Extensions with `outOfProcess: true` are spawned as child processes.
  */
 async function loadExtensions(): Promise<void> {
   const enabledExtensions = getEnabledExtensions();
@@ -66,21 +72,47 @@ async function loadExtensions(): Promise<void> {
   log.info("Loading extensions", { extensions: enabledExtensions.map(([id]) => id) });
 
   for (const [id, ext] of enabledExtensions) {
-    const factory = EXTENSION_FACTORIES[id];
-    if (!factory) {
-      log.warn("Unknown extension", { id });
-      continue;
-    }
-
     try {
-      const extension = factory(ext.config);
+      if (ext.outOfProcess) {
+        // Out-of-process: spawn via extension host
+        const moduleSpec = MODULE_SPECIFIERS[id];
+        if (!moduleSpec) {
+          log.warn("No module specifier for out-of-process extension", { id });
+          continue;
+        }
 
-      // Add source routes from config if specified
-      if (ext.sourceRoutes?.length) {
-        extension.sourceRoutes = ext.sourceRoutes;
+        log.info("Spawning out-of-process extension", { id, module: moduleSpec });
+
+        const host = new ExtensionHostProcess(
+          id,
+          moduleSpec,
+          ext.config,
+          (type, payload) => broadcastEvent(type, payload, `extension:${id}`),
+          (registration) => extensions.registerRemote(registration, host),
+        );
+
+        const registration = await host.spawn();
+        log.info("Out-of-process extension ready", {
+          id: registration.id,
+          methods: registration.methods.map((m) => m.name),
+        });
+      } else {
+        // In-process: existing behavior
+        const factory = EXTENSION_FACTORIES[id];
+        if (!factory) {
+          log.warn("Unknown extension", { id });
+          continue;
+        }
+
+        const extension = factory(ext.config);
+
+        // Add source routes from config if specified
+        if (ext.sourceRoutes?.length) {
+          extension.sourceRoutes = ext.sourceRoutes;
+        }
+
+        await extensions.register(extension);
       }
-
-      await extensions.register(extension);
     } catch (error) {
       log.error("Failed to load extension", { id, error: String(error) });
     }

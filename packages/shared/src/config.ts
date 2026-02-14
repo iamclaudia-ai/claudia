@@ -35,6 +35,8 @@ export interface SessionConfig {
 
 export interface ExtensionConfig {
   enabled: boolean;
+  /** Run this extension out-of-process via the extension host shim */
+  outOfProcess?: boolean;
   /** Source prefixes this extension handles for routing (e.g., ["imessage"]) */
   sourceRoutes?: string[];
   config: Record<string, unknown>;
