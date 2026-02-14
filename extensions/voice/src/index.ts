@@ -68,8 +68,8 @@ export interface VoiceConfig {
 }
 
 const DEFAULT_CONFIG: Required<VoiceConfig> = {
-  apiKey: process.env.CARTESIA_API_KEY || "",
-  voiceId: process.env.CARTESIA_VOICE_ID || "a0e99841-438c-4a64-b679-ae501e7d6091", // Barbershop - Man
+  apiKey: "",
+  voiceId: "a0e99841-438c-4a64-b679-ae501e7d6091", // Barbershop - Man
   model: "sonic-3",
   autoSpeak: false,
   summarizeThreshold: 150,
