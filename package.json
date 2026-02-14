@@ -26,7 +26,8 @@
     "prepush": "bun run typecheck && bun run test:unit",
     "prepare": "husky",
     "lint": "oxlint .",
-    "format": "bunx oxfmt --write ."
+    "format": "bunx oxfmt --write .",
+    "docs:api": "bun run scripts/generate-api-reference.ts"
   },
   "dependencies": {
     "react": "^19.2.3",
@@ -44,7 +45,9 @@
     "lint-staged": "^16.2.1",
     "oxlint": "latest",
     "tailwindcss": "^4.0.0",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "zod": "^3.25.76",
+    "zod-to-json-schema": "3.25.1"
   },
   "lint-staged": {
     "*.{ts,tsx,js,jsx,mjs,cjs}": [

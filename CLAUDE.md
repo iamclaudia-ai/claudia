@@ -189,7 +189,7 @@ extensions/<name>/src/
 
 **Session methods**: `session.prompt`, `session.history`, `session.switch`, `session.list`, `session.info`, `session.interrupt`, `session.reset`
 
-**Workspace methods**: `workspace.list`, `workspace.get`, `workspace.getOrCreate`, `workspace.createSession`, `workspace.listSessions`
+**Workspace methods**: `workspace.list`, `workspace.get`, `workspace.get-or-create`, `workspace.create-session`, `workspace.list-sessions`
 
 **Discovery**: `method.list` — returns all methods with schemas
 

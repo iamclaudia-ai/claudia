@@ -250,7 +250,7 @@ After the CLI executes tools, it sends results as `type: "user"` messages with `
 
 ### Session Lifecycle
 
-1. **Create**: Gateway sends `workspace.createSession` → Runtime creates session (lazy start — no process spawned yet)
+1. **Create**: Gateway sends `workspace.create-session` → Runtime creates session (lazy start — no process spawned yet)
 2. **First prompt**: `session.prompt` → `ensureProcess()` spawns CLI with `--session-id`
 3. **Resume**: `session.prompt` to existing session → `ensureProcess()` spawns CLI with `--resume`
 4. **Auto-resume**: If session not running (runtime restarted), auto-spawns on next prompt with `cwd` from gateway
@@ -332,7 +332,7 @@ Session History (JSONL files)
 
 ### Session Lifecycle Flows
 
-1. **VS Code flow**: `workspace.getOrCreate(cwd)` → discovers existing sessions from JSONL files → loads active session
+1. **VS Code flow**: `workspace.get-or-create(cwd)` → discovers existing sessions from JSONL files → loads active session
 2. **Web flow**: Navigate to `/session/:sessionId` → `session.history` with pagination → `session.prompt` targets specific session
 3. **Extension flow**: `imessage.prompt_request` → `sessionManager.prompt(content)` → response routed back to source
 

@@ -206,6 +206,8 @@ Every method declares a Zod input schema. The gateway validates at the boundary 
 
 Methods are discoverable via `method.list` and auto-generate CLI help.
 
+Naming rule: Multi-word method segments must use kebab-case (for example `workspace.get-or-create`, `session.tool-result`).
+
 ### Events
 
 Extensions emit events via `ctx.emit()` and subscribe via `ctx.on()`:
