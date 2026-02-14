@@ -94,6 +94,7 @@ export interface UseGatewayReturn {
   sessions: SessionInfo[];
   sessionConfig: SessionConfigInfo | null;
   sendPrompt(text: string, attachments: Attachment[]): void;
+  sendToolResult(toolUseId: string, content: string, isError?: boolean): void;
   sendInterrupt(): void;
   loadEarlierMessages(): void;
   createNewSession(title?: string): void;
@@ -824,6 +825,18 @@ export function useGateway(gatewayUrl: string, options: UseGatewayOptions = {}):
     [sendRequest, setMessages, sessionConfig],
   );
 
+  const sendToolResult = useCallback(
+    (toolUseId: string, content: string, isError = false) => {
+      const sid = sessionRecordIdRef.current;
+      if (!sid) {
+        console.warn("[sendToolResult] missing sessionRecordId");
+        return;
+      }
+      sendRequest("session.toolResult", { sessionId: sid, toolUseId, content, isError });
+    },
+    [sendRequest],
+  );
+
   const sendInterrupt = useCallback(() => {
     if (!isQueryingRef.current) return;
     if (!sessionRecordIdRef.current) return;
@@ -888,6 +901,7 @@ export function useGateway(gatewayUrl: string, options: UseGatewayOptions = {}):
     sessions,
     sessionConfig,
     sendPrompt,
+    sendToolResult,
     sendInterrupt,
     loadEarlierMessages,
     createNewSession,

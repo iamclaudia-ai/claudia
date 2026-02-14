@@ -78,6 +78,9 @@ export interface ResumeSessionOptions {
 
 const DEFAULT_MODEL = "claude-sonnet-4-20250514";
 
+/** Tools that require a tool_result sent on stdin (not auto-executed by CLI) */
+const INTERACTIVE_TOOLS = new Set(["ExitPlanMode", "EnterPlanMode", "AskUserQuestion"]);
+
 /** Map effort levels to max_thinking_tokens for control_request */
 const THINKING_TOKENS: Record<ThinkingEffort, number> = {
   low: 4000,
@@ -102,6 +105,12 @@ export class RuntimeSession extends EventEmitter {
   // Abort tracking — emit synthetic stops on interrupt
   private messageOpen = false;
   private openBlockIndices = new Set<number>();
+
+  // Interactive tool tracking (ExitPlanMode, EnterPlanMode, AskUserQuestion)
+  // These tools need a tool_result sent back on stdin to unblock the CLI
+  private pendingInteractiveTools = new Map<string, { name: string; input: string }>();
+  private currentToolUseId: string | null = null;
+  private currentToolUseName: string | null = null;
 
   // Process health monitoring
   private healthCheckInterval?: Timer;
@@ -715,6 +724,71 @@ export class RuntimeSession extends EventEmitter {
   }
 
   /**
+   * Send a tool_result for an interactive tool (ExitPlanMode, EnterPlanMode, AskUserQuestion).
+   * This unblocks the CLI which is waiting for user approval/response.
+   */
+  sendToolResult(toolUseId: string, content: string, isError = false): void {
+    if (!this.proc) {
+      this.logger.warn("Cannot send tool_result: no process");
+      return;
+    }
+
+    this.logger.info("Sending tool_result", { toolUseId: toolUseId.slice(0, 12), isError });
+
+    const message = JSON.stringify({
+      type: "user",
+      message: {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: toolUseId,
+            content,
+            ...(isError ? { is_error: true } : {}),
+          },
+        ],
+      },
+    });
+    this.sendToStdin(message);
+
+    // Clean up tracking
+    this.pendingInteractiveTools.delete(toolUseId);
+  }
+
+  /**
+   * Get pending interactive tools awaiting a tool_result.
+   */
+  getPendingInteractiveTools(): Array<{ toolUseId: string; name: string; input: string }> {
+    return Array.from(this.pendingInteractiveTools.entries()).map(([id, info]) => ({
+      toolUseId: id,
+      ...info,
+    }));
+  }
+
+  /**
+   * Auto-approve pending ExitPlanMode/EnterPlanMode tool calls.
+   * Called when we detect these interactive tools at message_stop.
+   */
+  private autoApproveInteractiveTools(): void {
+    for (const [toolUseId, { name }] of this.pendingInteractiveTools) {
+      if (name === "ExitPlanMode") {
+        this.logger.info("Auto-approving ExitPlanMode", { toolUseId: toolUseId.slice(0, 12) });
+        this.sendToolResult(
+          toolUseId,
+          "User has approved your plan. You can now start coding. Start with updating your todo list if applicable",
+        );
+      } else if (name === "EnterPlanMode") {
+        this.logger.info("Auto-approving EnterPlanMode", { toolUseId: toolUseId.slice(0, 12) });
+        this.sendToolResult(
+          toolUseId,
+          "Plan mode activated. Explore the codebase and design an approach.",
+        );
+      }
+      // AskUserQuestion is NOT auto-approved — forwarded to UI
+    }
+  }
+
+  /**
    * Send thinking configuration via control_request.
    * Maps effort level to max_thinking_tokens.
    */
@@ -736,22 +810,68 @@ export class RuntimeSession extends EventEmitter {
   // ── Event State Tracking ──────────────────────────────────
 
   /**
-   * Track SSE event state for interrupt cleanup.
+   * Track SSE event state for interrupt cleanup and interactive tool detection.
    */
   private trackEventState(event: StreamEvent): void {
     if (event.type === "message_start") {
       this.messageOpen = true;
       this.openBlockIndices.clear();
+      this.pendingInteractiveTools.clear();
+      this.currentToolUseId = null;
+      this.currentToolUseName = null;
     }
     if (event.type === "content_block_start" && typeof event.index === "number") {
       this.openBlockIndices.add(event.index);
+
+      // Detect interactive tool calls
+      const block = event.content_block as
+        | { type?: string; id?: string; name?: string }
+        | undefined;
+      if (block?.type === "tool_use" && block.name && INTERACTIVE_TOOLS.has(block.name)) {
+        this.currentToolUseId = block.id || null;
+        this.currentToolUseName = block.name;
+        this.logger.info("Detected interactive tool", {
+          name: block.name,
+          id: block.id?.slice(0, 12),
+        });
+      } else {
+        this.currentToolUseId = null;
+        this.currentToolUseName = null;
+      }
+    }
+    if (event.type === "content_block_delta") {
+      // Accumulate input JSON for tracked interactive tools
+      if (this.currentToolUseId) {
+        const delta = event.delta as { type?: string; partial_json?: string } | undefined;
+        if (delta?.type === "input_json_delta" && delta.partial_json) {
+          const existing = this.pendingInteractiveTools.get(this.currentToolUseId);
+          if (existing) {
+            existing.input += delta.partial_json;
+          }
+        }
+      }
     }
     if (event.type === "content_block_stop" && typeof event.index === "number") {
       this.openBlockIndices.delete(event.index);
+
+      // Finalize tracked interactive tool
+      if (this.currentToolUseId && this.currentToolUseName) {
+        this.pendingInteractiveTools.set(this.currentToolUseId, {
+          name: this.currentToolUseName,
+          input: "",
+        });
+      }
+      this.currentToolUseId = null;
+      this.currentToolUseName = null;
     }
     if (event.type === "message_stop") {
       this.messageOpen = false;
       this.openBlockIndices.clear();
+
+      // Auto-approve interactive tools after message completes
+      if (this.pendingInteractiveTools.size > 0) {
+        this.autoApproveInteractiveTools();
+      }
     }
   }
 

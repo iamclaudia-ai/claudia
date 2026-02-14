@@ -81,6 +81,8 @@ interface MessageListProps {
   messagesEndRef: React.RefObject<HTMLDivElement | null>;
   /** Callback for interactive tools (AskUserQuestion, ExitPlanMode) to send messages */
   onSendMessage?: (text: string) => void;
+  /** Callback for interactive tools to send a tool_result */
+  onSendToolResult?: (toolUseId: string, content: string, isError?: boolean) => void;
 }
 
 export function MessageList({
@@ -92,6 +94,7 @@ export function MessageList({
   messagesContainerRef,
   messagesEndRef,
   onSendMessage,
+  onSendToolResult,
 }: MessageListProps) {
   const remainingCount = totalMessages - messages.length;
   const displayRows = buildDisplayRows(messages);
@@ -156,7 +159,9 @@ export function MessageList({
                           input={block.input}
                           result={block.result}
                           isLoading={!block.result && isQuerying}
+                          toolUseId={block.id}
                           onSendMessage={isLatestRow ? onSendMessage : undefined}
+                          onSendToolResult={isLatestRow ? onSendToolResult : undefined}
                         />
                       );
                     }
@@ -205,6 +210,7 @@ export function MessageList({
                 totalMessages={messages.length}
                 isQuerying={isQuerying}
                 onSendMessage={msgIdx === messages.length - 1 ? onSendMessage : undefined}
+                onSendToolResult={msgIdx === messages.length - 1 ? onSendToolResult : undefined}
               />
             )}
           </div>
@@ -265,12 +271,14 @@ function AssistantMessage({
   msg,
   isQuerying,
   onSendMessage,
+  onSendToolResult,
 }: {
   msg: Message;
   msgIdx: number;
   totalMessages: number;
   isQuerying: boolean;
   onSendMessage?: (text: string) => void;
+  onSendToolResult?: (toolUseId: string, content: string, isError?: boolean) => void;
 }) {
   // Group blocks within this message: consecutive tool-like → flex row, text/error → standalone
   const groups: Array<{
@@ -326,7 +334,9 @@ function AssistantMessage({
                       input={tool.input}
                       result={tool.result}
                       isLoading={!tool.result && isQuerying}
+                      toolUseId={tool.id}
                       onSendMessage={onSendMessage}
+                      onSendToolResult={onSendToolResult}
                     />
                   );
                 }

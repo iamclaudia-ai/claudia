@@ -13,14 +13,15 @@ export default function ExitPlanModeTool({
   parsedInput,
   result,
   isLoading: _isLoading,
+  toolUseId,
   onSendMessage,
+  onSendToolResult,
 }: ToolProps) {
   const config = getToolBadgeConfig(name);
   const allowedPrompts = (parsedInput?.allowedPrompts as AllowedPrompt[]) || [];
   const [submitted, setSubmitted] = useState(false);
 
   const isAnswered = !!result;
-  const isDisabled = submitted || isAnswered;
   const isEntering = name === "EnterPlanMode";
 
   // Different labels for enter vs exit
@@ -30,19 +31,42 @@ export default function ExitPlanModeTool({
     : "A plan has been prepared and is ready for your review. Check the plan above, then approve or request changes.";
 
   const handleApprove = useCallback(() => {
-    if (!onSendMessage) return;
-    onSendMessage("Yes, proceed with the plan.");
-    setSubmitted(true);
-  }, [onSendMessage]);
+    // Prefer sending tool_result directly (proper protocol)
+    if (onSendToolResult && toolUseId) {
+      const content = isEntering
+        ? "Plan mode activated. Explore the codebase and design an approach."
+        : "User has approved your plan. You can now start coding. Start with updating your todo list if applicable";
+      onSendToolResult(toolUseId, content);
+      setSubmitted(true);
+      return;
+    }
+    // Fallback to sending a message
+    if (onSendMessage) {
+      onSendMessage("Yes, proceed with the plan.");
+      setSubmitted(true);
+    }
+  }, [onSendToolResult, onSendMessage, toolUseId, isEntering]);
 
   const handleRequestChanges = useCallback(() => {
-    if (!onSendMessage) return;
     const feedback = prompt("What changes would you like to the plan?");
-    if (feedback) {
+    if (!feedback) return;
+
+    // Prefer sending tool_result with rejection
+    if (onSendToolResult && toolUseId) {
+      const content = `The user doesn't want to proceed with this tool use. The tool use was rejected.\nTo tell you how to proceed, the user said:\n${feedback}`;
+      onSendToolResult(toolUseId, content, true);
+      setSubmitted(true);
+      return;
+    }
+    // Fallback to sending a message
+    if (onSendMessage) {
       onSendMessage(feedback);
       setSubmitted(true);
     }
-  }, [onSendMessage]);
+  }, [onSendToolResult, onSendMessage, toolUseId]);
+
+  // Always show buttons for ExitPlanMode/EnterPlanMode (unless already answered)
+  const showButtons = !isAnswered && !submitted && (onSendToolResult || onSendMessage);
 
   return (
     <div
@@ -89,21 +113,23 @@ export default function ExitPlanModeTool({
           </div>
         )}
 
-        {/* Action buttons - only for ExitPlanMode */}
-        {!isEntering && !isDisabled && onSendMessage && (
+        {/* Action buttons — always shown until answered/submitted */}
+        {showButtons && (
           <div className="flex gap-2">
             <button
               onClick={handleApprove}
               className="flex-1 rounded-md bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-700"
             >
-              Approve Plan
+              {isEntering ? "Enter Plan Mode" : "Approve Plan"}
             </button>
-            <button
-              onClick={handleRequestChanges}
-              className="flex-1 rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm font-medium text-neutral-700 transition-colors hover:bg-neutral-50 hover:border-neutral-400"
-            >
-              Request Changes
-            </button>
+            {!isEntering && (
+              <button
+                onClick={handleRequestChanges}
+                className="flex-1 rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm font-medium text-neutral-700 transition-colors hover:bg-neutral-50 hover:border-neutral-400"
+              >
+                Request Changes
+              </button>
+            )}
           </div>
         )}
       </div>

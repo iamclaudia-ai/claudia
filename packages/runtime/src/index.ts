@@ -158,6 +158,20 @@ async function handleSessionMethod(
         break;
       }
 
+      case "toolResult": {
+        const sessionId = req.params?.sessionId as string;
+        const toolUseId = req.params?.toolUseId as string;
+        const content = req.params?.content as string;
+        const isError = (req.params?.isError as boolean) || false;
+        if (!sessionId || !toolUseId || content === undefined) {
+          sendError(ws, req.id, "Missing sessionId, toolUseId, or content parameter");
+          return;
+        }
+        const ok = manager.sendToolResult(sessionId, toolUseId, content, isError);
+        sendResponse(ws, req.id, { status: ok ? "ok" : "not_found" });
+        break;
+      }
+
       case "close": {
         const sessionId = req.params?.sessionId as string;
         if (!sessionId) {

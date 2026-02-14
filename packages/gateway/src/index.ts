@@ -288,6 +288,17 @@ const BUILTIN_METHODS: GatewayMethodDefinition[] = [
     }),
   },
   {
+    method: "session.toolResult",
+    description:
+      "Send a tool_result for an interactive tool (ExitPlanMode, EnterPlanMode, AskUserQuestion)",
+    inputSchema: z.object({
+      sessionId: z.string().min(1),
+      toolUseId: z.string().min(1),
+      content: z.string(),
+      isError: z.boolean().optional(),
+    }),
+  },
+  {
     method: "session.get",
     description: "Get one session record by id",
     inputSchema: z.object({ sessionId: z.string().min(1) }),
@@ -804,6 +815,24 @@ async function handleSessionMethod(
         const ok = await sessionManager.setPermissionMode(sessionId, mode);
         if (ok) {
           sendResponse(ws, req.id, { status: "ok", mode });
+        } else {
+          sendError(ws, req.id, `Session not found: ${sessionId}`);
+        }
+        break;
+      }
+
+      case "toolResult": {
+        const sessionId = req.params?.sessionId as string;
+        const toolUseId = req.params?.toolUseId as string;
+        const content = req.params?.content as string;
+        const isError = (req.params?.isError as boolean) || false;
+        if (!sessionId || !toolUseId || content === undefined) {
+          sendError(ws, req.id, "Missing sessionId, toolUseId, or content parameter");
+          return;
+        }
+        const ok = await sessionManager.sendToolResult(sessionId, toolUseId, content, isError);
+        if (ok) {
+          sendResponse(ws, req.id, { status: "ok" });
         } else {
           sendError(ws, req.id, `Session not found: ${sessionId}`);
         }

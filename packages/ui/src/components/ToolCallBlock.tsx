@@ -25,8 +25,12 @@ interface ToolCallBlockProps {
     is_error?: boolean;
   };
   isLoading?: boolean;
+  /** The tool_use_id from the Claude API */
+  toolUseId?: string;
   /** Callback for interactive tools to send messages back to the chat */
   onSendMessage?: (text: string) => void;
+  /** Callback for interactive tools to send a tool_result */
+  onSendToolResult?: (toolUseId: string, content: string, isError?: boolean) => void;
 }
 
 /** Parse the JSON input string, returning null on failure */
@@ -43,12 +47,23 @@ export const ToolCallBlock = memo(function ToolCallBlock({
   input,
   result,
   isLoading,
+  toolUseId,
   onSendMessage,
+  onSendToolResult,
 }: ToolCallBlockProps) {
   const parsedInput = parseInput(input);
   const isError = result?.is_error;
 
-  const toolProps = { name, parsedInput, result, isLoading, isError, onSendMessage };
+  const toolProps = {
+    name,
+    parsedInput,
+    result,
+    isLoading,
+    isError,
+    toolUseId,
+    onSendMessage,
+    onSendToolResult,
+  };
 
   switch (name) {
     case "Bash":

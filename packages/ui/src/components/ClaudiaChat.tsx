@@ -83,6 +83,14 @@ function ChatInner({
     [gateway],
   );
 
+  /** For interactive tools to send tool_result directly */
+  const handleToolResult = useCallback(
+    (toolUseId: string, content: string, isError?: boolean) => {
+      gateway.sendToolResult(toolUseId, content, isError);
+    },
+    [gateway],
+  );
+
   return (
     <WorkspaceProvider cwd={gateway.workspace?.cwd}>
       <div className="flex flex-col h-screen w-full">
@@ -111,6 +119,7 @@ function ChatInner({
           messagesContainerRef={gateway.messagesContainerRef}
           messagesEndRef={gateway.messagesEndRef}
           onSendMessage={handleToolMessage}
+          onSendToolResult={handleToolResult}
         />
 
         {/* Audio speaking indicator */}

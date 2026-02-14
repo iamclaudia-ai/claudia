@@ -174,6 +174,16 @@ export class RuntimeSessionManager extends EventEmitter {
   }
 
   /**
+   * Send a tool_result for an interactive tool (ExitPlanMode, etc.).
+   */
+  sendToolResult(sessionId: string, toolUseId: string, content: string, isError = false): boolean {
+    const session = this.sessions.get(sessionId);
+    if (!session) return false;
+    session.sendToolResult(toolUseId, content, isError);
+    return true;
+  }
+
+  /**
    * Close a session — kill process.
    */
   async close(sessionId: string): Promise<void> {

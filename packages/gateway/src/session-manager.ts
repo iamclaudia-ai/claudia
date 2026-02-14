@@ -649,6 +649,31 @@ export class SessionManager {
   }
 
   /**
+   * Send a tool_result for an interactive tool (ExitPlanMode, etc.) via the runtime.
+   */
+  async sendToolResult(
+    sessionRecordId: string,
+    toolUseId: string,
+    content: string,
+    isError = false,
+  ): Promise<boolean> {
+    const record = sessionModel.getSession(this.db, sessionRecordId);
+    if (!record) return false;
+
+    try {
+      await this.runtimeRequest("session.toolResult", {
+        sessionId: record.ccSessionId,
+        toolUseId,
+        content,
+        isError,
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * Get session info.
    */
   getInfo() {
