@@ -17,7 +17,7 @@
 import { spawn, type Subprocess } from "bun";
 import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, appendFileSync } from "node:fs";
+import { existsSync, mkdirSync, appendFileSync, readFileSync } from "node:fs";
 import { createLogger } from "@claudia/shared";
 import { join } from "node:path";
 import { homedir } from "node:os";
@@ -28,6 +28,9 @@ import type {
   SDKPartialAssistantMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import type { ThinkingEffort } from "@claudia/shared";
+
+// ── System Prompt Addendum (loaded once at module init) ─────
+const SYSTEM_PROMPT_ADDENDUM = readFileSync(join(import.meta.dir, "SYSTEM_PROMPT.md"), "utf-8");
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -305,9 +308,8 @@ export class RuntimeSession extends EventEmitter {
     }
 
     const systemPrompt = this.systemPrompt
-      ? this.systemPrompt +
-        "\n\nIMPORTANT: You are running in headless/non-interactive mode. Do NOT use the AskUserQuestion tool - make reasonable decisions autonomously instead."
-      : undefined;
+      ? this.systemPrompt + "\n\n" + SYSTEM_PROMPT_ADDENDUM
+      : SYSTEM_PROMPT_ADDENDUM;
 
     const args = [
       "--print",
