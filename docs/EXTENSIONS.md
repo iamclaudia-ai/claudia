@@ -463,12 +463,12 @@ const allRoutes = [...missionControlRoutes, ...chatRoutes, ...myFeatureRoutes];
 
 ## Existing Extensions
 
-| Extension       | ID                | Package                        | Out-of-Process     | Web Pages                             | Source Routes |
-| --------------- | ----------------- | ------------------------------ | ------------------ | ------------------------------------- | ------------- |
-| Chat            | `chat`            | `@claudia/ext-chat`            | Yes                | `/`, `/workspace/:id`, `/session/:id` | —             |
-| Voice           | `voice`           | `@claudia/voice`               | Yes                | —                                     | —             |
-| iMessage        | `imessage`        | `@claudia/ext-imessage`        | Yes                | —                                     | `imessage`    |
-| Mission Control | `mission-control` | `@claudia/ext-mission-control` | Yes                | `/mission-control`, `/logs`           | —             |
+| Extension       | ID                | Package                        | Out-of-Process | Web Pages                             | Source Routes |
+| --------------- | ----------------- | ------------------------------ | -------------- | ------------------------------------- | ------------- |
+| Chat            | `chat`            | `@claudia/ext-chat`            | Yes            | `/`, `/workspace/:id`, `/session/:id` | —             |
+| Voice           | `voice`           | `@claudia/voice`               | Yes            | —                                     | —             |
+| iMessage        | `imessage`        | `@claudia/ext-imessage`        | Yes            | —                                     | `imessage`    |
+| Mission Control | `mission-control` | `@claudia/ext-mission-control` | Yes            | `/mission-control`, `/logs`           | —             |
 
 ---
 

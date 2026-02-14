@@ -129,14 +129,14 @@ All methods declare Zod schemas for input validation. The gateway validates para
 
 Methods are namespaced. The gateway routes by prefix:
 
-| Prefix        | Handler          | Methods                                               |
-| ------------- | ---------------- | ----------------------------------------------------- |
-| `session.*`   | SessionManager   | prompt, history, switch, list, info, interrupt, reset |
-| `workspace.*` | SessionManager   | list, get, get-or-create, create-session, list-sessions   |
-| `method.*`    | Gateway          | list (returns all methods with schemas)               |
-| `subscribe`   | Client state     | Subscribe to event patterns                           |
-| `unsubscribe` | Client state     | Remove subscriptions                                  |
-| `*`           | ExtensionManager | Any method registered by an extension                 |
+| Prefix        | Handler          | Methods                                                 |
+| ------------- | ---------------- | ------------------------------------------------------- |
+| `session.*`   | SessionManager   | prompt, history, switch, list, info, interrupt, reset   |
+| `workspace.*` | SessionManager   | list, get, get-or-create, create-session, list-sessions |
+| `method.*`    | Gateway          | list (returns all methods with schemas)                 |
+| `subscribe`   | Client state     | Subscribe to event patterns                             |
+| `unsubscribe` | Client state     | Remove subscriptions                                    |
+| `*`           | ExtensionManager | Any method registered by an extension                   |
 
 #### Event Subscriptions
 
