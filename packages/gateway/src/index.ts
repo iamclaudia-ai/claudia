@@ -982,37 +982,25 @@ function broadcastEvent(eventName: string, payload: unknown, _source?: string): 
   const payloadSessionId =
     typeof payloadObj?.sessionId === "string" ? (payloadObj.sessionId as string) : null;
 
-  // Connection-scoped routing: voice events with a known stream origin
-  // route only to the connection that initiated the prompt.
-  const streamId =
-    typeof payloadObj?.streamId === "string" ? (payloadObj.streamId as string) : null;
-  const targetConnectionId = streamId ? (voiceStreamOrigins.get(streamId) ?? null) : null;
-  const isConnectionScoped = eventName.startsWith("voice.") && targetConnectionId !== null;
+  // Connection-scoped routing: DISABLED for debugging — voice events not reaching browser
+  // TODO: re-enable once root cause is found
+  // const streamId =
+  //   typeof payloadObj?.streamId === "string" ? (payloadObj.streamId as string) : null;
+  // const targetConnectionId = streamId ? (voiceStreamOrigins.get(streamId) ?? null) : null;
+  // const isConnectionScoped = eventName.startsWith("voice.") && targetConnectionId !== null;
+  //
+  // if (isConnectionScoped) {
+  //   for (const [ws, state] of clients) {
+  //     if (state.id === targetConnectionId) {
+  //       ws.send(data);
+  //       break;
+  //     }
+  //   }
+  //   return;
+  // }
 
-  if (isConnectionScoped) {
-    for (const [ws, state] of clients) {
-      if (state.id === targetConnectionId) {
-        ws.send(data);
-        break;
-      }
-    }
-    return;
-  }
-
-  // Session-scoped voice events (no known origin — fallback to subscription filtering)
-  const isScopedVoiceEvent = eventName.startsWith("voice.") && payloadSessionId !== null;
-  const requiredStreamPattern = payloadSessionId ? `stream.${payloadSessionId}.*` : null;
-
+  // For voice events, check standard subscription matching for all clients
   for (const [ws, state] of clients) {
-    if (isScopedVoiceEvent) {
-      const hasGlobal = state.subscriptions.has("*");
-      const hasSessionStream =
-        requiredStreamPattern !== null && state.subscriptions.has(requiredStreamPattern);
-      if (!hasGlobal && !hasSessionStream) {
-        continue;
-      }
-    }
-
     // Check if client is subscribed to this event
     const isSubscribed = Array.from(state.subscriptions).some((pattern) => {
       if (pattern === "*") return true;
