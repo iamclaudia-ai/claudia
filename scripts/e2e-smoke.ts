@@ -73,7 +73,7 @@ async function runE2E(): Promise<void> {
 
   try {
     await request("subscribe", { events: ["session.*"] });
-    const wsResult = (await request("workspace.getOrCreate", {
+    const wsResult = (await request("workspace.get-or-create", {
       cwd: process.cwd(),
       name: "Smoke Test",
     })) as {
@@ -81,9 +81,9 @@ async function runE2E(): Promise<void> {
     };
 
     const workspaceId = wsResult.workspace?.id;
-    if (!workspaceId) throw new Error("workspace.getOrCreate returned no workspace id");
+    if (!workspaceId) throw new Error("workspace.get-or-create returned no workspace id");
 
-    const sessionResult = (await request("workspace.createSession", {
+    const sessionResult = (await request("workspace.create-session", {
       workspaceId,
       model,
       thinking,
@@ -92,7 +92,7 @@ async function runE2E(): Promise<void> {
     })) as { session?: { id: string } };
 
     const sessionId = sessionResult.session?.id;
-    if (!sessionId) throw new Error("workspace.createSession returned no session id");
+    if (!sessionId) throw new Error("workspace.create-session returned no session id");
 
     await request("session.prompt", {
       sessionId,

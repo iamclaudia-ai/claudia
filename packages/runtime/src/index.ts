@@ -146,7 +146,7 @@ async function handleSessionMethod(
         break;
       }
 
-      case "permissionMode": {
+      case "permission-mode": {
         const sessionId = req.params?.sessionId as string;
         const mode = req.params?.mode as string;
         if (!sessionId || !mode) {
@@ -158,7 +158,7 @@ async function handleSessionMethod(
         break;
       }
 
-      case "toolResult": {
+      case "tool-result": {
         const sessionId = req.params?.sessionId as string;
         const toolUseId = req.params?.toolUseId as string;
         const content = req.params?.content as string;
@@ -253,6 +253,7 @@ function broadcastEvent(eventName: string, payload: unknown): void {
 
 const server = Bun.serve<SocketData>({
   port: PORT,
+  hostname: config.runtime?.host || "localhost",
   async fetch(req, server) {
     const url = new URL(req.url);
 

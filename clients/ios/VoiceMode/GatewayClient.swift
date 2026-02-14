@@ -68,7 +68,7 @@ class GatewayClient: NSObject, @unchecked Sendable {
         print("[Gateway] Initializing voice mode session (cwd: \(cwd))")
 
         // 1. Get or create workspace for voice mode cwd
-        sendRequest(method: "workspace.getOrCreate", params: ["cwd": cwd, "name": "Voice Mode"]) { [weak self] result in
+        sendRequest(method: "workspace.get-or-create", params: ["cwd": cwd, "name": "Voice Mode"]) { [weak self] result in
             guard let self = self else { return }
             switch result {
             case .success(let payload):
@@ -101,7 +101,7 @@ class GatewayClient: NSObject, @unchecked Sendable {
                     }
 
                     func createSession() {
-                        self.sendRequest(method: "workspace.createSession", params: [
+                        self.sendRequest(method: "workspace.create-session", params: [
                             "workspaceId": workspaceId,
                             "model": self.model,
                             "thinking": self.thinking,
@@ -120,7 +120,7 @@ class GatewayClient: NSObject, @unchecked Sendable {
                     }
 
                     func switchToMostRecentSession() {
-                        self.sendRequest(method: "workspace.listSessions", params: ["workspaceId": workspaceId]) { result in
+                        self.sendRequest(method: "workspace.list-sessions", params: ["workspaceId": workspaceId]) { result in
                             switch result {
                             case .success(let payload):
                                 guard let dict = payload as? [String: Any],

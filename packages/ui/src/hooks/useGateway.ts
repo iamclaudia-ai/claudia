@@ -64,7 +64,7 @@ export interface UseGatewayOptions {
   /**
    * Auto-discover mode: get workspace by CWD, find active session.
    * Used by VS Code extension. Provide the CWD string.
-   * When set, sends workspace.getOrCreate on connect.
+   * When set, sends workspace.get-or-create on connect.
    */
   autoDiscoverCwd?: string;
 }
@@ -529,8 +529,8 @@ export function useGateway(gatewayUrl: string, options: UseGatewayOptions = {}):
             if (historyUsage) setUsage(historyUsage);
           }
 
-          // ── workspace.getOrCreate (VS Code auto-discover) ──
-          if (method === "workspace.getOrCreate") {
+          // ── workspace.get-or-create (VS Code auto-discover) ──
+          if (method === "workspace.get-or-create") {
             const ws = payload.workspace as WorkspaceInfo | undefined;
             if (ws) {
               setWorkspace(ws);
@@ -548,7 +548,7 @@ export function useGateway(gatewayUrl: string, options: UseGatewayOptions = {}):
               } else {
                 // No active session — auto-create first session for this workspace
                 console.log("[Workspace] No active session — creating first session");
-                sendRequest("workspace.createSession", {
+                sendRequest("workspace.create-session", {
                   workspaceId: ws.id,
                   model: DEFAULT_SESSION_CONFIG.model,
                   thinking: DEFAULT_SESSION_CONFIG.thinking,
@@ -557,7 +557,7 @@ export function useGateway(gatewayUrl: string, options: UseGatewayOptions = {}):
               }
 
               // Load session list for this workspace
-              sendRequest("workspace.listSessions", { workspaceId: ws.id });
+              sendRequest("workspace.list-sessions", { workspaceId: ws.id });
             }
           }
 
@@ -576,7 +576,7 @@ export function useGateway(gatewayUrl: string, options: UseGatewayOptions = {}):
               // (this happens in web explicit-session flow)
               if (sessionRecord.workspaceId) {
                 sendRequest("workspace.get", { workspaceId: sessionRecord.workspaceId });
-                sendRequest("workspace.listSessions", { workspaceId: sessionRecord.workspaceId });
+                sendRequest("workspace.list-sessions", { workspaceId: sessionRecord.workspaceId });
               }
             }
           }
@@ -590,8 +590,8 @@ export function useGateway(gatewayUrl: string, options: UseGatewayOptions = {}):
             }
           }
 
-          // ── workspace.listSessions ──
-          if (method === "workspace.listSessions") {
+          // ── workspace.list-sessions ──
+          if (method === "workspace.list-sessions") {
             const sessionList = payload.sessions as SessionInfo[] | undefined;
             if (sessionList) {
               setSessions(sessionList);
@@ -602,8 +602,8 @@ export function useGateway(gatewayUrl: string, options: UseGatewayOptions = {}):
             }
           }
 
-          // ── workspace.createSession ──
-          if (method === "workspace.createSession") {
+          // ── workspace.create-session ──
+          if (method === "workspace.create-session") {
             const newSession = payload.session as SessionInfo | undefined;
             if (newSession) {
               setSessionId(newSession.ccSessionId);
@@ -616,7 +616,7 @@ export function useGateway(gatewayUrl: string, options: UseGatewayOptions = {}):
               historyLoadedRef.current = false;
               console.log(`[Session] Created: ${newSession.id}`);
               if (newSession.workspaceId) {
-                sendRequest("workspace.listSessions", { workspaceId: newSession.workspaceId });
+                sendRequest("workspace.list-sessions", { workspaceId: newSession.workspaceId });
               }
             }
           }
@@ -635,7 +635,7 @@ export function useGateway(gatewayUrl: string, options: UseGatewayOptions = {}):
               historyLoadedRef.current = false;
               console.log(`[Session] Switched to: ${switched.id}`);
               sendRequest("session.history", { sessionId: switched.id, limit: 50 });
-              sendRequest("workspace.listSessions", { workspaceId: switched.workspaceId });
+              sendRequest("workspace.list-sessions", { workspaceId: switched.workspaceId });
             }
           }
 
@@ -732,7 +732,7 @@ export function useGateway(gatewayUrl: string, options: UseGatewayOptions = {}):
       } else if (opts.autoDiscoverCwd) {
         // ── VS Code: auto-discover by CWD ──
         // This triggers workspace creation + session discovery + history loading
-        sendRequest("workspace.getOrCreate", { cwd: opts.autoDiscoverCwd });
+        sendRequest("workspace.get-or-create", { cwd: opts.autoDiscoverCwd });
       } else {
         // ── No session specified (e.g. listing pages) ──
         // Just get basic info
@@ -832,7 +832,7 @@ export function useGateway(gatewayUrl: string, options: UseGatewayOptions = {}):
         console.warn("[sendToolResult] missing sessionRecordId");
         return;
       }
-      sendRequest("session.toolResult", { sessionId: sid, toolUseId, content, isError });
+      sendRequest("session.tool-result", { sessionId: sid, toolUseId, content, isError });
     },
     [sendRequest],
   );
@@ -860,7 +860,7 @@ export function useGateway(gatewayUrl: string, options: UseGatewayOptions = {}):
     (title?: string) => {
       if (!workspace?.id) return;
       const cfg = sessionConfig || DEFAULT_SESSION_CONFIG;
-      sendRequest("workspace.createSession", {
+      sendRequest("workspace.create-session", {
         workspaceId: workspace.id,
         model: cfg.model,
         thinking: cfg.thinking,

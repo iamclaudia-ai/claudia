@@ -157,8 +157,8 @@ extensions.setEmitCallback(async (type, payload, source) => {
     payload && typeof payload === "object" ? (payload as Record<string, unknown>) : null;
 
   // Track voice stream origins for connection-scoped routing
-  if (type === "voice.stream_start" && payloadObj?.streamId) {
-    const connectionId = sessionManager.currentRequestConnectionId;
+  if (type === "voice.stream_start" && payloadObj?.streamId && payloadObj?.sessionId) {
+    const connectionId = sessionManager.getConnectionIdForSession(payloadObj.sessionId as string);
     if (connectionId) {
       voiceStreamOrigins.set(payloadObj.streamId as string, connectionId);
     }
@@ -188,24 +188,34 @@ extensions.setEmitCallback(async (type, payload, source) => {
         : `"${String(req.content).substring(0, 50)}..."`;
       log.info("Prompt request", { source, preview });
 
-      // Set request context for routing
-      sessionManager.currentRequestWantsVoice = false;
-      sessionManager.currentRequestSource = req.source || null;
-      sessionManager.currentRequestConnectionId = null;
-      sessionManager.currentResponseText = "";
+      // Resolve explicit or default session/runtime config for extension-originated prompts
+      const info = sessionManager.getInfo();
+      const sessionId = req.sessionId || info.session?.id;
+      const model = req.model || info.sessionConfig.model;
+      const thinking = req.thinking ?? info.sessionConfig.thinking;
+      const effort = req.effort || info.sessionConfig.effort;
 
-      // Send prompt through session manager with explicit session targeting/config.
-      if (!req.sessionId || !req.model || req.thinking === undefined || !req.effort) {
+      if (!sessionId || !model || thinking === undefined || !effort) {
         log.warn(
-          "Ignoring prompt_request with missing required params: sessionId/model/thinking/effort",
+          "Ignoring prompt_request with unresolved required params: sessionId/model/thinking/effort",
         );
         return;
       }
-      await sessionManager.prompt(req.content as string | unknown[], req.sessionId, {
-        model: req.model,
-        thinking: req.thinking,
-        effort: req.effort,
-      });
+
+      await sessionManager.prompt(
+        req.content as string | unknown[],
+        sessionId,
+        {
+          model,
+          thinking,
+          effort,
+        },
+        {
+          wantsVoice: false,
+          source: req.source || null,
+          connectionId: null,
+        },
+      );
     }
   }
 });
@@ -231,7 +241,7 @@ const BUILTIN_METHODS: GatewayMethodDefinition[] = [
     inputSchema: z.object({ workspaceId: z.string().min(1) }),
   },
   {
-    method: "workspace.getOrCreate",
+    method: "workspace.get-or-create",
     description: "Get or create a workspace for an explicit cwd",
     inputSchema: z.object({
       cwd: z.string().min(1),
@@ -239,12 +249,12 @@ const BUILTIN_METHODS: GatewayMethodDefinition[] = [
     }),
   },
   {
-    method: "workspace.listSessions",
+    method: "workspace.list-sessions",
     description: "List sessions for a specific workspace",
     inputSchema: z.object({ workspaceId: z.string().min(1) }),
   },
   {
-    method: "workspace.createSession",
+    method: "workspace.create-session",
     description: "Create a new session for a workspace with explicit runtime config",
     inputSchema: z.object({
       workspaceId: z.string().min(1),
@@ -279,7 +289,7 @@ const BUILTIN_METHODS: GatewayMethodDefinition[] = [
     inputSchema: z.object({ sessionId: z.string().min(1) }),
   },
   {
-    method: "session.permissionMode",
+    method: "session.permission-mode",
     description:
       "Set the permission mode for a session (bypassPermissions, acceptEdits, plan, default)",
     inputSchema: z.object({
@@ -288,7 +298,7 @@ const BUILTIN_METHODS: GatewayMethodDefinition[] = [
     }),
   },
   {
-    method: "session.toolResult",
+    method: "session.tool-result",
     description:
       "Send a tool_result for an interactive tool (ExitPlanMode, EnterPlanMode, AskUserQuestion)",
     inputSchema: z.object({
@@ -509,13 +519,13 @@ async function handleWorkspaceMethod(
         break;
       }
 
-      case "getOrCreate": {
+      case "get-or-create": {
         const cwd = req.params?.cwd as string;
         if (!cwd) {
           sendError(
             ws,
             req.id,
-            "Missing cwd parameter — workspace.getOrCreate requires an explicit CWD",
+            "Missing cwd parameter — workspace.get-or-create requires an explicit CWD",
           );
           return;
         }
@@ -525,7 +535,7 @@ async function handleWorkspaceMethod(
         break;
       }
 
-      case "listSessions": {
+      case "list-sessions": {
         const workspaceId = req.params?.workspaceId as string;
         if (!workspaceId) {
           sendError(ws, req.id, "Missing workspaceId parameter");
@@ -536,7 +546,7 @@ async function handleWorkspaceMethod(
         break;
       }
 
-      case "createSession": {
+      case "create-session": {
         const workspaceId = req.params?.workspaceId as string;
         const model = req.params?.model as string;
         const thinking = req.params?.thinking as boolean | undefined;
@@ -771,21 +781,27 @@ async function handleSessionMethod(
           return;
         }
 
-        // Track request metadata for routing
-        sessionManager.currentRequestWantsVoice = req.params?.speakResponse === true;
-        sessionManager.currentRequestSource = (req.params?.source as string) || null;
-        sessionManager.currentRequestConnectionId = req.params?.speakResponse ? ws.data.id : null;
+        const source = (req.params?.source as string) || null;
 
-        // Send prompt through session manager
-        const ccSessionId = await sessionManager.prompt(content, targetSessionId, {
-          model,
-          thinking,
-          effort,
-        });
+        // Send prompt through session manager with per-session routing context
+        const ccSessionId = await sessionManager.prompt(
+          content,
+          targetSessionId,
+          {
+            model,
+            thinking,
+            effort,
+          },
+          {
+            wantsVoice: req.params?.speakResponse === true,
+            source,
+            connectionId: req.params?.speakResponse ? ws.data.id : null,
+          },
+        );
         sendResponse(ws, req.id, {
           status: "ok",
           sessionId: ccSessionId,
-          source: sessionManager.currentRequestSource,
+          source,
         });
         break;
       }
@@ -805,7 +821,7 @@ async function handleSessionMethod(
         break;
       }
 
-      case "permissionMode": {
+      case "permission-mode": {
         const sessionId = req.params?.sessionId as string;
         const mode = req.params?.mode as string;
         if (!sessionId || !mode) {
@@ -821,7 +837,7 @@ async function handleSessionMethod(
         break;
       }
 
-      case "toolResult": {
+      case "tool-result": {
         const sessionId = req.params?.sessionId as string;
         const toolUseId = req.params?.toolUseId as string;
         const content = req.params?.content as string;
@@ -979,27 +995,23 @@ function broadcastEvent(eventName: string, payload: unknown, _source?: string): 
   const data = JSON.stringify(event);
   const payloadObj =
     payload && typeof payload === "object" ? (payload as Record<string, unknown>) : null;
-  const payloadSessionId =
-    typeof payloadObj?.sessionId === "string" ? (payloadObj.sessionId as string) : null;
 
-  // Connection-scoped routing: DISABLED for debugging — voice events not reaching browser
-  // TODO: re-enable once root cause is found
-  // const streamId =
-  //   typeof payloadObj?.streamId === "string" ? (payloadObj.streamId as string) : null;
-  // const targetConnectionId = streamId ? (voiceStreamOrigins.get(streamId) ?? null) : null;
-  // const isConnectionScoped = eventName.startsWith("voice.") && targetConnectionId !== null;
-  //
-  // if (isConnectionScoped) {
-  //   for (const [ws, state] of clients) {
-  //     if (state.id === targetConnectionId) {
-  //       ws.send(data);
-  //       break;
-  //     }
-  //   }
-  //   return;
-  // }
+  const streamId =
+    typeof payloadObj?.streamId === "string" ? (payloadObj.streamId as string) : null;
+  const targetConnectionId = streamId ? (voiceStreamOrigins.get(streamId) ?? null) : null;
+  const isConnectionScoped = eventName.startsWith("voice.") && targetConnectionId !== null;
 
-  // For voice events, check standard subscription matching for all clients
+  if (isConnectionScoped) {
+    for (const [ws, state] of clients) {
+      if (state.id === targetConnectionId) {
+        ws.send(data);
+        break;
+      }
+    }
+    return;
+  }
+
+  // For non-scoped events, check standard subscription matching for all clients
   for (const [ws, state] of clients) {
     // Check if client is subscribed to this event
     const isSubscribed = Array.from(state.subscriptions).some((pattern) => {
@@ -1021,6 +1033,7 @@ function broadcastEvent(eventName: string, payload: unknown, _source?: string): 
 // Combined HTTP + WebSocket server (single port, like claudia-code)
 const server = Bun.serve<ClientState>({
   port: PORT,
+  hostname: config.gateway.host || "localhost",
   reusePort: true,
   // Custom fetch handler for WebSocket upgrades
   fetch(req, server) {

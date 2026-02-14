@@ -66,11 +66,16 @@ export class SessionManager {
   private currentWorkspace: Workspace | null = null;
   private currentSessionRecord: SessionRecord | null = null;
 
-  // Per-request state
-  currentRequestWantsVoice = false;
-  currentRequestSource: string | null = null;
-  currentRequestConnectionId: string | null = null;
-  currentResponseText = "";
+  // Per-runtime-session request context
+  private requestContextByCcSessionId = new Map<
+    string,
+    {
+      wantsVoice: boolean;
+      source: string | null;
+      connectionId: string | null;
+      responseText: string;
+    }
+  >();
 
   // Session config (can be set before first prompt)
   pendingSessionConfig: { thinking?: boolean; effort?: string } = {};
@@ -94,6 +99,29 @@ export class SessionManager {
       thinking: this.config.session.thinking,
       effort: this.config.session.effort,
     };
+  }
+
+  private getRequestContext(ccSessionId: string): {
+    wantsVoice: boolean;
+    source: string | null;
+    connectionId: string | null;
+    responseText: string;
+  } {
+    const existing = this.requestContextByCcSessionId.get(ccSessionId);
+    if (existing) return existing;
+
+    const fallback = {
+      wantsVoice: false,
+      source: null,
+      connectionId: null,
+      responseText: "",
+    };
+    this.requestContextByCcSessionId.set(ccSessionId, fallback);
+    return fallback;
+  }
+
+  getConnectionIdForSession(ccSessionId: string): string | null {
+    return this.requestContextByCcSessionId.get(ccSessionId)?.connectionId ?? null;
   }
 
   // ── Runtime Connection ──────────────────────────────────────
@@ -265,9 +293,11 @@ export class SessionManager {
       );
     }
 
+    const requestContext = this.getRequestContext(sessionId);
+
     const payload = {
       sessionId,
-      source: this.currentRequestSource,
+      source: requestContext.source,
       ...eventPayload,
     };
 
@@ -275,12 +305,12 @@ export class SessionManager {
     if (eventType === "content_block_start") {
       const block = eventPayload.content_block as { type: string } | undefined;
       if (block?.type === "text") {
-        this.currentResponseText = "";
+        requestContext.responseText = "";
       }
     } else if (eventType === "content_block_delta") {
       const delta = eventPayload.delta as { type: string; text?: string } | undefined;
       if (delta?.type === "text_delta" && delta.text) {
-        this.currentResponseText += delta.text;
+        requestContext.responseText += delta.text;
       }
     }
 
@@ -293,12 +323,12 @@ export class SessionManager {
       type: genericEventName,
       payload: {
         ...payload,
-        speakResponse: this.currentRequestWantsVoice,
-        responseText: eventType === "message_stop" ? this.currentResponseText : undefined,
+        speakResponse: requestContext.wantsVoice,
+        responseText: eventType === "message_stop" ? requestContext.responseText : undefined,
       },
       timestamp: Date.now(),
       origin: "session",
-      source: this.currentRequestSource || undefined,
+      source: requestContext.source || undefined,
       sessionId,
     };
 
@@ -306,9 +336,9 @@ export class SessionManager {
     this.broadcastExtension(gatewayEvent);
 
     // On message complete, route to source if applicable
-    if (eventType === "message_stop" && this.currentRequestSource) {
-      this.routeToSource(this.currentRequestSource, gatewayEvent);
-      this.currentResponseText = "";
+    if (eventType === "message_stop" && requestContext.source) {
+      this.routeToSource(requestContext.source, gatewayEvent);
+      requestContext.responseText = "";
     }
   }
 
@@ -596,8 +626,17 @@ export class SessionManager {
     content: string | unknown[],
     sessionRecordId: string,
     runtimeConfig: { model: string; thinking: boolean; effort: string },
+    requestContext?: { wantsVoice: boolean; source: string | null; connectionId: string | null },
   ): Promise<string> {
     const ccSessionId = await this.initSession(sessionRecordId, runtimeConfig);
+
+    const existingContext = this.getRequestContext(ccSessionId);
+    this.requestContextByCcSessionId.set(ccSessionId, {
+      wantsVoice: requestContext?.wantsVoice ?? existingContext.wantsVoice,
+      source: requestContext?.source ?? existingContext.source,
+      connectionId: requestContext?.connectionId ?? existingContext.connectionId,
+      responseText: "",
+    });
 
     // Update activity timestamp
     if (this.currentSessionRecord) {
@@ -638,7 +677,7 @@ export class SessionManager {
     if (!record) return false;
 
     try {
-      await this.runtimeRequest("session.permissionMode", {
+      await this.runtimeRequest("session.permission-mode", {
         sessionId: record.ccSessionId,
         mode,
       });
@@ -661,7 +700,7 @@ export class SessionManager {
     if (!record) return false;
 
     try {
-      await this.runtimeRequest("session.toolResult", {
+      await this.runtimeRequest("session.tool-result", {
         sessionId: record.ccSessionId,
         toolUseId,
         content,

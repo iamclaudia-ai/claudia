@@ -1,8 +1,7 @@
 /**
  * Chat Extension — Server-Side
  *
- * Provides health check and session management methods for Mission Control.
- * Fetches runtime health data and formats it as standardized HealthCheckResponse.
+ * Provides chat/runtime health status for Mission Control.
  */
 
 import type {
@@ -63,31 +62,19 @@ export function createChatExtension(): ClaudiaExtension {
         description: "Return chat/runtime health status for Mission Control",
         inputSchema: z.object({}),
       },
-      {
-        name: "chat.kill-session",
-        description: "Kill a specific runtime Claude process by session id",
-        inputSchema: z.object({
-          sessionId: z.string().min(1),
-        }),
-      },
-      {
-        name: "chat.kill-all-sessions",
-        description: "Kill all active runtime Claude processes",
-        inputSchema: z.object({}),
-      },
     ],
     events: [],
 
     async start(context: ExtensionContext) {
       ctx = context;
-      ctx.log.info("Chat extension started (health check + session management)");
+      ctx.log.info("Chat extension started (health check)");
     },
 
     async stop() {
       ctx = null;
     },
 
-    async handleMethod(method: string, params: Record<string, unknown>) {
+    async handleMethod(method: string) {
       switch (method) {
         case "chat.health-check": {
           const runtime = await fetchRuntimeHealth();
@@ -124,61 +111,9 @@ export function createChatExtension(): ClaudiaExtension {
                 value: runtime ? "connected" : "disconnected",
               },
             ],
-            actions: [
-              {
-                method: "chat.kill-session",
-                label: "Kill",
-                confirm: "Kill this Claude process?",
-                params: [{ name: "sessionId", source: "item.id" }],
-                scope: "item",
-              },
-              {
-                method: "chat.kill-all-sessions",
-                label: "Kill All",
-                confirm: "Kill all Claude processes?",
-                params: [],
-                scope: "global",
-              },
-            ],
             items,
           };
           return response;
-        }
-
-        case "chat.kill-session": {
-          const sessionId = params.sessionId as string;
-          if (!sessionId) throw new Error("Missing sessionId parameter");
-
-          try {
-            const res = await fetch(`http://localhost:${runtimePort}/session/${sessionId}`, {
-              method: "DELETE",
-            });
-            const result = await res.json();
-            ctx?.log.info(`Killed session: ${sessionId}`);
-            return result;
-          } catch (error) {
-            const msg = error instanceof Error ? error.message : "Unknown error";
-            throw new Error(`Failed to kill session: ${msg}`);
-          }
-        }
-
-        case "chat.kill-all-sessions": {
-          const runtime = await fetchRuntimeHealth();
-          if (!runtime?.sessions.length) {
-            return { status: "no_sessions" };
-          }
-
-          const results = await Promise.allSettled(
-            runtime.sessions.map((s) =>
-              fetch(`http://localhost:${runtimePort}/session/${s.id}`, {
-                method: "DELETE",
-              }),
-            ),
-          );
-
-          const killed = results.filter((r) => r.status === "fulfilled").length;
-          ctx?.log.info(`Killed ${killed}/${runtime.sessions.length} sessions`);
-          return { status: "ok", killed, total: runtime.sessions.length };
         }
 
         default:

@@ -190,7 +190,7 @@ class GatewayClient: NSObject {
                 if let active = workspace["activeSessionId"] as? String {
                     sessionRecordId = active
                 } else {
-                    sendRequest(method: "workspace.createSession", params: [
+                    sendRequest(method: "workspace.create-session", params: [
                         "workspaceId": wsId,
                         "model": model,
                         "thinking": thinking,
@@ -265,7 +265,7 @@ extension GatewayClient: URLSessionWebSocketDelegate {
     func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didOpenWithProtocol protocol: String?) {
         print("[Gateway] Connected!")
         isConnecting = false
-        sendRequest(method: "workspace.getOrCreate", params: ["cwd": cwd, "name": "Voice Mode"]) { _ in }
+        sendRequest(method: "workspace.get-or-create", params: ["cwd": cwd, "name": "Voice Mode"]) { _ in }
         onConnected?()
         receiveMessage()
     }

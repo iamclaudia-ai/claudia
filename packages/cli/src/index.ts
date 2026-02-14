@@ -555,7 +555,7 @@ async function promptCompat(args: string[]): Promise<void> {
 
   ws.onopen = () => {
     sendRequest("subscribe", { events: ["session.*"] });
-    sendRequest("workspace.getOrCreate", { cwd: process.cwd() });
+    sendRequest("workspace.get-or-create", { cwd: process.cwd() });
   };
 
   ws.onmessage = (event) => {
@@ -566,7 +566,7 @@ async function promptCompat(args: string[]): Promise<void> {
       if (msg.id) pendingMethods.delete(msg.id);
       const payload = (msg.payload || {}) as Record<string, unknown>;
 
-      if (method === "workspace.getOrCreate") {
+      if (method === "workspace.get-or-create") {
         const workspace = payload.workspace as
           | { id: string; activeSessionId?: string | null }
           | undefined;
@@ -575,7 +575,7 @@ async function promptCompat(args: string[]): Promise<void> {
           sessionRecordId = workspace.activeSessionId;
           console.error(`[session] Reusing ${sessionRecordId}`);
         } else {
-          sendRequest("workspace.createSession", {
+          sendRequest("workspace.create-session", {
             workspaceId: workspace.id,
             model: MODEL,
             thinking: THINKING,
@@ -585,7 +585,7 @@ async function promptCompat(args: string[]): Promise<void> {
         }
       }
 
-      if (method === "workspace.createSession") {
+      if (method === "workspace.create-session") {
         const session = payload.session as { id: string } | undefined;
         if (session?.id) {
           sessionRecordId = session.id;
@@ -594,7 +594,7 @@ async function promptCompat(args: string[]): Promise<void> {
       }
 
       if (
-        (method === "workspace.getOrCreate" || method === "workspace.createSession") &&
+        (method === "workspace.get-or-create" || method === "workspace.create-session") &&
         sessionRecordId
       ) {
         sendRequest("session.prompt", {

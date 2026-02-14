@@ -211,7 +211,7 @@ export function Header({
           {sessionRecordId && (
             <button
               onClick={() =>
-                sendRequest("session.permissionMode", {
+                sendRequest("session.permission-mode", {
                   sessionId: sessionRecordId,
                   mode: "bypassPermissions",
                 })

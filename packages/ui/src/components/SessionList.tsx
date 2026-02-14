@@ -45,7 +45,7 @@ export function SessionList({
 
     ws.onopen = () => {
       setIsConnected(true);
-      sendRequest("workspace.listSessions", { workspaceId });
+      sendRequest("workspace.list-sessions", { workspaceId });
       sendRequest("workspace.get", { workspaceId });
     };
 
@@ -58,7 +58,7 @@ export function SessionList({
         const method = data.id ? pendingRef.current.get(data.id) : undefined;
         if (data.id) pendingRef.current.delete(data.id);
 
-        if (method === "workspace.listSessions") {
+        if (method === "workspace.list-sessions") {
           const list = payload.sessions as SessionInfo[] | undefined;
           setSessions(list || []);
           setIsLoading(false);
@@ -69,7 +69,7 @@ export function SessionList({
           if (ws) setWorkspace(ws);
         }
 
-        if (method === "workspace.createSession") {
+        if (method === "workspace.create-session") {
           const session = payload.session as SessionInfo | undefined;
           if (session) {
             setIsCreating(false);
@@ -147,7 +147,7 @@ export function SessionList({
             <button
               onClick={() => {
                 setIsCreating(true);
-                sendRequest("workspace.createSession", {
+                sendRequest("workspace.create-session", {
                   workspaceId,
                   model: DEFAULT_MODEL,
                   thinking: DEFAULT_THINKING,

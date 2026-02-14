@@ -214,7 +214,7 @@ export interface HealthMetric {
 }
 
 export interface HealthAction {
-  /** WebSocket method to call: "chat.kill-session" */
+  /** WebSocket method to call: "runtime.kill-session" */
   method: string;
   /** Button label: "Kill Session" */
   label: string;

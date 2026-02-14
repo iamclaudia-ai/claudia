@@ -832,6 +832,12 @@ export class RuntimeSession extends EventEmitter {
       if (block?.type === "tool_use" && block.name && INTERACTIVE_TOOLS.has(block.name)) {
         this.currentToolUseId = block.id || null;
         this.currentToolUseName = block.name;
+        if (this.currentToolUseId) {
+          this.pendingInteractiveTools.set(this.currentToolUseId, {
+            name: block.name,
+            input: "",
+          });
+        }
         this.logger.info("Detected interactive tool", {
           name: block.name,
           id: block.id?.slice(0, 12),
@@ -855,14 +861,6 @@ export class RuntimeSession extends EventEmitter {
     }
     if (event.type === "content_block_stop" && typeof event.index === "number") {
       this.openBlockIndices.delete(event.index);
-
-      // Finalize tracked interactive tool
-      if (this.currentToolUseId && this.currentToolUseName) {
-        this.pendingInteractiveTools.set(this.currentToolUseId, {
-          name: this.currentToolUseName,
-          input: "",
-        });
-      }
       this.currentToolUseId = null;
       this.currentToolUseName = null;
     }

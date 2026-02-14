@@ -66,7 +66,7 @@ export function WorkspaceList({
           setIsLoading(false);
         }
 
-        if (method === "workspace.getOrCreate") {
+        if (method === "workspace.get-or-create") {
           const ws = payload.workspace as WorkspaceInfo | undefined;
           if (ws) {
             // If workspace has an active session, navigate straight to it
@@ -76,7 +76,7 @@ export function WorkspaceList({
             } else {
               // Create first session for the new workspace
               pendingWorkspaceRef.current = ws.id;
-              sendRequest("workspace.createSession", {
+              sendRequest("workspace.create-session", {
                 workspaceId: ws.id,
                 model: DEFAULT_MODEL,
                 thinking: DEFAULT_THINKING,
@@ -86,7 +86,7 @@ export function WorkspaceList({
           }
         }
 
-        if (method === "workspace.createSession") {
+        if (method === "workspace.create-session") {
           const session = payload.session as SessionInfo | undefined;
           if (session && onSessionReady) {
             setIsCreating(false);
@@ -115,7 +115,7 @@ export function WorkspaceList({
     if (!cwd) return;
 
     setIsCreating(true);
-    sendRequest("workspace.getOrCreate", {
+    sendRequest("workspace.get-or-create", {
       cwd,
       name: newName.trim() || undefined,
     });
