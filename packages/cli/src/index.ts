@@ -748,7 +748,7 @@ async function watchdogCommand(args: string[]): Promise<void> {
       console.log();
     } catch {
       console.error("Error: Could not connect to watchdog at", WATCHDOG_URL);
-      console.error("Is the watchdog running? Start with: bun run scripts/watchdog.ts");
+      console.error("Is the watchdog running? Start with: bun run watchdog");
       process.exit(1);
     }
     return;

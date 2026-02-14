@@ -9,7 +9,7 @@
   <array>
     <string>/Users/michael/.bun/bin/bun</string>
     <string>run</string>
-    <string>/Users/michael/Projects/iamclaudia-ai/claudia/scripts/watchdog.ts</string>
+    <string>/Users/michael/Projects/iamclaudia-ai/claudia/packages/watchdog/src/index.ts</string>
   </array>
 
   <key>WorkingDirectory</key>

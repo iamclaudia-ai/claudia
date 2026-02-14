@@ -10,7 +10,7 @@
     "dev": "bun run --filter @claudia/gateway dev",
     "restart": "lsof -ti:30086 | xargs kill -9 2>/dev/null; sleep 0.5 && bun run dev",
     "dev:runtime": "bun run --watch packages/runtime/src/index.ts",
-    "watchdog": "bun run scripts/watchdog.ts",
+    "watchdog": "bun run packages/watchdog/src/index.ts",
     "cli": "bun run packages/cli/src/index.ts",
     "build": "bun run --filter '*' build",
     "test": "bun test",

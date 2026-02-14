@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Claudia Watchdog</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="header">
+      <h1>Claudia Watchdog</h1>
+      <span class="uptime" id="uptime">loading...</span>
+    </div>
+
+    <div class="services" id="serviceCards">
+      <div class="card">
+        <div class="card-body" style="text-align: center; color: #71717a; padding: 24px">
+          Loading...
+        </div>
+      </div>
+    </div>
+
+    <div class="diagnose-section" id="diagnoseSection">
+      <div class="diagnose-header">
+        <h2>🔧 Diagnose & Fix</h2>
+        <span class="diagnose-status" id="diagnoseStatus"></span>
+      </div>
+      <div class="diagnose-output" id="diagnoseOutput"></div>
+      <div class="diagnose-actions" id="diagnoseActions"></div>
+    </div>
+
+    <div class="log-section">
+      <div class="log-header">
+        <h2>Logs</h2>
+        <select id="logFile"></select>
+        <button class="btn-filter active" data-level="ALL" id="filterAll">ALL</button>
+        <button class="btn-filter" data-level="INFO" id="filterInfo">INFO</button>
+        <button class="btn-filter warn" data-level="WARN" id="filterWarn">WARN</button>
+        <button class="btn-filter error" data-level="ERROR" id="filterError">ERROR</button>
+        <button class="btn-pause" id="pauseBtn">Pause</button>
+      </div>
+      <div class="log-output" id="logOutput"></div>
+      <div class="log-footer">
+        <span id="lineCount">0 lines</span>
+        <span id="offsetInfo"></span>
+      </div>
+    </div>
+
+    <script type="module" src="./client.ts"></script>
+  </body>
+</html>
