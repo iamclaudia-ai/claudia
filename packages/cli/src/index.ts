@@ -647,6 +647,251 @@ async function promptCompat(args: string[]): Promise<void> {
   });
 }
 
+// ── Watchdog CLI ─────────────────────────────────────────
+
+const WATCHDOG_URL = process.env.CLAUDIA_WATCHDOG_URL || "http://localhost:30085";
+
+const WATCHDOG_METHODS: MethodCatalogEntry[] = [
+  {
+    method: "watchdog.status",
+    source: "gateway",
+    description: "Show watchdog and service health status",
+  },
+  {
+    method: "watchdog.restart",
+    source: "gateway",
+    description: "Restart a managed service (gateway or runtime)",
+    inputSchema: {
+      type: "object",
+      properties: {
+        service: { type: "string", description: "Service to restart: gateway or runtime" },
+      },
+      required: ["service"],
+    },
+  },
+  {
+    method: "watchdog.logs",
+    source: "gateway",
+    description: "List available log files",
+  },
+  {
+    method: "watchdog.log-tail",
+    source: "gateway",
+    description: "Tail a log file",
+    inputSchema: {
+      type: "object",
+      properties: {
+        file: { type: "string", description: "Log file name (e.g. gateway.log)" },
+        lines: { type: "integer", description: "Number of lines to show (default: 50)" },
+      },
+      required: ["file"],
+    },
+  },
+  {
+    method: "watchdog.install",
+    source: "gateway",
+    description: "Install watchdog as a launchd service (start on login)",
+  },
+  {
+    method: "watchdog.uninstall",
+    source: "gateway",
+    description: "Uninstall watchdog launchd service",
+  },
+];
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
+}
+
+async function watchdogCommand(args: string[]): Promise<void> {
+  const sub = args[0];
+
+  if (!sub || sub === "--help") {
+    console.log("\nwatchdog commands:\n");
+    console.log("  claudia watchdog status                  Show service health");
+    console.log("  claudia watchdog restart <service>       Restart gateway or runtime");
+    console.log("  claudia watchdog logs                    List available log files");
+    console.log("  claudia watchdog logs <file> [lines]     Tail a log file");
+    console.log("  claudia watchdog install                 Install as launchd service");
+    console.log("  claudia watchdog uninstall               Uninstall launchd service");
+    return;
+  }
+
+  if (sub === "status") {
+    try {
+      const res = await fetch(`${WATCHDOG_URL}/status`, { signal: AbortSignal.timeout(3000) });
+      const data = (await res.json()) as Record<
+        string,
+        {
+          name: string;
+          tmuxAlive: boolean;
+          healthy: boolean;
+          consecutiveFailures: number;
+          lastRestart: string | null;
+        }
+      >;
+      console.log();
+      for (const [id, s] of Object.entries(data)) {
+        const dot = s.healthy
+          ? "\x1b[32m●\x1b[0m"
+          : s.tmuxAlive
+            ? "\x1b[33m●\x1b[0m"
+            : "\x1b[31m●\x1b[0m";
+        const status = s.healthy ? "healthy" : s.tmuxAlive ? "unhealthy" : "down";
+        const restart = s.lastRestart ? new Date(s.lastRestart).toLocaleTimeString() : "never";
+        console.log(
+          `  ${dot} ${s.name.padEnd(10)} ${status.padEnd(12)} failures: ${s.consecutiveFailures}  last restart: ${restart}`,
+        );
+      }
+      console.log();
+    } catch {
+      console.error("Error: Could not connect to watchdog at", WATCHDOG_URL);
+      console.error("Is the watchdog running? Start with: bun run scripts/watchdog.ts");
+      process.exit(1);
+    }
+    return;
+  }
+
+  if (sub === "restart") {
+    const service = args[1];
+    if (!service) {
+      console.error("Usage: claudia watchdog restart <gateway|runtime>");
+      process.exit(1);
+    }
+    try {
+      const res = await fetch(`${WATCHDOG_URL}/restart/${service}`, {
+        method: "POST",
+        signal: AbortSignal.timeout(10000),
+      });
+      const data = (await res.json()) as { ok: boolean; message: string };
+      console.log(data.ok ? `✓ ${data.message}` : `✗ ${data.message}`);
+    } catch {
+      console.error("Error: Could not connect to watchdog at", WATCHDOG_URL);
+      process.exit(1);
+    }
+    return;
+  }
+
+  if (sub === "logs") {
+    const file = args[1];
+
+    if (!file) {
+      // List log files
+      try {
+        const res = await fetch(`${WATCHDOG_URL}/api/logs`, { signal: AbortSignal.timeout(3000) });
+        const data = (await res.json()) as {
+          files: { name: string; size: number; modified: string }[];
+        };
+        console.log("\nAvailable log files:\n");
+        for (const f of data.files) {
+          const mod = new Date(f.modified).toLocaleString();
+          console.log(`  ${f.name.padEnd(25)} ${formatBytes(f.size).padStart(8)}  ${mod}`);
+        }
+        console.log(`\nTail a file: claudia watchdog logs <filename> [lines]\n`);
+      } catch {
+        console.error("Error: Could not connect to watchdog at", WATCHDOG_URL);
+        process.exit(1);
+      }
+      return;
+    }
+
+    // Tail a specific log file
+    const lineCount = parseInt(args[2] || "50", 10);
+    try {
+      const res = await fetch(
+        `${WATCHDOG_URL}/api/logs/${encodeURIComponent(file)}?lines=${lineCount}`,
+        { signal: AbortSignal.timeout(5000) },
+      );
+      const data = (await res.json()) as { lines?: string[]; error?: string; fileSize?: number };
+      if (data.error) {
+        console.error(`Error: ${data.error}`);
+        process.exit(1);
+      }
+      if (data.lines) {
+        for (const line of data.lines) {
+          // Colorize output
+          if (line.includes("[ERROR]")) {
+            console.log(`\x1b[31m${line}\x1b[0m`);
+          } else if (line.includes("[WARN]")) {
+            console.log(`\x1b[33m${line}\x1b[0m`);
+          } else {
+            console.log(line);
+          }
+        }
+        if (data.fileSize) {
+          console.log(
+            `\n\x1b[90m--- ${data.lines.length} lines (${formatBytes(data.fileSize)} total) ---\x1b[0m`,
+          );
+        }
+      }
+    } catch {
+      console.error("Error: Could not connect to watchdog at", WATCHDOG_URL);
+      process.exit(1);
+    }
+    return;
+  }
+
+  if (sub === "install") {
+    const plistName = "com.claudia.watchdog.plist";
+    const plistSrc = `${import.meta.dir}/../../../scripts/${plistName}`;
+    const plistDst = `${process.env.HOME}/Library/LaunchAgents/${plistName}`;
+
+    try {
+      const srcFile = Bun.file(plistSrc);
+      if (!(await srcFile.exists())) {
+        console.error(`Error: Plist not found at ${plistSrc}`);
+        process.exit(1);
+      }
+
+      await Bun.write(plistDst, srcFile);
+      console.log(`Copied plist to ${plistDst}`);
+
+      const load = Bun.spawn(["launchctl", "load", plistDst], {
+        stdout: "inherit",
+        stderr: "inherit",
+      });
+      await load.exited;
+      console.log("✓ Watchdog installed and loaded. It will start on login.");
+    } catch (err) {
+      console.error("Error:", err instanceof Error ? err.message : err);
+      process.exit(1);
+    }
+    return;
+  }
+
+  if (sub === "uninstall") {
+    const plistName = "com.claudia.watchdog.plist";
+    const plistDst = `${process.env.HOME}/Library/LaunchAgents/${plistName}`;
+
+    try {
+      const unload = Bun.spawn(["launchctl", "unload", plistDst], {
+        stdout: "inherit",
+        stderr: "inherit",
+      });
+      await unload.exited;
+
+      const file = Bun.file(plistDst);
+      if (await file.exists()) {
+        const { unlinkSync } = await import("node:fs");
+        unlinkSync(plistDst);
+      }
+      console.log("✓ Watchdog uninstalled and unloaded.");
+    } catch (err) {
+      console.error("Error:", err instanceof Error ? err.message : err);
+      process.exit(1);
+    }
+    return;
+  }
+
+  console.error(`Unknown watchdog command: ${sub}`);
+  console.error("Run 'claudia watchdog --help' for usage.");
+  process.exit(1);
+}
+
+// ── Main ─────────────────────────────────────────────────
+
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
 
@@ -660,6 +905,11 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (args[0] === "watchdog") {
+    await watchdogCommand(args.slice(1));
+    return;
+  }
+
   const methods = await fetchMethodCatalog();
   const methodMap = new Map(methods.map((m) => [m.method, m] as const));
 
@@ -669,7 +919,7 @@ async function main(): Promise<void> {
   }
 
   if (args[0] === "methods" || args[0] === "help" || args[0] === "--help") {
-    printMethodList(methods);
+    printMethodList([...methods, ...WATCHDOG_METHODS]);
     return;
   }
 
