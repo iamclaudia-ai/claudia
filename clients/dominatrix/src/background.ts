@@ -281,6 +281,7 @@ class DominatrixBackground {
       case "get-url":
       case "get-title":
       case "get-html":
+      case "get-source":
       case "click":
       case "fill":
       case "check":

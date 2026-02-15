@@ -69,6 +69,77 @@ function initDominatrix() {
   }
 
   // ==========================================================================
+  // Main world bridge client (for React fiber access, page globals, etc.)
+  // ==========================================================================
+
+  let bridgePromise: Promise<void> | null = null;
+  let bridgeCallId = 0;
+
+  /**
+   * Inject the main world bridge script and wait for it to load.
+   * Returns a cached promise — safe to call multiple times.
+   * The bridge runs in the page's MAIN world where React fibers are visible.
+   */
+  function ensureBridge(): Promise<void> {
+    if (bridgePromise) return bridgePromise;
+
+    bridgePromise = new Promise<void>((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = chrome.runtime.getURL("main-world-bridge.js");
+      script.onload = () => {
+        script.remove();
+        resolve();
+      };
+      script.onerror = () => {
+        script.remove();
+        bridgePromise = null; // Allow retry on next call
+        reject(new Error("Failed to load main world bridge script"));
+      };
+      (document.head || document.documentElement).appendChild(script);
+    });
+
+    return bridgePromise;
+  }
+
+  async function callBridge(method: string, detail: Record<string, any> = {}): Promise<any> {
+    await ensureBridge();
+    const id = `dmx-${++bridgeCallId}`;
+
+    return new Promise((resolve, reject) => {
+      const handler = (e: Event) => {
+        const ce = e as CustomEvent;
+        if (ce.detail.id !== id) return;
+        document.removeEventListener("dmx-bridge-res", handler);
+        if (ce.detail.error) reject(new Error(ce.detail.error));
+        else resolve(ce.detail.result);
+      };
+      document.addEventListener("dmx-bridge-res", handler);
+
+      document.dispatchEvent(
+        new CustomEvent("dmx-bridge-req", {
+          detail: { id, method, ...detail },
+        }),
+      );
+
+      setTimeout(() => {
+        document.removeEventListener("dmx-bridge-res", handler);
+        reject(new Error(`Bridge call timed out: ${method}`));
+      }, 5000);
+    });
+  }
+
+  function callBridgeForElement(method: string, element: Element): Promise<any> {
+    const marker = `dmx-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    element.setAttribute("data-dmx-target", marker);
+    const promise = callBridge(method, { selector: `[data-dmx-target="${marker}"]` });
+    // Clean up marker after bridge reads it (next frame)
+    promise.finally(() => {
+      requestAnimationFrame(() => element.removeAttribute("data-dmx-target"));
+    });
+    return promise;
+  }
+
+  // ==========================================================================
   // Interpreter (JailJS for CSP bypass)
   // ==========================================================================
 
@@ -180,7 +251,9 @@ function initDominatrix() {
           switch (message.action) {
             // --- Snapshot & page info ---
             case "snapshot":
-              result = message.full ? getFullSnapshot() : getInteractiveSnapshot(message.scope);
+              result = message.full
+                ? getFullSnapshot()
+                : await getInteractiveSnapshot(message.scope, message.sources);
               break;
             case "get-text":
               result = message.ref ? getElementText(message.ref) : getText();
@@ -197,6 +270,28 @@ function initDominatrix() {
             case "get-html":
               result = getHTML(message.selector);
               break;
+
+            // --- React source mapping (via main world bridge) ---
+            case "get-source": {
+              const el = resolveElement(message.ref, message.selector);
+              const ancestry = await callBridgeForElement("get-react-ancestry", el);
+
+              if (!ancestry || ancestry.length === 0) {
+                throw new Error(
+                  "No React component found for this element. " +
+                    "Possible causes: not a React app, production build, or element is a plain HTML node.",
+                );
+              }
+
+              const nearest = ancestry[0];
+              result = {
+                component: nearest.name,
+                file: nearest.file,
+                line: nearest.line,
+                ancestry,
+              };
+              break;
+            }
 
             // --- Interaction (ref-based) ---
             case "click":
@@ -300,7 +395,7 @@ function initDominatrix() {
   // Interactive snapshot (ref-based, compact output)
   // ==========================================================================
 
-  function getInteractiveSnapshot(scope?: string): string {
+  async function getInteractiveSnapshot(scope?: string, sources?: boolean): Promise<string> {
     resetRefs();
 
     const root = scope ? document.querySelector(scope) : document.documentElement;
@@ -309,26 +404,78 @@ function initDominatrix() {
     const lines: string[] = [`Page: ${document.title}`, `URL: ${location.href}`, ""];
 
     // Walk DOM for natively interactive elements
-    walkForInteractive(root, lines);
+    const elements = collectInteractiveElements(root);
 
     // Also find cursor-interactive elements (cursor:pointer, onclick, tabindex)
-    findCursorInteractiveElements(root, lines);
+    const cursorElements = collectCursorInteractiveElements(root);
+
+    // Assign refs to all elements first (before any async calls)
+    const allEntries: Array<{ ref: string; el: Element; line: string }> = [];
+
+    for (const el of elements) {
+      const ref = nextRef();
+      refMap.set(ref, el);
+      allEntries.push({ ref, el, line: formatRefLine(ref, el) });
+    }
+
+    for (const { el, hints, text } of cursorElements) {
+      const ref = nextRef();
+      refMap.set(ref, el);
+      allEntries.push({
+        ref,
+        el,
+        line: `${ref} [clickable] "${text}" (${hints.join(", ")})`,
+      });
+    }
+
+    // If sources requested, batch-annotate with bridge calls
+    if (sources) {
+      const annotations = await Promise.all(allEntries.map(({ el }) => getSourceAnnotation(el)));
+      for (let i = 0; i < allEntries.length; i++) {
+        lines.push(allEntries[i].line + annotations[i]);
+      }
+    } else {
+      for (const entry of allEntries) {
+        lines.push(entry.line);
+      }
+    }
 
     return lines.join("\n");
   }
 
-  function walkForInteractive(root: Element, lines: string[]) {
+  async function getSourceAnnotation(element: Element): Promise<string> {
+    try {
+      const ancestry = await callBridgeForElement("get-react-ancestry", element);
+      if (!ancestry || ancestry.length === 0) return "";
+
+      const nearest = ancestry[0];
+      let annotation = ` <- ${nearest.name}`;
+      if (nearest.file) {
+        annotation += ` (${nearest.file}${nearest.line ? `:${nearest.line}` : ""})`;
+      }
+      const chain = ancestry
+        .slice(1, 3)
+        .map((c: any) => c.name)
+        .join(" → ");
+      if (chain) annotation += ` → ${chain}`;
+      return annotation;
+    } catch {
+      return "";
+    }
+  }
+
+  function collectInteractiveElements(root: Element): Element[] {
+    const elements: Element[] = [];
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
     let node: Element | null = walker.currentNode as Element;
 
     while (node) {
       if (isInteractiveElement(node) && isVisible(node)) {
-        const ref = nextRef();
-        refMap.set(ref, node);
-        lines.push(formatRefLine(ref, node));
+        elements.push(node);
       }
       node = walker.nextNode() as Element | null;
     }
+    return elements;
   }
 
   function isInteractiveElement(el: Element): boolean {
@@ -350,7 +497,10 @@ function initDominatrix() {
     return true;
   }
 
-  function findCursorInteractiveElements(root: Element, lines: string[]) {
+  function collectCursorInteractiveElements(
+    root: Element,
+  ): Array<{ el: Element; hints: string[]; text: string }> {
+    const results: Array<{ el: Element; hints: string[]; text: string }> = [];
     const allElements = root.querySelectorAll("*");
 
     for (const el of allElements) {
@@ -388,16 +538,14 @@ function initDominatrix() {
       }
       if (parentCaptured) continue;
 
-      const ref = nextRef();
-      refMap.set(ref, el);
-
       const hints: string[] = [];
       if (hasCursorPointer) hints.push("cursor:pointer");
       if (hasOnClick) hints.push("onclick");
       if (hasTabIndex) hints.push("tabindex");
 
-      lines.push(`${ref} [clickable] "${text}" (${hints.join(", ")})`);
+      results.push({ el, hints, text });
     }
+    return results;
   }
 
   function formatRefLine(ref: string, el: Element): string {

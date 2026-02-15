@@ -38,6 +38,15 @@ await Bun.build({
   sourcemap: "external",
 });
 
+// Bundle main world bridge (IIFE — injected into page's MAIN world)
+await Bun.build({
+  entrypoints: [join(srcDir, "main-world-bridge.ts")],
+  outdir: distDir,
+  target: "browser",
+  format: "iife",
+  sourcemap: "external",
+});
+
 // Bundle side panel script (IIFE — loaded via <script src>)
 await Bun.build({
   entrypoints: [join(srcDir, "sidepanel.ts")],

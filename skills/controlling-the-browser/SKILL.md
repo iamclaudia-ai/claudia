@@ -55,6 +55,7 @@ All commands go through `claudia dominatrix <method>`. When `--tab-id` is omitte
 claudia dominatrix snapshot
 claudia dominatrix snapshot --full        # Full a11y tree JSON (old behavior, large)
 claudia dominatrix snapshot --scope "#main"  # Scope to CSS selector
+claudia dominatrix snapshot --sources        # Include React component source info
 
 # Content extraction
 claudia dominatrix get-text               # Page innerText (plain text, most efficient)
@@ -117,6 +118,13 @@ claudia dominatrix wait-for-url --pattern "**/posts"         # Wait for URL chan
 claudia dominatrix wait --ms 2000                            # Wait milliseconds
 ```
 
+### React Source Inspection
+
+```bash
+claudia dominatrix get-source --ref @e12             # Component ancestry + source for element
+claudia dominatrix get-source --selector ".my-button" # Same, via CSS selector
+```
+
 ### Debugging
 
 ```bash
@@ -129,16 +137,45 @@ claudia dominatrix get-cookies                                # Cookies
 claudia dominatrix screenshot                                 # Screenshot as PNG data URL
 ```
 
+## React Source Mapping
+
+Map DOM elements back to React component source files. Works on any React dev app — no additional libraries needed.
+
+```bash
+# Get source for a specific element
+claudia dominatrix get-source --ref @e12
+# Returns: component name, file path, line number, full ancestry chain
+
+# Enriched snapshot with source annotations
+claudia dominatrix snapshot --sources
+# Each element shows its nearest React component + file path
+# e.g. @e3 [button] "View site" <- Button (src/components/Header.tsx:15) → DashboardLayout
+```
+
+### Workflow: UI bug → source file
+
+1. `claudia dominatrix snapshot --sources` — see elements with component names
+2. Identify the problematic element by its ref
+3. `claudia dominatrix get-source --ref @eN` — get full ancestry chain
+4. Open the source file and fix the issue
+
+### Requirements
+
+- React app running in **dev mode** (`_debugSource` info is stripped in production builds)
+- No additional libraries needed — reads React fiber internals directly from DOM
+- Production builds will still show component names but without file paths
+
 ## Content Reading Strategy
 
-| Method            | When to use                                        | Output size     |
-| ----------------- | -------------------------------------------------- | --------------- |
-| `snapshot`        | **Default** — find interactive elements with @refs | ~200-400 tokens |
-| `get-text`        | Quick content reading, search results              | Medium          |
-| `get-markdown`    | Structured content (articles, docs)                | Medium          |
-| `snapshot --full` | Deep DOM inspection (rarely needed)                | ~50,000+ tokens |
-| `get-html`        | Specific element inspection                        | Variable        |
-| `screenshot`      | Visual verification, layout issues                 | PNG data URL    |
+| Method               | When to use                                        | Output size     |
+| -------------------- | -------------------------------------------------- | --------------- |
+| `snapshot`           | **Default** — find interactive elements with @refs | ~200-400 tokens |
+| `snapshot --sources` | Elements + React component names & source files    | ~300-600 tokens |
+| `get-text`           | Quick content reading, search results              | Medium          |
+| `get-markdown`       | Structured content (articles, docs)                | Medium          |
+| `snapshot --full`    | Deep DOM inspection (rarely needed)                | ~50,000+ tokens |
+| `get-html`           | Specific element inspection                        | Variable        |
+| `screenshot`         | Visual verification, layout issues                 | PNG data URL    |
 
 ## Ref Lifecycle
 

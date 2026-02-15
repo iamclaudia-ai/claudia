@@ -56,6 +56,16 @@ const snapshotParam = z.object({
   tabId: z.number().optional().describe("Target tab ID (defaults to active tab)"),
   full: z.boolean().optional().describe("Return full a11y tree JSON instead of compact refs"),
   scope: z.string().optional().describe("CSS selector to scope the snapshot"),
+  sources: z
+    .boolean()
+    .optional()
+    .describe("Include React component source info per element (dev mode only)"),
+});
+
+const getSourceParam = z.object({
+  tabId: z.number().optional().describe("Target tab ID (defaults to active tab)"),
+  ref: z.string().optional().describe("Element ref from snapshot (e.g. @e3)"),
+  selector: z.string().optional().describe("CSS selector"),
 });
 
 const getTextParam = z.object({
@@ -253,6 +263,7 @@ export default function createDominatrixExtension(): ClaudiaExtension {
     "dominatrix.get-url": (p) => sendCommand("get-url", p),
     "dominatrix.get-title": (p) => sendCommand("get-title", p),
     "dominatrix.get-html": (p) => sendCommand("get-html", p),
+    "dominatrix.get-source": (p) => sendCommand("get-source", p),
 
     // --- Interaction ---
     "dominatrix.click": (p) => sendCommand("click", p),
@@ -385,6 +396,11 @@ export default function createDominatrixExtension(): ClaudiaExtension {
         name: "dominatrix.get-html",
         description: "Get HTML of page or element",
         inputSchema: getHtmlParam,
+      },
+      {
+        name: "dominatrix.get-source",
+        description: "Get React component ancestry and source file path for an element",
+        inputSchema: getSourceParam,
       },
 
       // --- Interaction ---
