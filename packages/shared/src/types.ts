@@ -250,7 +250,7 @@ export interface HealthItem {
 
 /**
  * A hook is a lightweight event handler that reacts to gateway lifecycle events.
- * Hooks are loaded by the hooks extension from ~/.claudia/hooks/ and ./hooks/.
+ * Hooks are loaded by the hooks extension from ~/.claudia/hooks and from <workspace>/.claudia/hooks.
  */
 export interface HookDefinition {
   /** Events to subscribe to (e.g., "turn_stop", "session.created") */
@@ -258,7 +258,7 @@ export interface HookDefinition {
   /** Human-readable description */
   description?: string;
   /** Handler called when a matching event fires */
-  handler(payload: unknown, ctx: HookContext): Promise<void> | void;
+  handler(ctx: HookContext, payload?: unknown): Promise<void> | void;
 }
 
 /**

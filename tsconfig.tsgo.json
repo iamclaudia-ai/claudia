@@ -19,6 +19,7 @@
     "packages/*/src/**/*.tsx",
     "clients/*/src/**/*.ts",
     "clients/*/src/**/*.tsx",
+    "hooks/**/*.ts",
     "extensions/*/src/**/*.ts"
   ],
   "exclude": ["node_modules", "**/dist/**"]

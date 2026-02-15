@@ -496,6 +496,19 @@ async function handleWorkspaceMethod(
   req: Request,
   action: string,
 ): Promise<void> {
+  const emitWorkspaceContext = async (
+    workspace: { id: string; name: string; cwd: string } | null,
+  ): Promise<void> => {
+    if (!workspace) return;
+
+    await extensions.broadcast({
+      type: "workspace.context",
+      payload: { workspace },
+      timestamp: Date.now(),
+      origin: "gateway",
+    });
+  };
+
   try {
     switch (action) {
       case "list": {
@@ -516,6 +529,7 @@ async function handleWorkspaceMethod(
           return;
         }
         sendResponse(ws, req.id, { workspace });
+        await emitWorkspaceContext(workspace);
         break;
       }
 
@@ -532,6 +546,7 @@ async function handleWorkspaceMethod(
         const name = req.params?.name as string | undefined;
         const result = sessionManager.getOrCreateWorkspace(cwd, name);
         sendResponse(ws, req.id, result);
+        await emitWorkspaceContext(result.workspace);
         break;
       }
 
@@ -543,6 +558,9 @@ async function handleWorkspaceMethod(
         }
         const sessions = sessionManager.listSessions(workspaceId);
         sendResponse(ws, req.id, { sessions });
+
+        const workspace = sessionManager.getWorkspace(workspaceId);
+        await emitWorkspaceContext(workspace);
         break;
       }
 
@@ -568,6 +586,9 @@ async function handleWorkspaceMethod(
           systemPrompt,
         });
         sendResponse(ws, req.id, result);
+
+        const workspace = sessionManager.getWorkspace(workspaceId);
+        await emitWorkspaceContext(workspace);
         break;
       }
 
@@ -579,7 +600,6 @@ async function handleWorkspaceMethod(
     sendError(ws, req.id, errorMessage);
   }
 }
-
 /**
  * Handle extension discovery methods (built-in, not routed to extensions)
  */

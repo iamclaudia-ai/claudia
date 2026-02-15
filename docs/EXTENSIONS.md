@@ -14,12 +14,12 @@ Server entrypoint convention is strict: every extension must expose `extensions/
 
 ### 1. Create the extension package
 
-```
 extensions/my-feature/
 ├── package.json
 └── src/
-    └── index.ts
-```
+└── index.ts
+
+````
 
 ```json
 {
@@ -35,7 +35,7 @@ extensions/my-feature/
     "zod": "^3.25.76"
   }
 }
-```
+````
 
 ### 2. Implement the extension
 
@@ -479,10 +479,12 @@ Hooks are lightweight event-driven scripts that run inside the **hooks extension
 
 ### How It Works
 
-The hooks extension (`extensions/hooks/`) scans two directories on startup:
+The hooks extension (`extensions/hooks/`) loads hooks from:
 
 1. `~/.claudia/hooks/` — user-level hooks (apply to all workspaces)
-2. `./hooks/` — project-level hooks (workspace-specific)
+2. `<workspace>/.claudia/hooks/` — workspace-level hooks for the active workspace
+
+If multiple hook files share the same filename (same hook ID), workspace hooks override user hooks.
 
 Each `.ts` or `.js` file must default-export a `HookDefinition`:
 
@@ -493,9 +495,9 @@ export default {
   event: "session.message_stop", // or an array: ["session.message_stop", "session.history_loaded"]
   description: "What this hook does",
 
-  async handler(payload, ctx) {
-    // payload: the event payload from the gateway
+  async handler(ctx, payload) {
     // ctx: HookContext with emit(), workspace, sessionId, log
+    // payload: optional event payload from the gateway
   },
 } satisfies HookDefinition;
 ```
@@ -535,6 +537,8 @@ Hooks can subscribe to any gateway event. Common ones:
 | `session.history_loaded`      | When a client loads session history (page load/refresh) |
 | `session.*`                   | Wildcard for all session events                         |
 
+Pattern matching is first-match per hook. Exact patterns are evaluated before wildcard patterns, and `*` is evaluated last. A hook runs at most once per incoming event even if multiple patterns match.
+
 ### UI Integration — Status Bar
 
 Hook output is rendered in the **StatusBar** component, a compact bar between the chat messages and input area. The UI subscribes to `hook.*` events and stores the latest payload per hook ID in `hookState`.
@@ -550,36 +554,46 @@ To add a new hook with UI rendering, emit data via `ctx.emit()` and add a corres
 ### Example: git-status Hook
 
 ```typescript
-// hooks/git-status.ts
+// .claudia/hooks/git-status.ts
 import type { HookDefinition } from "@claudia/shared";
+
+interface GitStatusPayload {
+  branch: string;
+  modified: number;
+  added: number;
+  deleted: number;
+  untracked: number;
+  total: number;
+  files: { status: string; path: string }[];
+}
 
 export default {
   event: ["session.message_stop", "session.history_loaded"],
   description: "Show git file changes after each turn",
 
-  async handler(_payload, ctx) {
+  async handler(ctx) {
     const cwd = ctx.workspace?.cwd;
     if (!cwd) return;
 
-    const [statusProc, branchProc] = [
-      Bun.spawn(["git", "status", "--porcelain"], { cwd, stdout: "pipe", stderr: "pipe" }),
-      Bun.spawn(["git", "rev-parse", "--abbrev-ref", "HEAD"], {
-        cwd,
-        stdout: "pipe",
-        stderr: "pipe",
-      }),
-    ];
+    // Run git commands and parse porcelain output...
+    const payload: GitStatusPayload = {
+      branch: "main",
+      modified: 0,
+      added: 0,
+      deleted: 0,
+      untracked: 0,
+      total: 0,
+      files: [],
+    };
 
-    const [output, branchOutput] = await Promise.all([
-      new Response(statusProc.stdout).text(),
-      new Response(branchProc.stdout).text(),
-    ]);
-
-    // Parse and emit { branch, modified, added, deleted, untracked, total, files }
-    ctx.emit("files", { branch: branchOutput.trim() /* ... */ });
+    ctx.emit("files", payload);
   },
 } satisfies HookDefinition;
 ```
+
+If the workspace CWD is not a git repository, the hook exits early and emits nothing.
+
+Hook handler signature is `handler(ctx, payload?)`: `ctx` is required and `payload` is optional.
 
 ### Configuration
 
@@ -619,9 +633,10 @@ extensions/<name>/
     └── pages/             # React page components (if has UI)
         └── MyPage.tsx
 
-hooks/                     # Project-level hook scripts (loaded by hooks extension)
-├── git-status.ts          # Git status after each turn
-└── ...
+.claudia/
+└── hooks/                   # Workspace-level hook scripts (loaded by hooks extension)
+    ├── git-status.ts        # Git status after each turn
+    └── ...
 
 packages/
 ├── shared/src/types.ts          # ClaudiaExtension, ExtensionContext, HookDefinition, etc.
