@@ -469,6 +469,142 @@ const allRoutes = [...missionControlRoutes, ...chatRoutes, ...myFeatureRoutes];
 | Voice           | `voice`           | `@claudia/voice`               | Yes            | —                                     | —             |
 | iMessage        | `imessage`        | `@claudia/ext-imessage`        | Yes            | —                                     | `imessage`    |
 | Mission Control | `mission-control` | `@claudia/ext-mission-control` | Yes            | `/mission-control`, `/logs`           | —             |
+| Hooks           | `hooks`           | `@claudia/ext-hooks`           | Yes            | —                                     | —             |
+
+---
+
+## Hooks
+
+Hooks are lightweight event-driven scripts that run inside the **hooks extension**. Instead of building a full extension for simple reactive features, drop a `.ts` file into a hooks directory and it will be loaded automatically.
+
+### How It Works
+
+The hooks extension (`extensions/hooks/`) scans two directories on startup:
+
+1. `~/.claudia/hooks/` — user-level hooks (apply to all workspaces)
+2. `./hooks/` — project-level hooks (workspace-specific)
+
+Each `.ts` or `.js` file must default-export a `HookDefinition`:
+
+```typescript
+import type { HookDefinition } from "@claudia/shared";
+
+export default {
+  event: "session.message_stop", // or an array: ["session.message_stop", "session.history_loaded"]
+  description: "What this hook does",
+
+  async handler(payload, ctx) {
+    // payload: the event payload from the gateway
+    // ctx: HookContext with emit(), workspace, sessionId, log
+  },
+} satisfies HookDefinition;
+```
+
+### HookContext
+
+Every handler receives a `HookContext`:
+
+```typescript
+interface HookContext {
+  /** Emit an event (namespaced as hook.{hookId}.{eventName}) */
+  emit(event: string, payload: unknown): void;
+  /** Current workspace info */
+  workspace: { cwd: string } | null;
+  /** Current session ID */
+  sessionId: string | null;
+  /** Logger */
+  log: {
+    info(msg: string, meta?: unknown): void;
+    warn(msg: string, meta?: unknown): void;
+    error(msg: string, meta?: unknown): void;
+  };
+}
+```
+
+When a hook calls `ctx.emit("files", data)`, the gateway broadcasts `hook.{hookId}.files` to all subscribed WebSocket clients. The hook ID is derived from the filename (e.g., `git-status.ts` → `git-status`).
+
+### Available Events
+
+Hooks can subscribe to any gateway event. Common ones:
+
+| Event                         | When it fires                                           |
+| ----------------------------- | ------------------------------------------------------- |
+| `session.message_stop`        | After Claude finishes a response                        |
+| `session.message_start`       | When Claude starts responding                           |
+| `session.content_block_delta` | Each streaming text chunk                               |
+| `session.history_loaded`      | When a client loads session history (page load/refresh) |
+| `session.*`                   | Wildcard for all session events                         |
+
+### UI Integration — Status Bar
+
+Hook output is rendered in the **StatusBar** component, a compact bar between the chat messages and input area. The UI subscribes to `hook.*` events and stores the latest payload per hook ID in `hookState`.
+
+The StatusBar currently renders:
+
+- **Git branch** — icon + branch name (always visible when hook data exists)
+- **Change badges** — `+N` (green), `~N` (amber), `-N` (red), `!N` (purple)
+- **Expandable file list** — click badges to see individual changed files
+
+To add a new hook with UI rendering, emit data via `ctx.emit()` and add a corresponding renderer in `StatusBar.tsx`.
+
+### Example: git-status Hook
+
+```typescript
+// hooks/git-status.ts
+import type { HookDefinition } from "@claudia/shared";
+
+export default {
+  event: ["session.message_stop", "session.history_loaded"],
+  description: "Show git file changes after each turn",
+
+  async handler(_payload, ctx) {
+    const cwd = ctx.workspace?.cwd;
+    if (!cwd) return;
+
+    const [statusProc, branchProc] = [
+      Bun.spawn(["git", "status", "--porcelain"], { cwd, stdout: "pipe", stderr: "pipe" }),
+      Bun.spawn(["git", "rev-parse", "--abbrev-ref", "HEAD"], {
+        cwd,
+        stdout: "pipe",
+        stderr: "pipe",
+      }),
+    ];
+
+    const [output, branchOutput] = await Promise.all([
+      new Response(statusProc.stdout).text(),
+      new Response(branchProc.stdout).text(),
+    ]);
+
+    // Parse and emit { branch, modified, added, deleted, untracked, total, files }
+    ctx.emit("files", { branch: branchOutput.trim() /* ... */ });
+  },
+} satisfies HookDefinition;
+```
+
+### Configuration
+
+Enable the hooks extension in `~/.claudia/claudia.json`:
+
+```json5
+{
+  extensions: {
+    hooks: {
+      enabled: true,
+      config: {
+        // Optional: additional directories to scan
+        // extraDirs: ["/path/to/more/hooks"]
+      },
+    },
+  },
+}
+```
+
+### Hook Ideas
+
+- **Cost tracker** — accumulate API usage from `session.message_stop` payloads, display running total
+- **Build status** — run `tsc --noEmit` after changes, show pass/fail
+- **Test runner** — run relevant tests after file changes
+- **Session timer** — track time spent per session
 
 ---
 
@@ -483,13 +619,18 @@ extensions/<name>/
     └── pages/             # React page components (if has UI)
         └── MyPage.tsx
 
+hooks/                     # Project-level hook scripts (loaded by hooks extension)
+├── git-status.ts          # Git status after each turn
+└── ...
+
 packages/
-├── shared/src/types.ts          # ClaudiaExtension, ExtensionContext, etc.
+├── shared/src/types.ts          # ClaudiaExtension, ExtensionContext, HookDefinition, etc.
 ├── shared/src/config.ts         # Config loading + env interpolation
 ├── gateway/src/start.ts         # Config-driven extension startup (out-of-process)
 ├── gateway/src/extensions.ts    # ExtensionManager (routing, events, lifecycle)
 ├── gateway/src/extension-host.ts  # ExtensionHostProcess (child process mgmt)
 ├── gateway/src/web/index.tsx    # SPA shell (route collection)
+├── ui/src/components/StatusBar.tsx  # Hook output rendering (git badges, etc.)
 └── extension-host/src/index.ts  # Generic host shim (dynamic import, NDJSON I/O)
 ```
 
