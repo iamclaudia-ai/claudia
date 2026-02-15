@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Claudia</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        font-family:
+          system-ui,
+          -apple-system,
+          sans-serif;
+        background: #fafafa;
+      }
+      iframe {
+        width: 100%;
+        height: 100%;
+        border: none;
+      }
+      .connection-banner {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        padding: 8px 12px;
+        background: #fef3c7;
+        color: #92400e;
+        font-size: 12px;
+        text-align: center;
+        z-index: 10;
+        border-bottom: 1px solid #fde68a;
+      }
+      .connection-banner.visible {
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="banner" class="connection-banner">Connecting to Claudia...</div>
+    <iframe id="chat" allow="clipboard-write"></iframe>
+    <script src="sidepanel.js"></script>
+  </body>
+</html>

@@ -1,0 +1,22 @@
+{
+  "name": "@claudia/client-dominatrix",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Chrome extension — browser control + Claudia side panel",
+  "type": "module",
+  "scripts": {
+    "build": "bun run bundle.ts",
+    "clean": "rm -rf dist build",
+    "typecheck": "tsc --noEmit",
+    "pack": "bun run build && cd dist && zip -r ../dominatrix.zip ."
+  },
+  "dependencies": {
+    "@mariozechner/jailjs": "^0.1.1",
+    "turndown": "^7.2.2",
+    "turndown-plugin-gfm": "^1.0.2"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.278",
+    "typescript": "^5.7.2"
+  }
+}

@@ -59,12 +59,12 @@
       }
     },
 
-    // Browser Extension - DOMINATRIX (future)
-    "browser": {
-      "enabled": false,
-      "config": {
-        "dominatrixPath": "/opt/homebrew/bin/dominatrix"
-      }
+    // DOMINATRIX — Browser control via Chrome extension
+    // Chrome extension connects to gateway WS and bridges commands to content scripts
+    // Install: load clients/dominatrix/dist/ as unpacked extension in Chrome
+    "dominatrix": {
+      "enabled": true,
+      "config": {}
     },
 
     // iMessage Extension - requires macOS with Messages signed in

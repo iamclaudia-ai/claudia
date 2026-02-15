@@ -1,0 +1,17 @@
+{
+  "name": "@claudia/ext-dominatrix",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit -p ../../tsconfig.json"
+  },
+  "dependencies": {
+    "@claudia/shared": "workspace:*",
+    "zod": "^3.25.76"
+  }
+}
