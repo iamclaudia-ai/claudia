@@ -105,6 +105,8 @@ export interface UseGatewayReturn {
   onEvent(listener: EventListener): () => void;
   /** Server-assigned connection ID for this WebSocket session */
   connectionId: string | null;
+  /** Latest hook state per hookId (e.g., { "git-status": { modified: 2, ... } }) */
+  hookState: Record<string, unknown>;
   messagesContainerRef: React.RefObject<HTMLDivElement | null>;
   messagesEndRef: React.RefObject<HTMLDivElement | null>;
 }
@@ -126,6 +128,7 @@ export function useGateway(gatewayUrl: string, options: UseGatewayOptions = {}):
   const [workspace, setWorkspace] = useState<WorkspaceInfo | null>(null);
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [sessionConfig, setSessionConfig] = useState<SessionConfigInfo | null>(null);
+  const [hookState, setHookState] = useState<Record<string, unknown>>({});
 
   const wsRef = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
@@ -726,6 +729,12 @@ export function useGateway(gatewayUrl: string, options: UseGatewayOptions = {}):
           handleStreamEvent(eventType, payload);
         }
 
+        // Hook events: "hook.{hookId}.{event}" — store latest state per hookId
+        if (parts[0] === "hook" && parts.length >= 3) {
+          const hookId = parts[1];
+          setHookState((prev) => ({ ...prev, [hookId]: msg.payload }));
+        }
+
         // Fire raw event listeners (for voice, extensions, etc.)
         for (const listener of eventListenersRef.current) {
           try {
@@ -754,8 +763,8 @@ export function useGateway(gatewayUrl: string, options: UseGatewayOptions = {}):
       // when we learn the ccSessionId from session.get/create/switch/info
       sendRequest("session.info");
 
-      // Subscribe to voice events (global, not session-scoped)
-      sendRequest("subscribe", { events: ["voice.*"] });
+      // Subscribe to voice and hook events (global, not session-scoped)
+      sendRequest("subscribe", { events: ["voice.*", "hook.*"] });
 
       const opts = optionsRef.current;
 
@@ -945,6 +954,7 @@ export function useGateway(gatewayUrl: string, options: UseGatewayOptions = {}):
     sendRequest,
     onEvent,
     connectionId: connectionIdRef.current,
+    hookState,
     messagesContainerRef,
     messagesEndRef,
   };

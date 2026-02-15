@@ -12,6 +12,7 @@ import { ContextBar } from "./ContextBar";
 import { MessageList } from "./MessageList";
 import { InputArea } from "./InputArea";
 import { ClaudiaThinking } from "./ClaudiaThinking";
+import { StatusBar } from "./StatusBar";
 import CompactionIndicator from "./CompactionIndicator";
 
 interface ClaudiaChatProps {
@@ -157,6 +158,8 @@ function ChatInner({
             </div>
           </Transition>
         )}
+
+        <StatusBar hookState={gateway.hookState} />
 
         <InputArea
           input={input}

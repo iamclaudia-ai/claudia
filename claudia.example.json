@@ -43,6 +43,13 @@
       }
     },
 
+    // Hooks Extension — lightweight event handlers (git-status, cost-tracker, etc.)
+    // Loads hooks from ~/.claudia/hooks/ and ./hooks/
+    "hooks": {
+      "enabled": true,
+      "config": {}
+    },
+
     // Memory Extension (future)
     "memory": {
       "enabled": false,

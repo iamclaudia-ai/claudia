@@ -243,3 +243,38 @@ export interface HealthItem {
   /** Extra columns: { model: "sonnet-4", lastActivity: "2m ago" } */
   details?: Record<string, string>;
 }
+
+// ============================================================================
+// Hooks System
+// ============================================================================
+
+/**
+ * A hook is a lightweight event handler that reacts to gateway lifecycle events.
+ * Hooks are loaded by the hooks extension from ~/.claudia/hooks/ and ./hooks/.
+ */
+export interface HookDefinition {
+  /** Events to subscribe to (e.g., "turn_stop", "session.created") */
+  event: string | string[];
+  /** Human-readable description */
+  description?: string;
+  /** Handler called when a matching event fires */
+  handler(payload: unknown, ctx: HookContext): Promise<void> | void;
+}
+
+/**
+ * Context passed to hook handlers
+ */
+export interface HookContext {
+  /** Emit an event to the gateway (namespaced as hook.{hookId}.{event}) */
+  emit(event: string, payload: unknown): void;
+  /** Current workspace info (if available) */
+  workspace: { cwd: string } | null;
+  /** Current session ID (if available) */
+  sessionId: string | null;
+  /** Logger */
+  log: {
+    info(msg: string, meta?: unknown): void;
+    warn(msg: string, meta?: unknown): void;
+    error(msg: string, meta?: unknown): void;
+  };
+}
