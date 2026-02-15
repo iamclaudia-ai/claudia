@@ -17,6 +17,44 @@ import { ExtensionHostProcess, type ExtensionRegistration } from "./extension-ho
 const log = createLogger("Startup", join(homedir(), ".claudia", "logs", "gateway.log"));
 const ROOT_DIR = join(import.meta.dir, "..", "..", "..");
 
+/**
+ * Kill orphaned extension host processes from previous gateway instances.
+ * When bun --watch restarts the gateway, child processes can be orphaned
+ * because SIGKILL doesn't allow cleanup handlers to run.
+ */
+async function killOrphanExtensionHosts(): Promise<void> {
+  try {
+    const proc = Bun.spawn(["pgrep", "-f", "extension-host/src/index.ts"], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const output = await new Response(proc.stdout).text();
+    await proc.exited;
+
+    const pids = output
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+      .map(Number)
+      .filter((pid) => pid !== process.pid);
+
+    if (pids.length > 0) {
+      log.info("Killing orphaned extension hosts", { pids });
+      for (const pid of pids) {
+        try {
+          process.kill(pid, "SIGTERM");
+        } catch {
+          // Process already dead
+        }
+      }
+      // Brief wait for graceful shutdown
+      await new Promise((r) => setTimeout(r, 500));
+    }
+  } catch {
+    // pgrep returns exit code 1 when no matches — that's fine
+  }
+}
+
 const startedExtensions = new Set<string>();
 
 function resolveExtensionEntrypoint(extensionId: string): string | null {
@@ -101,4 +139,6 @@ async function loadExtensions(): Promise<void> {
   }
 }
 
-loadExtensions().catch((err) => log.error("Extension startup failed", { error: String(err) }));
+killOrphanExtensionHosts()
+  .then(() => loadExtensions())
+  .catch((err) => log.error("Extension startup failed", { error: String(err) }));

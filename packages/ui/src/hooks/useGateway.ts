@@ -247,6 +247,7 @@ export function useGateway(gatewayUrl: string, options: UseGatewayOptions = {}):
           "ping",
           "turn_start",
           "turn_stop",
+          "user_message",
           "api_warning",
           "api_error",
           "process_started",
@@ -260,6 +261,41 @@ export function useGateway(gatewayUrl: string, options: UseGatewayOptions = {}):
       }
 
       switch (eventType) {
+        case "user_message": {
+          // Broadcast from another connection — add to our message list
+          const senderConnectionId = payload.connectionId as string | undefined;
+          if (senderConnectionId && senderConnectionId === connectionIdRef.current) break; // skip our own
+
+          const rawContent = payload.content as string | unknown[];
+          const blocks: ContentBlock[] = [];
+          if (typeof rawContent === "string") {
+            blocks.push({ type: "text", content: rawContent });
+          } else if (Array.isArray(rawContent)) {
+            for (const item of rawContent as Record<string, unknown>[]) {
+              if (item.type === "text") {
+                blocks.push({ type: "text", content: (item.text as string) || "" });
+              } else if (item.type === "image") {
+                const src = item.source as Record<string, string>;
+                blocks.push({ type: "image", mediaType: src.media_type, data: src.data });
+              } else if (item.type === "document") {
+                const src = item.source as Record<string, string>;
+                blocks.push({
+                  type: "file",
+                  mediaType: src.media_type,
+                  data: src.data,
+                  filename: "",
+                });
+              }
+            }
+          }
+          if (blocks.length > 0) {
+            setMessages((draft) => {
+              draft.push({ role: "user", blocks, timestamp: Date.now() });
+            });
+          }
+          break;
+        }
+
         case "turn_start":
           setIsQuerying(true);
           setEventCount(0);

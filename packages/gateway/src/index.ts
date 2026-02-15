@@ -798,6 +798,13 @@ async function handleSessionMethod(
             connectionId: req.params?.speakResponse ? ws.data.id : null,
           },
         );
+
+        // Broadcast the user message to all other connections viewing this session
+        broadcastEvent(`stream.${ccSessionId}.user_message`, {
+          content: req.params?.content,
+          connectionId: ws.data.id,
+        });
+
         sendResponse(ws, req.id, {
           status: "ok",
           sessionId: ccSessionId,
@@ -1034,7 +1041,7 @@ function broadcastEvent(eventName: string, payload: unknown, _source?: string): 
 const server = Bun.serve<ClientState>({
   port: PORT,
   hostname: config.gateway.host || "localhost",
-  reusePort: true,
+  reusePort: false,
   // Custom fetch handler for WebSocket upgrades
   fetch(req, server) {
     const url = new URL(req.url);
