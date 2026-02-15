@@ -87,7 +87,7 @@ async function killOrphanProcesses(port: number): Promise<void> {
     .split("\n")
     .filter(Boolean)
     .map(Number)
-    .filter((n) => !isNaN(n));
+    .filter((n) => !isNaN(n) && n !== process.pid);
 
   for (const pid of pids) {
     log("WARN", `Killing orphan process on port ${port}: PID ${pid}`);

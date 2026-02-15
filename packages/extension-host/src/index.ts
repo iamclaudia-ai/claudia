@@ -189,39 +189,55 @@ async function loadAndStart(): Promise<ClaudiaExtension> {
 }
 
 // ── Stdin Reading ─────────────────────────────────────────────
+// Use Node.js process.stdin (data events) instead of Bun.stdin.stream()
+// to avoid ReadableStream lock issues with bun --hot.
+//
+// IMPORTANT: Only attach listeners once — they persist across HMR reloads
+// since process.stdin is the same object. We track this via import.meta.hot.data
+// which survives across HMR cycles (unlike module-level variables which re-init).
 
-async function readStdin(): Promise<void> {
-  const reader = Bun.stdin.stream().getReader();
-  const decoder = new TextDecoder();
+const stdinAlreadyBound = import.meta.hot?.data?.stdinBound === true;
+
+function readStdin(): void {
+  if (stdinAlreadyBound) {
+    hostLog.info("Stdin already bound, skipping listener setup (HMR reload)");
+    return;
+  }
+  // Persist flag across HMR reloads
+  if (import.meta.hot) {
+    import.meta.hot.data.stdinBound = true;
+  }
+
   let buffer = "";
 
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
+  process.stdin.setEncoding("utf-8");
+  process.stdin.on("data", async (chunk: string) => {
+    buffer += chunk;
 
-      buffer += decoder.decode(value, { stream: true });
+    let newlineIndex: number;
+    while ((newlineIndex = buffer.indexOf("\n")) !== -1) {
+      const line = buffer.slice(0, newlineIndex).trim();
+      buffer = buffer.slice(newlineIndex + 1);
 
-      let newlineIndex: number;
-      while ((newlineIndex = buffer.indexOf("\n")) !== -1) {
-        const line = buffer.slice(0, newlineIndex).trim();
-        buffer = buffer.slice(newlineIndex + 1);
-
-        if (line.length > 0) {
-          await handleMessage(line);
-        }
+      if (line.length > 0) {
+        await handleMessage(line);
       }
     }
-  } catch (error) {
-    hostLog.error("Stdin read error", { error: String(error) });
-  }
+  });
 
-  // Stdin closed — gateway disconnected
-  hostLog.info("Stdin closed, shutting down");
-  if (extension) {
-    await extension.stop();
-  }
-  process.exit(0);
+  process.stdin.on("end", async () => {
+    hostLog.info("Stdin closed, shutting down");
+    if (extension) {
+      await extension.stop();
+    }
+    process.exit(0);
+  });
+
+  process.stdin.on("error", (error: Error) => {
+    hostLog.error("Stdin error", { error: String(error) });
+  });
+
+  process.stdin.resume();
 }
 
 async function handleMessage(line: string): Promise<void> {
@@ -304,8 +320,14 @@ if (import.meta.hot) {
     hostLog.info("HMR: disposing extension", { id: extension?.id });
     if (extension) {
       await extension.stop();
+      extension = null;
     }
     // Clear event handlers so re-registration starts fresh
     eventHandlers.clear();
+    // Stop parent liveness check — a new one will be created on reload
+    clearInterval(parentCheckInterval);
+    // NOTE: stdinBound stays true in import.meta.hot.data so listeners
+    // aren't re-attached. The existing stdin listeners will route messages
+    // to the new extension instance via the module-level `extension` var.
   });
 }
