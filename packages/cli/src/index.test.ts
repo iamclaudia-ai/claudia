@@ -3,8 +3,11 @@ import {
   coerceValue,
   exampleValueForSchema,
   parseCliParams,
+  printCliHelp,
   printMethodExamples,
   printMethodHelp,
+  printMethodList,
+  printNamespaceHelp,
   resolveSchema,
   schemaType,
   validateParamsAgainstSchema,
@@ -157,13 +160,33 @@ describe("help/example output", () => {
     },
   };
 
+  const methods: MethodCatalogEntry[] = [
+    entry,
+    {
+      method: "dominatrix.html",
+      source: "extension",
+      extensionId: "dominatrix",
+      inputSchema: {
+        type: "object",
+        required: ["tab-id"],
+        properties: {
+          "tab-id": { type: "string" },
+          selector: { type: "string" },
+        },
+      },
+    },
+  ];
+
   it("prints resolved help fields", () => {
     const logSpy = spyOn(console, "log").mockImplementation(() => undefined);
     printMethodHelp(entry);
 
     const lines = logSpy.mock.calls.flat().map((v) => String(v));
-    expect(lines.some((l) => l.includes("--sessionId <string> (required)"))).toBe(true);
-    expect(lines.some((l) => l.includes("--speakResponse <boolean> (optional)"))).toBe(true);
+    expect(lines.some((l) => l.includes("claudia session prompt"))).toBe(true);
+    expect(lines.some((l) => l.includes("--sessionId <SESSIONID> (string, required)"))).toBe(true);
+    expect(
+      lines.some((l) => l.includes("--speakResponse [SPEAKRESPONSE] (boolean, optional)")),
+    ).toBe(true);
 
     logSpy.mockRestore();
   });
@@ -176,6 +199,51 @@ describe("help/example output", () => {
     expect(
       lines.some((l) => l.includes('claudia session prompt --sessionId "value" --content "value"')),
     ).toBe(true);
+
+    logSpy.mockRestore();
+  });
+
+  it("prints top-level help with namespaces", () => {
+    const logSpy = spyOn(console, "log").mockImplementation(() => undefined);
+    printCliHelp(methods);
+
+    const lines = logSpy.mock.calls.flat().map((v) => String(v));
+    expect(lines.some((l) => l.includes("Usage:"))).toBe(true);
+    expect(lines.some((l) => l.trim() === "dominatrix")).toBe(true);
+    expect(lines.some((l) => l.trim() === "session")).toBe(true);
+
+    logSpy.mockRestore();
+  });
+
+  it("prints methods as space-separated commands with params", () => {
+    const logSpy = spyOn(console, "log").mockImplementation(() => undefined);
+    printMethodList(methods);
+
+    const lines = logSpy.mock.calls.flat().map((v) => String(v));
+    expect(
+      lines.some((l) =>
+        l.includes("claudia dominatrix html --tab-id <TAB-ID> --selector [SELECTOR]"),
+      ),
+    ).toBe(true);
+    expect(
+      lines.some((l) =>
+        l.includes(
+          "claudia session prompt --sessionId <SESSIONID> --content <CONTENT> --speakResponse [SPEAKRESPONSE]",
+        ),
+      ),
+    ).toBe(true);
+
+    logSpy.mockRestore();
+  });
+
+  it("prints namespace-only help", () => {
+    const logSpy = spyOn(console, "log").mockImplementation(() => undefined);
+    printNamespaceHelp("dominatrix", methods);
+
+    const lines = logSpy.mock.calls.flat().map((v) => String(v));
+    expect(lines.some((l) => l.includes("Namespace: dominatrix"))).toBe(true);
+    expect(lines.some((l) => l.includes("claudia dominatrix html"))).toBe(true);
+    expect(lines.some((l) => l.includes("claudia session prompt"))).toBe(false);
 
     logSpy.mockRestore();
   });

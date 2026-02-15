@@ -231,9 +231,48 @@ export function validateParamsAgainstSchema(
   }
 }
 
+export function splitMethod(method: string): { namespace: string; action: string } | null {
+  const idx = method.indexOf(".");
+  if (idx <= 0 || idx >= method.length - 1) return null;
+  return {
+    namespace: method.slice(0, idx),
+    action: method.slice(idx + 1),
+  };
+}
+
+export function formatFlagPlaceholder(name: string, required: boolean): string {
+  const token = name.toUpperCase();
+  return required ? `<${token}>` : `[${token}]`;
+}
+
+export function formatMethodCommand(entry: MethodCatalogEntry): string {
+  const split = splitMethod(entry.method);
+  if (!split) return `claudia ${entry.method}`;
+
+  const rootSchema = entry.inputSchema;
+  const schema = resolveSchema(rootSchema, rootSchema) ?? rootSchema;
+  if (!schema || schema.type !== "object") {
+    return `claudia ${split.namespace} ${split.action}`;
+  }
+
+  const required = new Set(schema.required ?? []);
+  const props = schema.properties ? Object.entries(schema.properties) : [];
+  const flagParts = props.map(
+    ([name]) => `--${name} ${formatFlagPlaceholder(name, required.has(name))}`,
+  );
+
+  const suffix = flagParts.length > 0 ? ` ${flagParts.join(" ")}` : "";
+  return `claudia ${split.namespace} ${split.action}${suffix}`;
+}
+
 export function printMethodHelp(entry: MethodCatalogEntry): void {
-  console.log(`\n${entry.method}`);
+  const split = splitMethod(entry.method);
+  const command = split ? `claudia ${split.namespace} ${split.action}` : `claudia ${entry.method}`;
+
+  console.log(`\n`);
   if (entry.description) console.log(`  ${entry.description}`);
+  console.log(`  Usage: ${formatMethodCommand(entry)}`);
+
   const rootSchema = entry.inputSchema;
   const schema = resolveSchema(rootSchema, rootSchema) ?? rootSchema;
   if (!schema || schema.type !== "object") {
@@ -254,7 +293,8 @@ export function printMethodHelp(entry: MethodCatalogEntry): void {
     const resolvedProp = resolveSchema(prop, rootSchema) ?? prop;
     const type = schemaType(resolvedProp, rootSchema);
     const desc = resolvedProp.description ? ` - ${resolvedProp.description}` : "";
-    console.log(`    --${name} <${type}> (${req})${desc}`);
+    const placeholder = formatFlagPlaceholder(name, required.has(name));
+    console.log(`    --${name} ${placeholder} (${type}, ${req})${desc}`);
   }
 }
 
@@ -298,18 +338,20 @@ export function exampleValueForSchema(
 }
 
 export function printMethodExamples(entry: MethodCatalogEntry): void {
-  console.log(`\n${entry.method} examples`);
+  const split = splitMethod(entry.method);
+  const command = split ? `${split.namespace} ${split.action}` : entry.method;
+  console.log(`\nclaudia ${command} examples`);
+
   const rootSchema = entry.inputSchema;
   const schema = resolveSchema(rootSchema, rootSchema) ?? rootSchema;
   if (!schema || schema.type !== "object") {
-    console.log(`  claudia ${entry.method}`);
+    console.log(`  claudia ${command}`);
     return;
   }
 
   const props = schema.properties ? Object.entries(schema.properties) : [];
   const required = new Set(schema.required ?? []);
-  const [namespace, action] = entry.method.split(".");
-  if (!namespace || !action) {
+  if (!split) {
     console.log(`  claudia ${entry.method}`);
     return;
   }
@@ -323,11 +365,12 @@ export function printMethodExamples(entry: MethodCatalogEntry): void {
     .map(([name, prop]) => `--${name} ${exampleValueForSchema(prop, rootSchema)}`);
 
   if (requiredFlags.length === 0 && optionalFlags.length === 0) {
-    console.log(`  claudia ${namespace} ${action}`);
+    console.log(`  claudia ${split.namespace} ${split.action}`);
     return;
   }
 
-  const requiredCmd = `claudia ${namespace} ${action} ${requiredFlags.join(" ")}`.trim();
+  const requiredCmd =
+    `claudia ${split.namespace} ${split.action} ${requiredFlags.join(" ")}`.trim();
   console.log(`  ${requiredCmd}`);
 
   if (optionalFlags.length > 0) {
@@ -337,18 +380,60 @@ export function printMethodExamples(entry: MethodCatalogEntry): void {
   }
 }
 
-export function printMethodList(methods: MethodCatalogEntry[]): void {
-  console.log("Available methods:\n");
-  const sorted = [...methods].sort((a, b) => a.method.localeCompare(b.method));
-  for (const m of sorted) {
-    const src = m.source === "extension" ? `extension:${m.extensionId ?? "unknown"}` : "gateway";
-    console.log(`  ${m.method}  [${src}]`);
+export function getNamespaces(methods: MethodCatalogEntry[]): string[] {
+  const names = new Set<string>();
+  for (const m of methods) {
+    const split = splitMethod(m.method);
+    names.add(split ? split.namespace : m.method);
   }
-  console.log("\nUsage:");
+  return Array.from(names).sort();
+}
+
+export function printNamespaceHelp(namespace: string, methods: MethodCatalogEntry[]): void {
+  const rows = methods
+    .filter((m) => splitMethod(m.method)?.namespace === namespace)
+    .sort((a, b) => a.method.localeCompare(b.method));
+
+  if (rows.length === 0) {
+    console.error(`Unknown namespace: ${namespace}`);
+    return;
+  }
+
+  console.log(`\nNamespace: ${namespace}`);
+  for (const entry of rows) {
+    console.log(`  ${formatMethodCommand(entry)}`);
+  }
+}
+
+export function printMethodList(methods: MethodCatalogEntry[], namespace?: string): void {
+  const sorted = [...methods].sort((a, b) => a.method.localeCompare(b.method));
+  const filtered = namespace
+    ? sorted.filter((m) => splitMethod(m.method)?.namespace === namespace)
+    : sorted;
+
+  if (namespace && filtered.length === 0) {
+    console.error(`Unknown namespace: ${namespace}`);
+    return;
+  }
+
+  console.log("Available commands:\n");
+  for (const entry of filtered) {
+    console.log(`  ${formatMethodCommand(entry)}`);
+  }
+}
+
+export function printCliHelp(methods: MethodCatalogEntry[]): void {
+  console.log("Usage:\n");
   console.log("  claudia <namespace> <action> --param value");
   console.log("  claudia <namespace> <action> --help");
   console.log("  claudia <namespace> <action> --examples");
-  console.log("  claudia methods");
+  console.log("  claudia <namespace> --help");
+  console.log("  claudia methods [namespace]");
+
+  console.log("\nNamespaces:\n");
+  for (const ns of getNamespaces(methods)) {
+    console.log(`  ${ns}`);
+  }
 }
 
 async function fetchMethodCatalog(): Promise<MethodCatalogEntry[]> {
@@ -910,7 +995,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  const methods = await fetchMethodCatalog();
+  const methods = [...(await fetchMethodCatalog()), ...WATCHDOG_METHODS];
   const methodMap = new Map(methods.map((m) => [m.method, m] as const));
 
   if (args.length === 0) {
@@ -918,8 +1003,18 @@ async function main(): Promise<void> {
     return;
   }
 
-  if (args[0] === "methods" || args[0] === "help" || args[0] === "--help") {
-    printMethodList([...methods, ...WATCHDOG_METHODS]);
+  if (args[0] === "help" || args[0] === "--help") {
+    printCliHelp(methods);
+    return;
+  }
+
+  if (args[0] === "methods") {
+    printMethodList(methods, args[1]);
+    return;
+  }
+
+  if (args.length === 2 && args[1] === "--help") {
+    printNamespaceHelp(args[0], methods);
     return;
   }
 
