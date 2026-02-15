@@ -8,12 +8,21 @@
 import { useState } from "react";
 
 interface GitStatusData {
+  branch?: string;
   modified: number;
   added: number;
   deleted: number;
   untracked: number;
   total: number;
   files: { status: string; path: string }[];
+}
+
+function GitBranchIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 16 16" fill="currentColor" width="12" height="12">
+      <path d="M9.5 3.25a2.25 2.25 0 1 1 3 2.122V6A2.5 2.5 0 0 1 10 8.5H6a1 1 0 0 0-1 1v1.128a2.251 2.251 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.5 0v1.836A2.5 2.5 0 0 1 6 7h4a1 1 0 0 0 1-1v-.628A2.25 2.25 0 0 1 9.5 3.25Zm-6 0a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Zm8.25-.75a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5ZM4.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Z" />
+    </svg>
+  );
 }
 
 interface StatusBarProps {
@@ -83,13 +92,17 @@ function GitStatusBadge({ data }: { data: GitStatusData }) {
 export function StatusBar({ hookState }: StatusBarProps) {
   const gitStatus = hookState["git-status"] as GitStatusData | undefined;
 
-  // Don't render if no hook data
-  const hasContent = gitStatus && gitStatus.total > 0;
-  if (!hasContent) return null;
+  if (!gitStatus) return null;
 
   return (
-    <div className="flex items-center gap-4 px-4 py-1.5 border-t border-gray-200 bg-gray-50">
-      {gitStatus && gitStatus.total > 0 && <GitStatusBadge data={gitStatus} />}
+    <div className="flex items-center gap-3 px-4 py-1.5 border-t border-gray-200 bg-gray-50 text-xs">
+      {gitStatus.branch && (
+        <span className="inline-flex items-center gap-1 text-gray-500 font-medium leading-none">
+          <GitBranchIcon className="text-gray-400" />
+          {gitStatus.branch}
+        </span>
+      )}
+      {gitStatus.total > 0 && <GitStatusBadge data={gitStatus} />}
     </div>
   );
 }

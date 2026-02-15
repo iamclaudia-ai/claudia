@@ -891,6 +891,16 @@ async function handleSessionMethod(
         );
         // Include offset in response so client can distinguish initial vs load-more
         sendResponse(ws, req.id, { ...result, offset: offset || 0 });
+
+        // Fire hooks on initial history load (offset 0) so status bar populates
+        if (!offset) {
+          extensions.broadcast({
+            type: "session.history_loaded",
+            payload: {},
+            timestamp: Date.now(),
+            origin: "gateway",
+          });
+        }
         break;
       }
 

@@ -8,7 +8,7 @@
 import type { HookDefinition } from "@claudia/shared";
 
 export default {
-  event: "session.message_stop",
+  event: ["session.message_stop", "session.history_loaded"],
   description: "Show git file changes after each turn",
 
   async handler(_payload, ctx) {
@@ -16,18 +16,26 @@ export default {
     if (!cwd) return;
 
     try {
-      const proc = Bun.spawn(["git", "status", "--porcelain"], {
-        cwd,
-        stdout: "pipe",
-        stderr: "pipe",
-      });
-      const output = await new Response(proc.stdout).text();
-      const exitCode = await proc.exited;
+      // Get branch name and porcelain status in parallel
+      const [statusProc, branchProc] = [
+        Bun.spawn(["git", "status", "--porcelain"], { cwd, stdout: "pipe", stderr: "pipe" }),
+        Bun.spawn(["git", "rev-parse", "--abbrev-ref", "HEAD"], {
+          cwd,
+          stdout: "pipe",
+          stderr: "pipe",
+        }),
+      ];
+      const [output, branchOutput] = await Promise.all([
+        new Response(statusProc.stdout).text(),
+        new Response(branchProc.stdout).text(),
+      ]);
+      const [exitCode] = await Promise.all([statusProc.exited, branchProc.exited]);
 
       if (exitCode !== 0) return; // Not a git repo or error
 
+      const branch = branchOutput.trim();
+
       const lines = output.trim().split("\n").filter(Boolean);
-      if (lines.length === 0) return; // No changes
 
       const files: { status: string; path: string }[] = [];
       let modified = 0;
@@ -49,6 +57,7 @@ export default {
       }
 
       ctx.emit("files", {
+        branch,
         modified,
         added,
         deleted,
