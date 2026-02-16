@@ -14,6 +14,7 @@ export interface Request {
   id: string; // Client-generated, used to match response
   method: string; // e.g., "session.create", "voice.speak"
   params?: Record<string, unknown>;
+  connectionId?: string; // Stamped by gateway — identifies originating WS connection
 }
 
 /** Gateway → Client response */
@@ -30,9 +31,23 @@ export interface Event {
   type: "event";
   event: string; // e.g., "session.chunk", "voice.wake"
   payload: unknown;
+  connectionId?: string; // Identifies originating WS connection
 }
 
-export type Message = Request | Response | Event;
+/** Gateway → Client ping (connection liveness check) */
+export interface Ping {
+  type: "ping";
+  id: string;
+  timestamp: number;
+}
+
+/** Client → Gateway pong (response to ping) */
+export interface Pong {
+  type: "pong";
+  id: string;
+}
+
+export type Message = Request | Response | Event | Ping | Pong;
 
 // ============================================================================
 // Session Methods
@@ -112,6 +127,7 @@ export interface SubscribeParams {
   events: string[]; // e.g., ["session.*", "voice.wake"]
   sessionId?: string;
   extensionId?: string;
+  exclusive?: boolean; // Last subscriber wins — only one client receives matching events
 }
 
 export interface UnsubscribeParams {

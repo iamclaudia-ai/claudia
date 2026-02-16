@@ -791,8 +791,15 @@ export function useGateway(gatewayUrl: string, options: UseGatewayOptions = {}):
     };
 
     ws.onmessage = (event) => {
-      const data: GatewayMessage = JSON.parse(event.data);
-      handleGatewayMessage(data);
+      const data = JSON.parse(event.data);
+
+      // Respond to gateway pings to stay alive
+      if (data.type === "ping") {
+        ws.send(JSON.stringify({ type: "pong", id: data.id }));
+        return;
+      }
+
+      handleGatewayMessage(data as GatewayMessage);
     };
 
     return () => {

@@ -411,6 +411,80 @@ In the extension host, **stdout is reserved for NDJSON**. The host redirects `co
 
 ---
 
+## WebSocket Client Protocol
+
+Any client connecting to the gateway WebSocket (`ws://localhost:30086/ws`) must implement the ping/pong protocol to stay alive. This applies to browser UIs, Chrome extensions, native apps — anything with a WebSocket connection.
+
+### Ping/Pong (Required)
+
+The gateway sends ping messages every 30 seconds. Clients that miss 2 consecutive pings (60s without a pong) are pruned — their connection is closed and a `client.disconnected` event is broadcast to all extensions.
+
+```typescript
+// Gateway → Client (every 30s)
+{ "type": "ping", "id": "uuid", "timestamp": 1234567890 }
+
+// Client → Gateway (must respond)
+{ "type": "pong", "id": "uuid" }
+```
+
+Implementation is simple — intercept pings before your normal message handler:
+
+```typescript
+ws.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+
+  if (data.type === "ping") {
+    ws.send(JSON.stringify({ type: "pong", id: data.id }));
+    return;
+  }
+
+  // ... handle other messages
+};
+```
+
+### Connection ID
+
+Every WebSocket connection is assigned a unique `connectionId` by the gateway (sent in the `gateway.welcome` event on connect). This ID is stamped on the request and event envelopes as they flow through the system, so extensions can identify which connection originated a request or event.
+
+```typescript
+// Sent on connect
+{ "type": "event", "event": "gateway.welcome", "payload": { "connectionId": "abc-123" } }
+
+// Requests carry connectionId through the pipeline
+{ "type": "req", "id": "...", "method": "dominatrix.register", "params": {...}, "connectionId": "abc-123" }
+
+// Events also carry connectionId
+{ "type": "event", "event": "client.disconnected", "payload": {}, "connectionId": "abc-123" }
+```
+
+Extensions receive `connectionId` via `params._connectionId` for method calls and `event.connectionId` for events. This enables connection-scoped routing (e.g., voice audio only goes to the tab that requested it).
+
+### Exclusive Subscriptions
+
+Standard subscriptions broadcast events to all matching clients. Exclusive subscriptions ensure only the **last subscriber** receives matching events — previous exclusive subscribers are silently replaced.
+
+```typescript
+// Standard — all subscribers get the event
+{ "type": "req", "method": "subscribe", "params": { "events": ["session.*"] } }
+
+// Exclusive — last subscriber wins
+{ "type": "req", "method": "subscribe", "params": { "events": ["dominatrix.command"], "exclusive": true } }
+```
+
+Use case: multiple Chrome profiles each have a DOMINATRIX extension subscribed to `dominatrix.command`. With exclusive subscriptions, only the last-focused profile handles commands. Clicking a different Chrome window re-subscribes that profile as the exclusive handler.
+
+### Client Disconnect Events
+
+When a WebSocket connection closes (or is pruned by ping timeout), the gateway broadcasts a `client.disconnected` event to all extensions:
+
+```typescript
+{ "type": "event", "event": "client.disconnected", "payload": {}, "connectionId": "abc-123" }
+```
+
+Extensions that track connected clients (like DOMINATRIX tracking Chrome extension instances) use this to clean up stale entries automatically.
+
+---
+
 ## Web Pages (Client-Side Routes)
 
 Extensions can serve web pages via the gateway's SPA.
@@ -470,6 +544,7 @@ const allRoutes = [...missionControlRoutes, ...chatRoutes, ...myFeatureRoutes];
 | iMessage        | `imessage`        | `@claudia/ext-imessage`        | Yes            | —                                     | `imessage`    |
 | Mission Control | `mission-control` | `@claudia/ext-mission-control` | Yes            | `/mission-control`, `/logs`           | —             |
 | Hooks           | `hooks`           | `@claudia/ext-hooks`           | Yes            | —                                     | —             |
+| DOMINATRIX      | `dominatrix`      | `@claudia/ext-dominatrix`      | Yes            | —                                     | —             |
 
 ---
 

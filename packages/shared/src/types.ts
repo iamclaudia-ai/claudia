@@ -114,6 +114,8 @@ export interface GatewayEvent {
   /** Message source for routing (e.g., "imessage/+1555...", "web", "menubar") */
   source?: string;
   sessionId?: string;
+  /** Identifies the originating WS connection */
+  connectionId?: string;
 }
 
 /**

@@ -13,6 +13,7 @@ import type {
   Response as GatewayResponse,
   Event,
   Message,
+  Ping,
   GatewayEvent,
 } from "@claudia/shared";
 import { loadConfig, createLogger } from "@claudia/shared";
@@ -46,6 +47,7 @@ interface ClientState {
   id: string;
   connectedAt: Date;
   subscriptions: Set<string>;
+  lastPong: number; // Date.now() — initialized on connect, updated on pong
 }
 
 // Client connections
@@ -55,6 +57,10 @@ const clients = new Map<ServerWebSocket<ClientState>, ClientState>();
 // When a client sends a prompt with speakResponse=true, we record which
 // connection originated the voice stream so audio events route only to it.
 const voiceStreamOrigins = new Map<string, string>();
+
+// Exclusive subscriptions: pattern → WebSocket. Last subscriber wins.
+// Used by dominatrix Chrome extensions so only the focused profile handles commands.
+const exclusiveSubscribers = new Map<string, ServerWebSocket<ClientState>>();
 
 // ── Client Health Beacon ─────────────────────────────────────
 // Tracks client-side errors and heartbeats for the watchdog.
@@ -353,6 +359,7 @@ const BUILTIN_METHODS: GatewayMethodDefinition[] = [
     description: "Subscribe to events",
     inputSchema: z.object({
       events: z.array(z.string()).optional(),
+      exclusive: z.boolean().optional().describe("Last subscriber wins — only one client receives"),
     }),
   },
   {
@@ -385,7 +392,14 @@ function handleMessage(ws: ServerWebSocket<ClientState>, data: string): void {
   try {
     const message: Message = JSON.parse(data);
 
+    if (message.type === "pong") {
+      ws.data.lastPong = Date.now();
+      return;
+    }
+
     if (message.type === "req") {
+      // Stamp connectionId on the envelope — flows through the entire pipeline
+      message.connectionId = ws.data.id;
       handleRequest(ws, message);
     }
   } catch (error) {
@@ -974,6 +988,7 @@ async function handleExtensionMethod(
     const result = await extensions.handleMethod(
       req.method,
       (req.params as Record<string, unknown>) || {},
+      req.connectionId,
     );
     sendResponse(ws, req.id, result);
   } catch (error) {
@@ -990,9 +1005,16 @@ function handleSubscribe(ws: ServerWebSocket<ClientState>, req: Request): void {
   if (!state) return;
 
   const events = (req.params?.events as string[]) || [];
-  events.forEach((event) => state.subscriptions.add(event));
+  const exclusive = (req.params?.exclusive as boolean) || false;
 
-  sendResponse(ws, req.id, { subscribed: events });
+  events.forEach((event) => {
+    state.subscriptions.add(event);
+    if (exclusive) {
+      exclusiveSubscribers.set(event, ws);
+    }
+  });
+
+  sendResponse(ws, req.id, { subscribed: events, exclusive });
 }
 
 /**
@@ -1027,8 +1049,13 @@ function sendError(ws: ServerWebSocket<ClientState>, id: string, error: string):
 /**
  * Broadcast an event to subscribed clients
  */
-function broadcastEvent(eventName: string, payload: unknown, _source?: string): void {
-  const event: Event = { type: "event", event: eventName, payload };
+function broadcastEvent(
+  eventName: string,
+  payload: unknown,
+  _source?: string,
+  connectionId?: string,
+): void {
+  const event: Event = { type: "event", event: eventName, payload, connectionId };
   const data = JSON.stringify(event);
   const payloadObj =
     payload && typeof payload === "object" ? (payload as Record<string, unknown>) : null;
@@ -1038,6 +1065,7 @@ function broadcastEvent(eventName: string, payload: unknown, _source?: string): 
   const targetConnectionId = streamId ? (voiceStreamOrigins.get(streamId) ?? null) : null;
   const isConnectionScoped = eventName.startsWith("voice.") && targetConnectionId !== null;
 
+  // 1. Connection-scoped voice events — send to originating connection only
   if (isConnectionScoped) {
     for (const [ws, state] of clients) {
       if (state.id === targetConnectionId) {
@@ -1048,9 +1076,15 @@ function broadcastEvent(eventName: string, payload: unknown, _source?: string): 
     return;
   }
 
-  // For non-scoped events, check standard subscription matching for all clients
+  // 2. Exclusive subscriber — last subscriber wins, only they get the event
+  const exclusiveWs = exclusiveSubscribers.get(eventName);
+  if (exclusiveWs && clients.has(exclusiveWs)) {
+    exclusiveWs.send(data);
+    return;
+  }
+
+  // 3. Standard subscription matching for all clients
   for (const [ws, state] of clients) {
-    // Check if client is subscribed to this event
     const isSubscribed = Array.from(state.subscriptions).some((pattern) => {
       if (pattern === "*") return true;
       if (pattern === eventName) return true;
@@ -1083,6 +1117,7 @@ const server = Bun.serve<ClientState>({
           id: generateId(),
           connectedAt: new Date(),
           subscriptions: new Set<string>(),
+          lastPong: Date.now(),
         },
       });
 
@@ -1203,6 +1238,21 @@ const server = Bun.serve<ClientState>({
         if (connId === ws.data.id) voiceStreamOrigins.delete(streamId);
       }
 
+      // Clean up exclusive subscriptions held by this connection
+      for (const [pattern, exclusiveWs] of exclusiveSubscribers) {
+        if (exclusiveWs === ws) exclusiveSubscribers.delete(pattern);
+      }
+
+      // Notify extensions that this client disconnected (connectionId on envelope)
+      broadcastEvent("client.disconnected", {}, undefined, ws.data.id);
+      extensions.broadcast({
+        type: "client.disconnected",
+        payload: {},
+        timestamp: Date.now(),
+        origin: "gateway",
+        connectionId: ws.data.id,
+      });
+
       log.info(`Client disconnected: ${ws.data.id} (${clients.size} total)`);
     },
   },
@@ -1227,10 +1277,74 @@ log.info(`
 ╚═══════════════════════════════════════════════════════════╝
 `);
 
+// ── Ping/Pong — Connection Liveness ─────────────────────────────────
+// Every 30s, send a ping to all WS clients and prune those that haven't
+// responded within 60s (missed 2 consecutive pings).
+
+const PING_INTERVAL_MS = 30_000;
+const PONG_STALE_MS = 60_000;
+
+function pruneClient(ws: ServerWebSocket<ClientState>): void {
+  const state = clients.get(ws);
+  if (!state) return;
+
+  log.info(`Pruning stale client: ${state.id}`);
+
+  clients.delete(ws);
+
+  // Clean up voice stream origins
+  for (const [streamId, connId] of voiceStreamOrigins) {
+    if (connId === state.id) voiceStreamOrigins.delete(streamId);
+  }
+
+  // Clean up exclusive subscriptions
+  for (const [pattern, exclusiveWs] of exclusiveSubscribers) {
+    if (exclusiveWs === ws) exclusiveSubscribers.delete(pattern);
+  }
+
+  // Notify extensions
+  broadcastEvent("client.disconnected", {}, undefined, state.id);
+  extensions.broadcast({
+    type: "client.disconnected",
+    payload: {},
+    timestamp: Date.now(),
+    origin: "gateway",
+    connectionId: state.id,
+  });
+
+  try {
+    ws.close();
+  } catch {
+    // Already closed
+  }
+}
+
+const pingInterval = setInterval(() => {
+  const now = Date.now();
+
+  for (const [ws, state] of clients) {
+    // Prune clients that haven't responded to pings
+    if (now - state.lastPong > PONG_STALE_MS) {
+      pruneClient(ws);
+      continue;
+    }
+
+    // Send ping
+    const ping: Ping = { type: "ping", id: crypto.randomUUID(), timestamp: now };
+    try {
+      ws.send(JSON.stringify(ping));
+    } catch {
+      // Send failed — prune immediately
+      pruneClient(ws);
+    }
+  }
+}, PING_INTERVAL_MS);
+
 // Graceful shutdown — handle all termination signals
 async function shutdown(signal: string) {
   log.info(`${signal} received, shutting down...`);
   try {
+    clearInterval(pingInterval);
     server.stop();
     await extensions.killRemoteHosts();
     await sessionManager.close();
@@ -1255,6 +1369,7 @@ process.on("exit", () => {
 if (import.meta.hot) {
   import.meta.hot.dispose(async () => {
     log.info("HMR: Disposing managers...");
+    clearInterval(pingInterval);
     server.stop();
     await extensions.killRemoteHosts();
     await sessionManager.close();

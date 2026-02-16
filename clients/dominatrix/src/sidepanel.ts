@@ -13,19 +13,14 @@ const banner = document.getElementById("banner") as HTMLDivElement;
 async function initWithTabContext() {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    const tabId = tab?.id;
-
-    if (tabId) {
-      // Tell background worker which tab we're scoped to
-      chrome.runtime.sendMessage({ type: "sidepanel-context", tabId });
-      // Load chat UI with tab context in URL
-      iframe.src = `${GATEWAY_URL}/?tabId=${tabId}`;
-    } else {
-      iframe.src = `${GATEWAY_URL}/`;
+    if (tab?.id) {
+      chrome.runtime.sendMessage({ type: "sidepanel-context", tabId: tab.id });
     }
   } catch {
-    iframe.src = `${GATEWAY_URL}/`;
+    // Side panel context is best-effort
   }
+
+  iframe.src = `${GATEWAY_URL}/`;
 }
 
 // Track tab changes — if user switches tabs while panel is open

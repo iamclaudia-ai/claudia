@@ -128,14 +128,18 @@ export class ExtensionManager {
   /**
    * Route a method call to the appropriate extension (local or remote)
    */
-  async handleMethod(method: string, params: Record<string, unknown>): Promise<unknown> {
+  async handleMethod(
+    method: string,
+    params: Record<string, unknown>,
+    connectionId?: string,
+  ): Promise<unknown> {
     // Extract extension ID from method (e.g., "voice.speak" -> "voice")
     const [extensionId] = method.split(".");
 
     // Check remote extensions first
     const remoteHost = this.remoteHosts.get(extensionId);
     if (remoteHost) {
-      return remoteHost.callMethod(method, params ?? {});
+      return remoteHost.callMethod(method, params ?? {}, connectionId);
     }
 
     // Local extension

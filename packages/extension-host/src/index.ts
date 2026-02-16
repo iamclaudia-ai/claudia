@@ -253,6 +253,7 @@ async function handleMessage(line: string): Promise<void> {
     const id = msg.id as string;
     const method = msg.method as string;
     const params = (msg.params as Record<string, unknown>) || {};
+    const connectionId = msg.connectionId as string | undefined;
 
     if (!extension) {
       writeResponse(id, false, "Extension not loaded");
@@ -281,9 +282,10 @@ async function handleMessage(line: string): Promise<void> {
       return;
     }
 
-    // Regular method call
+    // Regular method call — pass connectionId as part of params context
     try {
-      const result = await extension.handleMethod(method, params);
+      const paramsWithContext = connectionId ? { ...params, _connectionId: connectionId } : params;
+      const result = await extension.handleMethod(method, paramsWithContext);
       writeResponse(id, true, result);
     } catch (error) {
       writeResponse(id, false, String(error));
@@ -297,6 +299,7 @@ async function handleMessage(line: string): Promise<void> {
       origin: msg.origin as string | undefined,
       source: msg.source as string | undefined,
       sessionId: msg.sessionId as string | undefined,
+      connectionId: msg.connectionId as string | undefined,
     };
     await broadcastToHandlers(event);
   }

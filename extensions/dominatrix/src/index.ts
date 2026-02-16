@@ -218,6 +218,9 @@ export default function createDominatrixExtension(): ClaudiaExtension {
   const clients = new Map<string, ChromeClient>();
   const pendingRequests = new Map<string, PendingRequest>();
 
+  // Track connectionId → instanceId so we can clean up clients on disconnect
+  const connectionMap = new Map<string, string>();
+
   // --------------------------------------------------------------------------
   // Command dispatch — sends command event and waits for response
   // --------------------------------------------------------------------------
@@ -308,7 +311,17 @@ export default function createDominatrixExtension(): ClaudiaExtension {
         registeredAt: Date.now(),
       };
       clients.set(client.id, client);
-      ctx.log.info("Chrome extension registered", client);
+
+      // Track connectionId → instanceId for disconnect cleanup
+      const connectionId = p._connectionId as string | undefined;
+      if (connectionId) {
+        connectionMap.set(connectionId, client.id);
+      }
+
+      ctx.log.info("Chrome extension registered", {
+        ...client,
+        connectionId,
+      });
       return { ok: true };
     },
 
@@ -545,6 +558,20 @@ export default function createDominatrixExtension(): ClaudiaExtension {
 
     async start(extensionCtx) {
       ctx = extensionCtx;
+
+      // Listen for client disconnects — remove stale Chrome extension clients
+      ctx.on("client.disconnected", (event) => {
+        const connectionId = event.connectionId;
+        if (!connectionId) return;
+
+        const instanceId = connectionMap.get(connectionId);
+        if (instanceId) {
+          ctx.log.info("Removing disconnected Chrome client", { connectionId, instanceId });
+          clients.delete(instanceId);
+          connectionMap.delete(connectionId);
+        }
+      });
+
       ctx.log.info("DOMINATRIX extension started");
     },
 
@@ -556,6 +583,7 @@ export default function createDominatrixExtension(): ClaudiaExtension {
         pendingRequests.delete(id);
       }
       clients.clear();
+      connectionMap.clear();
       ctx.log.info("DOMINATRIX extension stopped");
     },
 

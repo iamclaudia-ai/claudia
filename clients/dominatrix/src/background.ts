@@ -56,18 +56,23 @@ class DominatrixBackground {
   private reconnectTimer: number | null = null;
   private consoleLogs = new Map<number, ConsoleLog[]>();
   private networkRequests = new Map<number, NetworkRequest[]>();
-  private instanceId: string;
+  private instanceId: string = ""; // Set in init() from storage
   private extensionId: string;
   private contextTabId: number | null = null; // Tab the side panel is scoped to
 
   constructor() {
-    this.instanceId = crypto.randomUUID();
     this.extensionId = chrome.runtime.id;
     this.init();
   }
 
-  private init() {
+  private async init() {
     console.log("[DOMINATRIX] Background worker initializing...");
+
+    // Persist instanceId across service worker restarts — prevents client leak
+    const stored = await chrome.storage.local.get("instanceId");
+    this.instanceId = (stored.instanceId as string) || crypto.randomUUID();
+    await chrome.storage.local.set({ instanceId: this.instanceId });
+    console.log("[DOMINATRIX] Instance ID:", this.instanceId);
 
     this.connect();
 
@@ -75,6 +80,18 @@ class DominatrixBackground {
     chrome.action.onClicked.addListener((tab) => {
       if (tab.id) {
         chrome.sidePanel.open({ tabId: tab.id });
+      }
+    });
+
+    // Focus tracking — re-subscribe exclusively when this profile's window gains focus.
+    // This makes this extension instance the active command handler (last subscriber wins).
+    chrome.windows.onFocusChanged.addListener((windowId) => {
+      if (windowId === chrome.windows.WINDOW_ID_NONE) return;
+      if (this.ws?.readyState === WebSocket.OPEN) {
+        this.sendRequest("subscribe", {
+          events: ["dominatrix.command"],
+          exclusive: true,
+        });
       }
     });
 
@@ -143,8 +160,11 @@ class DominatrixBackground {
           this.reconnectTimer = null;
         }
 
-        // Subscribe to command events
-        this.sendRequest("subscribe", { events: ["dominatrix.command"] });
+        // Subscribe to command events exclusively (last subscriber wins)
+        this.sendRequest("subscribe", {
+          events: ["dominatrix.command"],
+          exclusive: true,
+        });
 
         // Register ourselves
         const profileName = await this.getProfileName();
@@ -216,6 +236,13 @@ class DominatrixBackground {
   private async handleGatewayMessage(data: string) {
     try {
       const message = JSON.parse(data);
+
+      // Respond to gateway pings immediately
+      if (message.type === "ping") {
+        this.ws?.send(JSON.stringify({ type: "pong", id: message.id }));
+        return;
+      }
+
       console.log(
         "[DOMINATRIX] Parsed message:",
         message.type,

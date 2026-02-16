@@ -105,8 +105,12 @@ export class ExtensionHostProcess {
   /**
    * Call a method on the extension. Returns a promise that resolves with the result.
    */
-  async callMethod(method: string, params: Record<string, unknown>): Promise<unknown> {
-    return this.sendRequest(method, params);
+  async callMethod(
+    method: string,
+    params: Record<string, unknown>,
+    connectionId?: string,
+  ): Promise<unknown> {
+    return this.sendRequest(method, params, connectionId);
   }
 
   /**
@@ -120,6 +124,7 @@ export class ExtensionHostProcess {
       origin: event.origin,
       source: event.source,
       sessionId: event.sessionId,
+      connectionId: event.connectionId,
     });
   }
 
@@ -205,7 +210,11 @@ export class ExtensionHostProcess {
 
   // ── Private ──────────────────────────────────────────────────
 
-  private async sendRequest(method: string, params: Record<string, unknown>): Promise<unknown> {
+  private async sendRequest(
+    method: string,
+    params: Record<string, unknown>,
+    connectionId?: string,
+  ): Promise<unknown> {
     if (!this.proc) {
       throw new Error(`Extension host ${this.extensionId} is not running`);
     }
@@ -220,7 +229,7 @@ export class ExtensionHostProcess {
 
       this.pendingRequests.set(id, { resolve, reject, timer });
 
-      this.writeToStdin({ type: "req", id, method, params });
+      this.writeToStdin({ type: "req", id, method, params, connectionId });
     });
   }
 
