@@ -815,7 +815,7 @@ async function handleSessionMethod(
           {
             wantsVoice: req.params?.speakResponse === true,
             source,
-            connectionId: req.params?.speakResponse ? ws.data.id : null,
+            connectionId: ws.data.id,
           },
         );
 
