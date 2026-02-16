@@ -51,7 +51,16 @@ type CliStdoutMessage =
       type: "control_response";
       response: { subtype: string; request_id: string; [key: string]: unknown };
     }
-  | { type: "keep_alive" };
+  | { type: "keep_alive" }
+  | {
+      type: "tool_progress";
+      tool_use_id: string;
+      tool_name: string;
+      parent_tool_use_id: string | null;
+      elapsed_time_seconds: number;
+      uuid: string;
+      session_id: string;
+    };
 
 export interface CreateSessionOptions {
   /** Working directory for Claude CLI */
@@ -560,6 +569,15 @@ export class RuntimeSession extends EventEmitter {
         break;
 
       case "keep_alive":
+        break;
+
+      case "tool_progress":
+        this.emit("sse", {
+          type: "tool_progress",
+          tool_use_id: msg.tool_use_id,
+          tool_name: msg.tool_name,
+          elapsed_time_seconds: msg.elapsed_time_seconds,
+        });
         break;
 
       default:
