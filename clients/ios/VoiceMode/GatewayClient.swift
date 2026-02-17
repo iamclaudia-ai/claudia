@@ -17,6 +17,7 @@ class GatewayClient: NSObject, @unchecked Sendable {
 
     private let gatewayURL: URL
     private var pendingRequests: [String: (Result<Any, Error>) -> Void] = [:]
+    private var connectionId: String?
 
     // Working directory for voice mode sessions
     private let cwd: String
@@ -281,6 +282,8 @@ class GatewayClient: NSObject, @unchecked Sendable {
         }
 
         switch type {
+        case "ping":
+            handlePing(json)
         case "res":
             handleResponse(json)
         case "event":
@@ -311,6 +314,12 @@ class GatewayClient: NSObject, @unchecked Sendable {
         }
 
         switch event {
+        case "gateway.welcome":
+            if let id = payload["connectionId"] as? String {
+                connectionId = id
+                print("[Gateway] Connected with connectionId: \(id)")
+            }
+
         case "voice.stream_start":
             let streamId = payload["streamId"] as? String ?? ""
             print("[Gateway] voice.stream_start: \(streamId)")
@@ -340,8 +349,23 @@ class GatewayClient: NSObject, @unchecked Sendable {
         }
     }
 
+    private func handlePing(_ json: [String: Any]) {
+        guard let pingId = json["id"] as? String else { return }
+        let pong: [String: Any] = ["type": "pong", "id": pingId]
+        guard let data = try? JSONSerialization.data(withJSONObject: pong),
+              let text = String(data: data, encoding: .utf8) else {
+            return
+        }
+        webSocket?.send(.string(text)) { error in
+            if let error {
+                print("[Gateway] Failed to send pong: \(error)")
+            }
+        }
+    }
+
     private func handleDisconnect() {
         webSocket = nil
+        connectionId = nil
         isConnecting = false
         DispatchQueue.main.async { self.onDisconnected?() }
 

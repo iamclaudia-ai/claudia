@@ -298,6 +298,7 @@ export class SessionManager {
     const payload = {
       sessionId,
       source: requestContext.source,
+      connectionId: requestContext.connectionId,
       ...eventPayload,
     };
 
@@ -330,6 +331,7 @@ export class SessionManager {
       origin: "session",
       source: requestContext.source || undefined,
       sessionId,
+      connectionId: requestContext.connectionId || undefined,
     };
 
     // Broadcast to extensions

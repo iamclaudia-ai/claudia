@@ -2,17 +2,15 @@ import Foundation
 import AVFoundation
 import Combine
 
-/// Streaming audio player backed by AVAudioEngine for gapless chunk playback.
+/// Streaming audio player for gapless Cartesia TTS chunk playback.
 ///
-/// Each incoming chunk is a small WAV payload. We parse it to PCM and schedule
-/// buffers on AVAudioPlayerNode so playback remains continuous.
+/// Uses a shared AudioSessionManager instead of owning its own AVAudioEngine.
+/// Buffers are scheduled on the shared player node — engine stays running
+/// across all voice states.
 class StreamingAudioPlayer: NSObject, ObservableObject {
-    private let engine = AVAudioEngine()
-    private let playerNode = AVAudioPlayerNode()
-    private let playerFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32,
-                                             sampleRate: 24000,
-                                             channels: 1,
-                                             interleaved: false)!
+
+    /// Shared audio manager — injected from AppState
+    private weak var audioManager: AudioSessionManager?
 
     private var streamEnded = false
     private var scheduledBuffers = 0
@@ -20,22 +18,26 @@ class StreamingAudioPlayer: NSObject, ObservableObject {
     @Published var isPlaying = false
     var onStreamFinished: (() -> Void)?
 
-    override init() {
-        super.init()
-        setupEngine()
+    /// Inject the shared audio session manager
+    func configure(audioManager: AudioSessionManager) {
+        self.audioManager = audioManager
     }
 
     /// Enqueue an audio chunk for playback
     func enqueue(audio: Data, index: Int) {
         DispatchQueue.main.async {
-            guard let buffer = self.wavDataToPCMBuffer(audio) else {
+            guard let audioManager = self.audioManager else {
+                print("[Audio] AudioSessionManager not configured")
+                return
+            }
+
+            guard let buffer = self.wavDataToPCMBuffer(audio, format: audioManager.playerFormat) else {
                 print("[Audio] Failed to parse WAV chunk #\(index)")
                 return
             }
 
-            self.ensureEngineRunning()
             self.scheduledBuffers += 1
-            self.playerNode.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { [weak self] _ in
+            audioManager.scheduleBuffer(buffer) { [weak self] in
                 DispatchQueue.main.async {
                     guard let self = self else { return }
                     self.scheduledBuffers = max(0, self.scheduledBuffers - 1)
@@ -45,25 +47,17 @@ class StreamingAudioPlayer: NSObject, ObservableObject {
                 }
             }
 
-            if !self.playerNode.isPlaying {
-                self.playerNode.play()
-            }
-
             self.isPlaying = true
             print("[Audio] Scheduled chunk #\(index) (\(audio.count) bytes), pending: \(self.scheduledBuffers)")
         }
     }
 
-    /// Stop playback and clear pending buffers
+    /// Stop playback and clear pending buffers. Engine stays running.
     func stop() {
         DispatchQueue.main.async {
             self.streamEnded = false
             self.scheduledBuffers = 0
-            self.playerNode.stop()
-            self.playerNode.reset()
-            if self.engine.isRunning {
-                self.engine.stop()
-            }
+            self.audioManager?.stopPlayback()
             self.isPlaying = false
             print("[Audio] Stopped, buffers cleared")
         }
@@ -88,23 +82,6 @@ class StreamingAudioPlayer: NSObject, ObservableObject {
 
     // MARK: - Private
 
-    private func setupEngine() {
-        engine.attach(playerNode)
-        engine.connect(playerNode, to: engine.mainMixerNode, format: playerFormat)
-    }
-
-    private func ensureEngineRunning() {
-        if engine.isRunning {
-            return
-        }
-
-        do {
-            try engine.start()
-        } catch {
-            print("[Audio] Engine start failed: \(error)")
-        }
-    }
-
     private func finishStream() {
         streamEnded = false
         self.isPlaying = false
@@ -113,7 +90,7 @@ class StreamingAudioPlayer: NSObject, ObservableObject {
     }
 
     /// Parse WAV (PCM s16le mono) into AVAudioPCMBuffer.
-    private func wavDataToPCMBuffer(_ data: Data) -> AVAudioPCMBuffer? {
+    private func wavDataToPCMBuffer(_ data: Data, format: AVAudioFormat) -> AVAudioPCMBuffer? {
         guard data.count > 44 else { return nil }
 
         let bytes = [UInt8](data)
@@ -137,7 +114,7 @@ class StreamingAudioPlayer: NSObject, ObservableObject {
         guard dataSize > 0, data.count >= 44 + dataSize else { return nil }
 
         let frameCount = dataSize / 2
-        guard let buffer = AVAudioPCMBuffer(pcmFormat: playerFormat,
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: format,
                                             frameCapacity: AVAudioFrameCount(frameCount)) else {
             return nil
         }

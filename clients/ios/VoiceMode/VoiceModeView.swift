@@ -7,6 +7,9 @@ struct VoiceModeView: View {
     @State private var pulseScale: CGFloat = 1.0
     @State private var pulseOpacity: Double = 0.6
 
+    // Browser sheet
+    @State private var showBrowser = false
+
     // Claudia's purple
     private let accentColor = Color(red: 0.533, green: 0.4, blue: 0.867)
 
@@ -18,15 +21,28 @@ struct VoiceModeView: View {
             VStack(spacing: 40) {
                 Spacer()
 
-                // Connection indicator
-                HStack(spacing: 8) {
-                    Circle()
-                        .fill(appState.isConnected ? Color.green : Color.red)
-                        .frame(width: 8, height: 8)
-                    Text(appState.isConnected ? "Connected" : "Disconnected")
-                        .font(.caption)
-                        .foregroundColor(.gray)
+                // Top bar: connection indicator + browser button
+                HStack {
+                    // Connection indicator
+                    HStack(spacing: 8) {
+                        Circle()
+                            .fill(appState.isConnected ? Color.green : Color.red)
+                            .frame(width: 8, height: 8)
+                        Text(appState.isConnected ? "Connected" : "Disconnected")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                    }
+
+                    Spacer()
+
+                    // Browser button
+                    Button(action: { showBrowser = true }) {
+                        Image(systemName: "safari")
+                            .font(.system(size: 20))
+                            .foregroundColor(accentColor)
+                    }
                 }
+                .padding(.horizontal, 24)
 
                 Spacer()
 
@@ -115,6 +131,9 @@ struct VoiceModeView: View {
             pulseOpacity = 0.2
         }
         .preferredColorScheme(.dark)
+        .sheet(isPresented: $showBrowser) {
+            BrowserView(browser: appState.browser)
+        }
     }
 
     private var buttonColor: Color {

@@ -7,20 +7,44 @@ import Combine
 ///
 /// Always listening — no wake word needed. Detects silence (2s pause)
 /// and auto-finalizes the transcript for sending to the gateway.
+///
+/// Uses a shared AudioSessionManager instead of owning its own AVAudioEngine.
+/// The mic input tap is installed/removed without stopping the engine.
 class SpeechRecognizer: ObservableObject {
     private let speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
-    private let audioEngine = AVAudioEngine()
+    private let fallbackAudioEngine = AVAudioEngine()
+    private var usingFallbackEngine = false
+
+    /// Shared audio manager — injected from AppState
+    private weak var audioManager: AudioSessionManager?
 
     private var silenceTimer: Timer?
     private var lastTranscript = ""
+    private var transcriptionEnabled = true
     @Published var isListening = false
     @Published var currentTranscript = ""
 
     /// Called when silence is detected and transcript is ready to send
     var onFinalTranscript: ((String) -> Void)?
     var onError: ((String) -> Void)?
+
+    /// Inject the shared audio session manager
+    func configure(audioManager: AudioSessionManager) {
+        self.audioManager = audioManager
+    }
+
+    /// Keep audio capture alive but gate whether recognition results are acted on.
+    func setTranscriptionEnabled(_ enabled: Bool) {
+        transcriptionEnabled = enabled
+        if enabled {
+            lastTranscript = ""
+            DispatchQueue.main.async {
+                self.currentTranscript = ""
+            }
+        }
+    }
 
     /// Request permissions on first launch
     func requestPermissions(completion: @escaping (Bool) -> Void) {
@@ -45,29 +69,15 @@ class SpeechRecognizer: ObservableObject {
         }
     }
 
-    /// Configure audio session for simultaneous mic + speaker
-    func configureAudioSession() {
-        let session = AVAudioSession.sharedInstance()
-        do {
-            try session.setCategory(.playAndRecord, options: [
-                .allowBluetooth,
-                .allowBluetoothA2DP,
-                .defaultToSpeaker,
-                .mixWithOthers
-            ])
-            try session.setActive(true)
-            print("[Speech] Audio session configured: playAndRecord + bluetooth")
-        } catch {
-            print("[Speech] Audio session error: \(error)")
-            onError?("Audio session error: \(error.localizedDescription)")
-        }
-    }
-
-    /// Start continuous listening
+    /// Start continuous listening using the shared audio engine
     func startListening() {
         guard !isListening else { return }
         guard speechRecognizer?.isAvailable == true else {
             onError?("Speech recognition not available")
+            return
+        }
+        guard let audioManager = audioManager else {
+            onError?("AudioSessionManager not configured")
             return
         }
 
@@ -92,6 +102,7 @@ class SpeechRecognizer: ObservableObject {
             guard let self = self else { return }
 
             if let result = result {
+                guard self.transcriptionEnabled else { return }
                 let transcript = result.bestTranscription.formattedString
                 DispatchQueue.main.async {
                     self.lastTranscript = transcript
@@ -105,19 +116,20 @@ class SpeechRecognizer: ObservableObject {
                         guard let self = self, !self.lastTranscript.isEmpty else { return }
                         let finalText = self.lastTranscript
                         print("[Speech] Silence detected — sending: \"\(finalText)\"")
-                        self.stopListening()
+                        self.lastTranscript = ""
+                        self.currentTranscript = ""
                         self.onFinalTranscript?(finalText)
                     }
                 }
             }
 
             if error != nil || result?.isFinal == true {
-                // If we have text and recognition ended naturally, send it
                 if let transcript = result?.bestTranscription.formattedString,
-                   !transcript.isEmpty, result?.isFinal == true {
+                   !transcript.isEmpty, result?.isFinal == true, self.transcriptionEnabled {
                     DispatchQueue.main.async {
                         self.silenceTimer?.invalidate()
-                        self.stopListening()
+                        self.lastTranscript = ""
+                        self.currentTranscript = ""
                         self.onFinalTranscript?(transcript)
                     }
                 } else if error != nil {
@@ -129,35 +141,46 @@ class SpeechRecognizer: ObservableObject {
             }
         }
 
-        // Connect audio input to recognition
-        let inputNode = audioEngine.inputNode
-        let recordingFormat = inputNode.outputFormat(forBus: 0)
-
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { buffer, _ in
-            self.recognitionRequest?.append(buffer)
+        // Install mic tap on the shared engine (engine stays running)
+        let micEnabled = audioManager.enableMicInput { [weak self] buffer, _ in
+            self?.recognitionRequest?.append(buffer)
         }
-
-        audioEngine.prepare()
-        do {
-            try audioEngine.start()
-            DispatchQueue.main.async {
-                self.isListening = true
-                self.lastTranscript = ""
-                self.currentTranscript = ""
+        if !micEnabled {
+            print("[Speech] Shared mic input unavailable; trying fallback engine")
+            guard startFallbackInputTap() else {
+                recognitionTask?.cancel()
+                recognitionTask = nil
+                self.recognitionRequest = nil
+                onError?("Microphone input unavailable on current audio route")
+                return
             }
-            print("[Speech] Listening started")
-        } catch {
-            onError?("Audio engine error: \(error.localizedDescription)")
+            usingFallbackEngine = true
         }
+        if micEnabled {
+            usingFallbackEngine = false
+        }
+
+        DispatchQueue.main.async {
+            self.isListening = true
+            self.lastTranscript = ""
+            self.currentTranscript = ""
+        }
+        print("[Speech] Listening started (shared engine)")
     }
 
-    /// Stop listening
+    /// Stop listening — removes mic tap but engine stays running
     func stopListening() {
         silenceTimer?.invalidate()
         silenceTimer = nil
 
-        audioEngine.stop()
-        audioEngine.inputNode.removeTap(onBus: 0)
+        if usingFallbackEngine {
+            fallbackAudioEngine.stop()
+            fallbackAudioEngine.inputNode.removeTap(onBus: 0)
+            usingFallbackEngine = false
+        } else {
+            // Remove mic tap (engine keeps running)
+            audioManager?.disableMicInput()
+        }
 
         recognitionRequest?.endAudio()
         recognitionRequest = nil
@@ -169,5 +192,27 @@ class SpeechRecognizer: ObservableObject {
             self.isListening = false
         }
         print("[Speech] Listening stopped")
+    }
+
+    private func startFallbackInputTap() -> Bool {
+        let inputNode = fallbackAudioEngine.inputNode
+        let recordingFormat = inputNode.outputFormat(forBus: 0)
+        print("[Speech] Fallback input format: \(recordingFormat.sampleRate)Hz/\(recordingFormat.channelCount)ch")
+        guard recordingFormat.channelCount > 0, recordingFormat.sampleRate > 0 else {
+            return false
+        }
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { [weak self] buffer, _ in
+            self?.recognitionRequest?.append(buffer)
+        }
+        fallbackAudioEngine.prepare()
+        do {
+            try fallbackAudioEngine.start()
+            print("[Speech] Fallback input engine started")
+            return true
+        } catch {
+            print("[Speech] Fallback engine error: \(error)")
+            inputNode.removeTap(onBus: 0)
+            return false
+        }
     }
 }

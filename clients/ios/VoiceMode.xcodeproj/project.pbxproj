@@ -254,7 +254,8 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = W5XVSBSUH2;
-				GENERATE_INFOPLIST_FILE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = VoiceMode-Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Voice Mode";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Claudia needs microphone access for voice conversations";
@@ -279,7 +280,7 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 1;
-				UIBackgroundModes = audio;
+				INFOPLIST_KEY_UIBackgroundModes_0 = audio;
 				INFOPLIST_KEY_CFBundleURLTypes = (
 					{
 						CFBundleURLName = "Voice Mode Deep Link";
@@ -299,7 +300,8 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = W5XVSBSUH2;
-				GENERATE_INFOPLIST_FILE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = VoiceMode-Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Voice Mode";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Claudia needs microphone access for voice conversations";
@@ -324,7 +326,7 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 1;
-				UIBackgroundModes = audio;
+				INFOPLIST_KEY_UIBackgroundModes_0 = audio;
 				INFOPLIST_KEY_CFBundleURLTypes = (
 					{
 						CFBundleURLName = "Voice Mode Deep Link";

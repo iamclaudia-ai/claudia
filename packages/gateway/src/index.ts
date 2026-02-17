@@ -163,17 +163,29 @@ extensions.setEmitCallback(async (type, payload, source) => {
     payload && typeof payload === "object" ? (payload as Record<string, unknown>) : null;
 
   // Track voice stream origins for connection-scoped routing
-  if (type === "voice.stream_start" && payloadObj?.streamId && payloadObj?.sessionId) {
-    const connectionId = sessionManager.getConnectionIdForSession(payloadObj.sessionId as string);
+  if (type === "voice.stream_start" && payloadObj?.streamId) {
+    const payloadConnectionId =
+      typeof payloadObj.connectionId === "string" ? payloadObj.connectionId : null;
+    const sessionConnectionId =
+      typeof payloadObj.sessionId === "string"
+        ? sessionManager.getConnectionIdForSession(payloadObj.sessionId)
+        : null;
+    const connectionId = payloadConnectionId || sessionConnectionId;
     if (connectionId) {
       voiceStreamOrigins.set(payloadObj.streamId as string, connectionId);
+    } else {
+      log.warn("voice.stream_start without routable connection", {
+        streamId: payloadObj.streamId,
+        sessionId: payloadObj.sessionId,
+      });
     }
-  }
-  if (type === "voice.stream_end" && payloadObj?.streamId) {
-    voiceStreamOrigins.delete(payloadObj.streamId as string);
   }
 
   broadcastEvent(type, payload, source);
+
+  if (type === "voice.stream_end" && payloadObj?.streamId) {
+    voiceStreamOrigins.delete(payloadObj.streamId as string);
+  }
 
   // Handle prompt requests from extensions (e.g., iMessage)
   if (type.endsWith(".prompt_request")) {
@@ -1062,8 +1074,13 @@ function broadcastEvent(
 
   const streamId =
     typeof payloadObj?.streamId === "string" ? (payloadObj.streamId as string) : null;
-  const targetConnectionId = streamId ? (voiceStreamOrigins.get(streamId) ?? null) : null;
-  const isConnectionScoped = eventName.startsWith("voice.") && targetConnectionId !== null;
+  const payloadConnectionId =
+    typeof payloadObj?.connectionId === "string" ? (payloadObj.connectionId as string) : null;
+  const targetConnectionId = streamId
+    ? (voiceStreamOrigins.get(streamId) ?? payloadConnectionId ?? null)
+    : null;
+  const isVoiceEvent = eventName.startsWith("voice.");
+  const isConnectionScoped = isVoiceEvent && targetConnectionId !== null;
 
   // 1. Connection-scoped voice events — send to originating connection only
   if (isConnectionScoped) {
@@ -1073,6 +1090,12 @@ function broadcastEvent(
         break;
       }
     }
+    return;
+  }
+
+  // 1b. Never fan out stream-scoped voice events when owner is unknown.
+  if (isVoiceEvent && streamId) {
+    log.warn("Dropping unscoped voice stream event", { eventName, streamId });
     return;
   }
 
