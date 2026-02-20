@@ -1,231 +1,372 @@
 # Memory System
 
-Claudia's persistent memory system - enabling continuous context across sessions, devices, and time.
+Claudia's memory system ingests session transcripts from JSONL log files into SQLite, groups them into conversations by detecting time gaps, and provides the foundation for Libby (the Librarian) to process completed conversations into durable memories.
 
-## Design Principles
-
-1. **Effortless for Claudia** - Simple `remember`/`recall` interface, no thinking about categories or structure
-2. **Smart Backend** - Libby (Haiku sub-agent) handles categorization, tagging, and organization
-3. **Local-First** - Markdown files in `~/memory/` that can be grepped directly
-4. **Eventually Consistent** - Async processing, non-blocking writes
-5. **Federated** - Event bus syncs memory across gateways via git
-
-## Architecture
+## Architecture Overview
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  Claudia                                                    │
-│                                                             │
-│  claudia memory remember "fact"                             │
-│  claudia memory recall "query"                              │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│  Gateway CLI                                                │
-│                                                             │
-│  remember → Queue in SQLite, return ack immediately         │
-│  recall   → Hybrid search (vector + keyword)                │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│  Libby Extension (background worker)                        │
-│                                                             │
-│  Methods:                                                   │
-│    memory.remember(fact) → queue for processing             │
-│    memory.recall(query)  → search and return results        │
-│                                                             │
-│  Background Processing:                                     │
-│    1. Pick up from queue                                    │
-│    2. Call Haiku for categorization                         │
-│    3. Write markdown to ~/memory/                           │
-│    4. Chunk + embed → vector DB (sqlite-vec)                │
-│    5. Git commit + push                                     │
-│    6. Emit: memory.pushed event                             │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│  Event Bus                                                  │
-│                                                             │
-│  memory.pushed → federated gateways do git pull             │
-│               → all instances have local copy               │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                    MEMORY EXTENSION LIFECYCLE                     │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  1. STARTUP                                                      │
+│     ├─ Crash recovery: rollback any in-progress ingestions       │
+│     └─ Startup scan: ingestDirectory(watchPath)                  │
+│        For each *.jsonl file, check file_states:                 │
+│          • Not found → full import                               │
+│          • Same size → skip                                      │
+│          • Grew      → incremental from last offset              │
+│                                                                  │
+│  2. WATCHER                                                      │
+│     chokidar on watchPath (ignoreInitial: true)                  │
+│     on add/change → queue file for ingestion                     │
+│                                                                  │
+│  3. POLL TIMER                                                   │
+│     Every 30s: mark conversations as "ready" if gap > 60min      │
+│                                                                  │
+│  4. LIBBY (Phase 2, TBD)                                        │
+│     Process "ready" conversations into durable memories          │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-## Interface
+## Configuration
 
-### Remembering (Skill: `remembering-facts`)
+In `~/.claudia/claudia.json`:
 
-Claudia uses heredoc format for all memory content:
+```json
+{
+  "memory": {
+    "enabled": true,
+    "config": {
+      "watchPath": "~/.claude/projects",
+      "conversationGapMinutes": 60,
+      "pollIntervalMs": 30000,
+      "minConversationMessages": 5
+    }
+  }
+}
+```
+
+- **watchPath**: Single base directory to monitor. All file keys in the DB are relative to this path.
+- **conversationGapMinutes**: Minutes of silence before a conversation is considered "done" (default: 60).
+- **pollIntervalMs**: How often to check for conversations that became ready (default: 30000).
+- **minConversationMessages**: Minimum messages in a conversation for Libby to process it (default: 5). Conversations with fewer messages are skipped as too short to extract meaningful memories.
+
+## File Keys
+
+All DB references use **relative file keys** — the path relative to whichever root directory the file was imported from. This is critical for deduplication:
+
+```
+Import from backup:
+  absolute: ~/.claude/projects-backup/-Users-michael-Projects-foo/abc.jsonl
+  base:     ~/.claude/projects-backup
+  key:      -Users-michael-Projects-foo/abc.jsonl
+
+Watcher picks up live:
+  absolute: ~/.claude/projects/-Users-michael-Projects-foo/abc.jsonl
+  base:     ~/.claude/projects
+  key:      -Users-michael-Projects-foo/abc.jsonl
+                                     ↑ SAME KEY — no double import
+```
+
+## Ingestion Flow
+
+### File State Machine
+
+Each file tracked in `memory_file_states` has a status:
+
+| Status      | Meaning                                                                    |
+| ----------- | -------------------------------------------------------------------------- |
+| `idle`      | Normal state. File has been fully processed up to `last_processed_offset`. |
+| `ingesting` | Actively being imported. Crash recovery marker.                            |
+
+### Happy Path
+
+```
+          file change detected
+                 │
+                 ▼
+    ┌────────────────────────┐
+    │  1. Read file_states   │
+    │     for this file key  │
+    └───────────┬────────────┘
+                │
+        ┌───────┴────────┐
+     NOT FOUND         FOUND
+        │                │
+        ▼           ┌────┴─────────┐
+   offset = 0       │              │
+                size == offset   size > offset
+                 SKIP (done)    offset = last_processed_offset
+                                     │
+        │                            │
+        └────────────┬───────────────┘
+                     ▼
+    ┌─────────────────────────────────┐
+    │  2. Set status = 'ingesting'    │
+    │     Capture file_size as high   │
+    │     water mark                  │
+    └───────────────┬─────────────────┘
+                    ▼
+    ┌─────────────────────────────────┐
+    │  3. Read bytes from             │
+    │     last_processed_offset       │
+    │     to captured file_size       │
+    │                                 │
+    │  Parse JSONL → entries          │
+    │  Insert into transcript_entries │
+    │  Rebuild conversations for file │
+    └───────────────┬─────────────────┘
+                    ▼
+    ┌─────────────────────────────────┐
+    │  4. Update file_states:         │
+    │     status = 'idle'             │
+    │     last_processed_offset =     │
+    │       captured file_size        │
+    │     last_entry_timestamp =      │
+    │       max timestamp from batch  │
+    │                                 │
+    │  All in single transaction      │
+    └─────────────────────────────────┘
+```
+
+### Concurrent Append (file grows during ingestion)
+
+```
+  t=0  File is 10KB, we start ingesting
+  t=1  We capture file_size = 10KB (high water mark)
+  t=2  Claude Code appends, file is now 12KB
+  t=3  Watcher fires "change" → file added to queue
+  t=4  We finish processing bytes 0→10KB
+  t=5  Update: last_processed_offset = 10KB, status = idle
+  t=6  Queue picks up next entry for this file
+  t=7  file_size (12KB) > last_processed_offset (10KB) → incremental
+  t=8  Process bytes 10KB→12KB
+       No entries lost, no entries doubled ✓
+```
+
+The queue deduplicates — if the same file is changed multiple times while we're processing, it only appears once in the queue. After processing completes, the next queue entry picks up any new bytes.
+
+### Crash Recovery (sad path)
+
+If the extension crashes mid-ingestion, some entries may have been inserted but `file_states` still shows `status = 'ingesting'` with the old `last_processed_offset`.
+
+On startup, before the normal scan:
+
+```
+  1. Query: SELECT * FROM memory_file_states WHERE status = 'ingesting'
+
+  2. For each stuck file:
+     a. DELETE FROM memory_transcript_entries
+        WHERE source_file = ?
+          AND timestamp > last_entry_timestamp
+        (removes partially-imported entries for THIS FILE only)
+
+     b. Rebuild conversations for this file
+        (fixes any conversation groupings that were partially updated)
+
+     c. UPDATE memory_file_states SET status = 'idle' WHERE file_path = ?
+        (last_processed_offset stays at its pre-crash value)
+
+  3. Now proceed with normal startup scan
+     → file_size > last_processed_offset → incremental import picks up
+       exactly where we left off ✓
+```
+
+**Why `timestamp > last_entry_timestamp` works:** Claude Code appends to JSONL files chronologically. New bytes = newer timestamps. So any entries with timestamps after the last successfully-committed timestamp must be from the partial import.
+
+**If rollback itself fails:** Log the error and skip the file. Memory can lag — the JSONL transcripts are always the source of truth. Michael can investigate and manually re-import.
+
+## Queue-Based Processing
+
+All file changes (startup scan, watcher events) feed into a single processing queue:
+
+```
+  ┌──────────┐     ┌──────────┐     ┌──────────┐
+  │ Startup  │     │ Watcher  │     │ Manual   │
+  │ Scan     │     │ Events   │     │ Import   │
+  └────┬─────┘     └────┬─────┘     └────┬─────┘
+       │                │                 │
+       └────────────────┼─────────────────┘
+                        ▼
+               ┌─────────────────┐
+               │  File Queue     │  (deduplicated by file key)
+               │                 │
+               │  - foo/abc.jsonl│
+               │  - bar/def.jsonl│
+               └────────┬────────┘
+                        │
+                        ▼
+               ┌─────────────────┐
+               │  Worker Loop    │  (sequential, one at a time)
+               │                 │
+               │  1. Dequeue     │
+               │  2. Ingest      │
+               │  3. Next...     │
+               └─────────────────┘
+```
+
+- Files are deduplicated in the queue (same key → only one entry)
+- Worker processes one file at a time (serialized writes to SQLite)
+- After processing, check queue for more work
+
+## Database Schema
+
+### `memory_file_states`
+
+Tracks JSONL files and their ingestion state.
+
+| Column                  | Type    | Description                                     |
+| ----------------------- | ------- | ----------------------------------------------- |
+| `file_path`             | TEXT PK | Relative file key (e.g. `-Users-foo/abc.jsonl`) |
+| `source`                | TEXT    | `claude-code` or `pi-converted`                 |
+| `status`                | TEXT    | `idle` or `ingesting`                           |
+| `last_modified`         | INTEGER | File mtime in ms                                |
+| `file_size`             | INTEGER | File size at start of current/last ingestion    |
+| `last_processed_offset` | INTEGER | Byte offset successfully processed up to        |
+| `last_entry_timestamp`  | TEXT    | ISO8601 timestamp of last committed entry       |
+
+### `memory_transcript_entries`
+
+Raw parsed messages from session logs.
+
+| Column        | Type       | Description                                 |
+| ------------- | ---------- | ------------------------------------------- |
+| `id`          | INTEGER PK | Auto-increment                              |
+| `session_id`  | TEXT       | Session UUID (from filename)                |
+| `source_file` | TEXT       | Relative file key                           |
+| `role`        | TEXT       | `user` or `assistant`                       |
+| `content`     | TEXT       | Message text (+ tool summary for assistant) |
+| `tool_names`  | TEXT       | Comma-separated tool names (assistant only) |
+| `timestamp`   | TEXT       | ISO8601 from the JSONL entry                |
+| `cwd`         | TEXT       | Working directory                           |
+
+### `memory_conversations`
+
+Conversations grouped by time gaps, scoped to source file.
+
+| Column             | Type       | Description                                                |
+| ------------------ | ---------- | ---------------------------------------------------------- |
+| `id`               | INTEGER PK | Auto-increment                                             |
+| `session_id`       | TEXT       | Session UUID                                               |
+| `source_file`      | TEXT       | Relative file key                                          |
+| `first_message_at` | TEXT       | Timestamp of first message                                 |
+| `last_message_at`  | TEXT       | Timestamp of last message (= processing watermark)         |
+| `entry_count`      | INTEGER    | Number of messages in conversation                         |
+| `status`           | TEXT       | `active` → `ready` → `processing` → `archived` / `skipped` |
+
+**Conversations are scoped to source file:**
+
+- Same session UUID, different files = different conversations (parallel sessions)
+- Re-import file = delete conversations for that file, rebuild
+- Delete file = delete its conversations. Clean.
+
+**Status lifecycle:**
+
+```
+  active ──────► ready ──────► processing ──────► archived
+  (still          (gap           (Libby            (done)
+   being          detected,      working)
+   written)       waiting)                    ──► skipped
+                                                  (too short /
+                                                   irrelevant)
+```
+
+## Parsing Rules
+
+From `parser.ts` — what we extract from Claude Code JSONL:
+
+| Entry type                               | Role      | Action                             |
+| ---------------------------------------- | --------- | ---------------------------------- |
+| `type: "user"`, `role: "user"`           | user      | Extract text content               |
+| `type: "assistant"`, `role: "assistant"` | assistant | Extract text + tool names          |
+| `isMeta: true`                           | —         | **Skip** (command caveats)         |
+| `isSidechain: true`                      | —         | **Skip** (sub-agent conversations) |
+| `tool_result` content blocks             | —         | **Skip** (tool output)             |
+| Everything else                          | —         | **Skip** (system, snapshots, etc.) |
+
+## CLI Commands
 
 ```bash
-claudia memory remember <<'EOF'
-Michael prefers TypeScript over JavaScript.
-He likes concise explanations and dark mode.
-EOF
+# Manual import — single file
+claudia memory.ingest --file ~/.claude/projects-backup/-Users-foo/abc.jsonl
+
+# Manual import — entire directory (recursive)
+claudia memory.ingest --dir ~/.claude/projects-backup
+
+# Force re-import (delete existing entries, re-ingest from scratch)
+claudia memory.ingest --dir ~/.claude/projects-backup --reimport
+
+# Check system stats
+claudia memory.health-check
+
+# List conversations
+claudia memory.conversations
+claudia memory.conversations --status ready
+
+# Trigger Libby processing (Phase 2)
+claudia memory.process
 ```
 
-The CLI also supports stdin for programmatic use:
+## Historical Import Workflow
+
+One-time import of backed-up sessions:
 
 ```bash
-echo "some fact" | claudia memory remember --stdin
+# 1. Convert Pi sessions to CC format (if needed)
+bun scripts/pi-to-cc.ts
+
+# 2. Import everything from backup
+bun scripts/test-ingest.ts --dir ~/.claude/projects-backup
+
+# 3. Verify
+claudia memory.health-check
+
+# 4. Enable extension in claudia.json
+#    On next startup, scan of ~/.claude/projects picks up any
+#    files not already imported (same keys → skip if unchanged)
 ```
 
-**Response:** Immediate acknowledgment. Processing happens in background.
-
-### Recalling
-
-```bash
-claudia memory recall "what does Michael prefer for APIs"
-```
-
-**Response:** Relevant memories ranked by hybrid search score.
-
-### Direct Access
-
-Since memories are markdown files, Claudia can always grep directly:
-
-```bash
-grep -r "TypeScript" ~/memory/
-```
-
-This is often faster for exact matches or known content.
-
-## Storage
-
-### File Structure
+## Extension Files
 
 ```
-~/memory/
-├── core/           # Identity, persona, values
-├── relationships/  # People (michael.md, etc.)
-├── projects/       # Project-specific notes and decisions
-├── milestones/     # Achievements and significant events
-├── insights/       # Realizations and learnings
-├── events/         # Timestamped happenings
-└── personas/       # Facet-specific memories
+extensions/memory/
+├── src/
+│   ├── index.ts           # Extension entry (startup, methods, lifecycle)
+│   ├── watcher.ts         # Chokidar file watcher (real-time monitoring)
+│   ├── ingest.ts          # Core ingestion logic (file key computation, incremental)
+│   ├── parser.ts          # Claude Code JSONL parser
+│   ├── db.ts              # SQLite access layer (own connection, WAL mode)
+│   └── conversation.ts    # Gap detection + conversation grouping
+├── package.json
+packages/gateway/
+└── migrations/
+    └── 002-memory.sql     # Schema (file_states, entries, conversations)
 ```
 
-### Markdown Format
+## Phase 2: Libby Memory Processing (TBD)
 
-```markdown
----
-title: Michael
-date: 2026-01-28
-categories: [relationships]
-tags: [preferences, personal]
-created_at: 2026-01-28T10:30:00Z
-updated_at: 2026-01-28T10:30:00Z
----
+Strategy pattern for processing `ready` conversations into durable memories:
 
-# Michael
-
-## Preferences
-
-- Prefers TypeScript over JavaScript
-- Likes dark mode for all IDEs
-- Uses pnpm as package manager
-
-## Working Style
-
-- Values concise explanations
-- Appreciates when I take initiative
+```typescript
+interface MemoryStrategy {
+  id: string;
+  shouldProcess(conversation, entries): boolean;
+  process(conversation, entries): Promise<MemoryResult>;
+}
 ```
 
-### Vector Database
+- `SimpleSummaryStrategy` — Send conversation to Claude for summary + fact extraction
+- Future: semantic dedup, hybrid search, temporal decay
+- Processing respects `last_message_at` as watermark — new entries with newer timestamps are untouched
 
-- **Engine:** SQLite + sqlite-vec extension
-- **Location:** `~/.claudia/memory.db`
-- **Chunking:** ~400 tokens with 80 token overlap
-- **Embeddings:** OpenAI text-embedding-3-small (or local alternative)
-- **Search:** Hybrid - 70% vector similarity + 30% BM25 keyword
+## Design Decisions
 
-## Categorization (Libby)
-
-Libby is a Haiku-powered sub-agent that handles categorization:
-
-1. Receives new memory + list of existing categories/tags
-2. Decides: use existing category or create new one
-3. Maintains consistency by seeing what already exists
-4. Writes markdown file with proper frontmatter
-5. Handles chunking and embedding
-
-**Prompt pattern:**
-
-```
-You are Libby, a memory librarian. Given a new memory and the existing
-categories/tags, decide where to store it.
-
-Existing categories: [core, relationships, projects, ...]
-Existing tags: [preferences, technical, personal, ...]
-
-New memory:
-"""
-{content}
-"""
-
-Respond with:
-- category: (existing or new)
-- tags: [list]
-- filename: suggested-name.md
-- section: which section to add to (if file exists)
-```
-
-## Gateway Hooks
-
-### Pre-Compaction Hook
-
-Before the gateway compacts a long conversation:
-
-```
-System: "Session approaching context limit. Review the conversation
-and store any important facts, decisions, or events to memory
-before compaction."
-```
-
-Claudia reviews transcript and calls `memory.remember` for anything significant.
-
-### Pre-Session-End Hook
-
-Before explicitly ending a session:
-
-```
-System: "Session ending. Have we captured all important information
-from this conversation?"
-```
-
-## Federation
-
-Multiple gateways stay in sync:
-
-1. Gateway A processes memory, commits, pushes to GitHub
-2. Gateway A emits `memory.pushed` event on event bus
-3. Gateway B (federated) receives event
-4. Gateway B does `git pull` to get latest
-5. Gateway B re-indexes for local vector search
-
-This enables:
-
-- Memory created on Mac available on iOS
-- Consistent recall across all devices
-- Git as the source of truth
-
-## Comparison to Clawdbot
-
-| Aspect         | Clawdbot                    | Claudia                    |
-| -------------- | --------------------------- | -------------------------- |
-| Structure      | Date-based logs + MEMORY.md | Category-based folders     |
-| Categorization | Manual / prompt-driven      | Libby sub-agent (Haiku)    |
-| Interface      | memory_search / memory_get  | remember / recall          |
-| Write tool     | Standard file tools         | Dedicated CLI              |
-| Sync           | Local only                  | Git + event bus federation |
-| Search         | Hybrid (vector + BM25)      | Hybrid (vector + BM25)     |
-
-## Future Considerations
-
-- **Conversation ingestion:** Process historical chat transcripts to build memory retroactively
-- **Memory decay:** Surface memories that haven't been accessed in a while
-- **Cross-reference:** Link related memories automatically
-- **Memory conflicts:** Handle contradictory information gracefully
+- **SQLite (not filesystem):** Queryable, transactional, handles concurrent access via WAL mode
+- **Same DB as gateway:** `~/.claudia/claudia.db` — WAL + `busy_timeout = 5000ms` handles out-of-process contention
+- **Relative file keys:** Deduplicates across `projects/` and `projects-backup/`
+- **Conversations scoped to files:** No cross-file merging, clean cleanup on re-import
+- **Timestamp watermarks:** Stable across re-imports (unlike autoincrement IDs)
+- **Gap-based triggers:** Configurable silence threshold — Libby sees complete narrative arcs
+- **Transcripts are source of truth:** Memory can lag, JSONL files are always the canonical data

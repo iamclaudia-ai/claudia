@@ -57,12 +57,16 @@
       "config": {}
     },
 
-    // Memory Extension (future)
+    // Memory Extension — transcript ingestion + conversation grouping
+    // Phase 1: Watches JSONL session logs, ingests into SQLite, detects conversation gaps
+    // Phase 2: Libby processes completed conversations into durable memories
     "memory": {
       "enabled": false,
       "config": {
-        "vectorDbUrl": "http://anima-sedes:6333",
-        "collection": "claudia-memory"
+        "watchPath": "~/.claude/projects",
+        "conversationGapMinutes": 60,
+        "pollIntervalMs": 30000,
+        "minConversationMessages": 5
       }
     },
 
