@@ -91,7 +91,7 @@ Server extension code is config-driven and runs out-of-process by default: gatew
 claudia/
 ├── packages/
 │   ├── gateway/          # Core server — single port serves everything
-│   ├── runtime/          # Session runtime — manages CLI processes via stdio
+│   ├── runtime/          # Session runtime — dual-engine (CLI subprocess or Agent SDK)
 │   ├── extension-host/   # Generic shim for out-of-process extension processes
 │   ├── cli/              # Schema-driven CLI with method discovery
 │   ├── shared/           # Shared types, config, and protocol definitions
@@ -123,13 +123,16 @@ See [DEVELOPMENT.md](./DEVELOPMENT.md) for the full guide including git hooks, t
 
 ## Documentation
 
-| Doc                                         | Description                      |
-| ------------------------------------------- | -------------------------------- |
-| [ARCHITECTURE.md](./docs/ARCHITECTURE.md)   | Detailed system architecture     |
-| [API-REFERENCE.md](./docs/API-REFERENCE.md) | Complete API contract reference  |
-| [TESTING.md](./docs/TESTING.md)             | Testing strategy and commands    |
-| [DEVELOPMENT.md](./DEVELOPMENT.md)          | Development setup and tooling    |
-| [HEALTHCHECKS.md](./docs/HEALTHCHECKS.md)   | Extension health check contracts |
+See the [docs index](./docs/README.md) for a full guide to all documentation, or jump to the highlights:
+
+| Doc                                         | Description                             |
+| ------------------------------------------- | --------------------------------------- |
+| [ARCHITECTURE.md](./docs/ARCHITECTURE.md)   | System architecture (gateway + runtime) |
+| [API-REFERENCE.md](./docs/API-REFERENCE.md) | Complete WebSocket API contract         |
+| [GATEWAY.md](./docs/GATEWAY.md)             | Gateway internals and event routing     |
+| [EXTENSIONS.md](./docs/EXTENSIONS.md)       | Extension system and authoring guide    |
+| [DEVELOPMENT.md](./DEVELOPMENT.md)          | Development setup, tooling, git hooks   |
+| [TESTING.md](./docs/TESTING.md)             | Testing strategy and commands           |
 
 ## Tech Stack
 
@@ -137,7 +140,7 @@ See [DEVELOPMENT.md](./DEVELOPMENT.md) for the full guide including git hooks, t
 - **Language**: TypeScript (strict)
 - **Server**: Bun.serve (HTTP + WebSocket on single port)
 - **Database**: SQLite (workspaces + sessions)
-- **Sessions**: Claude Code CLI via stdio pipes (Agent SDK protocol)
+- **Sessions**: Dual-engine — CLI subprocess (stdio pipes) or Agent SDK `query()`, configurable per deployment
 - **TTS**: Cartesia Sonic 3.0 (real-time) + ElevenLabs v3 (pre-generated content)
 - **Router**: Hand-rolled pushState router (~75 lines, zero deps)
 - **Network**: Tailscale for secure remote access
