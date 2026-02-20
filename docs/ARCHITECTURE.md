@@ -2,7 +2,7 @@
 
 ## System Overview
 
-Claudia is a two-tier system: a **Gateway** that serves clients and a **Runtime** that manages Claude Code CLI processes. The Gateway handles HTTP, WebSocket, and web UI on port 30086. The Runtime manages CLI sessions via stdin/stdout pipes on port 30087.
+Claudia is a two-tier system: a **Gateway** that serves clients and a **Runtime** that manages Claude sessions. The Gateway handles HTTP, WebSocket, and web UI on port 30086. The Runtime manages sessions via a configurable engine — either CLI subprocess (stdin/stdout pipes) or Agent SDK (`query()` function) — on port 30087.
 
 ```
 ┌────────────────────────────────────────────────────────────────────┐
@@ -33,36 +33,48 @@ Claudia is a two-tier system: a **Gateway** that serves clients and a **Runtime*
 │    /health  → JSON status endpoint                                 │
 │                                                                    │
 │  ┌───────────────┐  ┌──────────────────────────────────────────┐   │
-│  │  Session       │  │  RuntimeSession (per session)            │   │
+│  │  Session       │  │  Session Engine (per session)             │   │
 │  │  Manager       │  │                                          │   │
-│  │               │  │  Bun.spawn with stdin/stdout pipes        │   │
-│  │  create/      │  │  NDJSON on stdout → event routing         │   │
-│  │  resume/      │  │  NDJSON on stdin  ← prompts + control     │   │
-│  │  prompt/      │  │  Thinking via control_request on stdin    │   │
-│  │  interrupt    │  │                                          │   │
+│  │               │  │  CLI engine:  Bun.spawn + stdio pipes     │   │
+│  │  create/      │  │  SDK engine:  query() async generator     │   │
+│  │  resume/      │  │                                          │   │
+│  │  prompt/      │  │  Both emit identical StreamEvents         │   │
+│  │  interrupt    │  │  via EventEmitter → Manager → Gateway     │   │
 │  └───────────────┘  └──────────────────────────────────────────┘   │
 └───────────┬────────────────────────────────────────────────────────┘
-            │ spawns per session (Bun.spawn, stdio pipes)
-            ▼
-┌───────────────────────┐              ┌────────────────────────┐
-│   Claude Code CLI     │              │    Anthropic API       │
-│                       │──────────────│                        │
-│  stdin:  NDJSON in    │  Direct API  │  CLI talks to API      │
-│  stdout: NDJSON out   │  calls       │  directly              │
-│                       │              │                        │
-│  Flags:               │              │  Thinking enabled via  │
-│  --print              │              │  control_request on    │
-│  --output-format      │              │  stdin                 │
-│    stream-json        │              └────────────────────────┘
-│  --input-format       │
-│    stream-json        │
-│  --include-partial-   │
-│    messages            │
-│  --verbose            │
-│  --permission-mode    │
-│    bypassPermissions  │
-│  --session-id / --resume │
-└───────────────────────┘
+            │ engine: "cli" (default)          │ engine: "sdk"
+            ▼                                  ▼
+┌───────────────────────┐    ┌────────────────────────────────────┐
+│   CLI Engine          │    │   SDK Engine                       │
+│   (RuntimeSession)    │    │   (SDKSession)                     │
+│                       │    │                                    │
+│  Bun.spawn → CLI      │    │  @anthropic-ai/claude-agent-sdk    │
+│  stdin:  NDJSON in    │    │  query() → async generator         │
+│  stdout: NDJSON out   │    │  MessageChannel → push-based       │
+│                       │    │    async iterable for multi-turn   │
+│  Flags:               │    │                                    │
+│  --output-format      │    │  Options:                          │
+│    stream-json        │    │  sessionId / resume                │
+│  --input-format       │    │  systemPrompt, model               │
+│    stream-json        │    │  thinking, permissionMode          │
+│  --include-partial-   │    │  canUseTool callback               │
+│    messages            │    │                                    │
+│  --permission-mode    │    │  Control:                          │
+│    bypassPermissions  │    │  query.interrupt()                 │
+│  --session-id/--resume│    │  query.setPermissionMode()         │
+└───────────┬───────────┘    └──────────────┬─────────────────────┘
+            │                               │
+            └───────────┬───────────────────┘
+                        ▼
+              ┌────────────────────────┐
+              │    Anthropic API       │
+              │                        │
+              │  Both engines talk to  │
+              │  API via Claude Code   │
+              │  (CLI spawns it        │
+              │  directly, SDK wraps   │
+              │  the same CLI)         │
+              └────────────────────────┘
 ```
 
 ### Why Two Tiers?
@@ -154,13 +166,39 @@ Events are broadcast only to clients whose subscriptions match.
 
 ## Runtime (port 30087)
 
-The Runtime is a persistent Bun.serve instance managing Claude Code CLI processes. It accepts a single type of WebSocket connection:
+The Runtime is a persistent Bun.serve instance managing Claude sessions. It accepts a single type of WebSocket connection:
 
 - **Gateway connections** (`/ws`) — Control plane using the same req/res/event protocol
 
-### Stdio Architecture
+### Dual-Engine Architecture
 
-Each session spawns a Claude Code CLI process using `Bun.spawn` with `stdin: "pipe"` and `stdout: "pipe"`. All communication flows through these pipes as NDJSON (newline-delimited JSON):
+The Runtime supports two interchangeable session engines, configured via `runtime.engine` in `~/.claudia/claudia.json`:
+
+| Engine            | Class            | How It Works                                                            | Config Value |
+| ----------------- | ---------------- | ----------------------------------------------------------------------- | ------------ |
+| **CLI** (default) | `RuntimeSession` | `Bun.spawn` → Claude Code CLI subprocess with stdin/stdout NDJSON pipes | `"cli"`      |
+| **SDK**           | `SDKSession`     | `@anthropic-ai/claude-agent-sdk` `query()` async generator              | `"sdk"`      |
+
+Both engines implement the same public interface (`start`, `prompt`, `interrupt`, `close`, `setPermissionMode`, `sendToolResult`) and emit identical events through `EventEmitter`. The gateway sees no difference — switching engines requires only a config change.
+
+```json
+// ~/.claudia/claudia.json
+{
+  "runtime": {
+    "engine": "sdk" // or "cli" (default)
+  }
+}
+```
+
+The `RuntimeSessionManager` reads the engine config and routes `create()`/`resume()` to the correct factory:
+
+```typescript
+const session = this.engine === "sdk" ? createSDKSession(options) : createRuntimeSession(options);
+```
+
+### CLI Engine (RuntimeSession)
+
+Spawns a Claude Code CLI process using `Bun.spawn` with `stdin: "pipe"` and `stdout: "pipe"`. All communication flows through these pipes as NDJSON (newline-delimited JSON):
 
 ```
 Runtime                              CLI Process
@@ -210,9 +248,9 @@ while ((newlineIndex = this.stdoutBuffer.indexOf("\n")) !== -1) {
 }
 ```
 
-### Thinking Configuration
+#### Thinking Configuration (CLI)
 
-Thinking is enabled via `control_request` messages sent on stdin immediately after process spawn. The CLI uses its default Anthropic API connection directly.
+Thinking is enabled via `control_request` messages sent on stdin immediately after process spawn:
 
 ```
 Session spawns CLI → sendThinkingConfig(effort) → stdin control_request
@@ -221,7 +259,74 @@ Session spawns CLI → sendThinkingConfig(effort) → stdin control_request
                                                     → Thinking blocks stream back in stream_event messages
 ```
 
-Effort levels map to `max_thinking_tokens`:
+### SDK Engine (SDKSession)
+
+Uses the `@anthropic-ai/claude-agent-sdk` package to run Claude via the `query()` function — an async generator that yields `SDKMessage` types. The SDK internally spawns and manages the Claude Code CLI, but exposes a clean programmatic interface.
+
+#### MessageChannel Pattern
+
+Multi-turn conversations use a `MessageChannel` — a push-based `AsyncIterable<SDKUserMessage>` that stays open for the session lifetime:
+
+```typescript
+// MessageChannel is the "prompt source" for query()
+const channel = new MessageChannel();
+
+// query() consumes the channel as its prompt source
+const q = query({ prompt: channel, options: { ... } });
+
+// Each prompt() call pushes into the channel
+channel.push({ role: "user", content: "Hello" });
+
+// query yields messages as they stream back
+for await (const msg of q) {
+  routeMessage(msg);  // Same routing logic as CLI engine
+}
+```
+
+#### SDK Query Options
+
+```typescript
+const options = {
+  sessionId: isResume ? undefined : this.id,
+  resume: isResume ? this.id : undefined,
+  cwd,
+  model,
+  systemPrompt,
+  thinking: { type: "enabled", budgetTokens: THINKING_TOKENS[effort] },
+  permissionMode: "bypassPermissions",
+  canUseTool: async () => ({ behavior: "allow" }), // Auto-approve all tools
+  includePartialMessages: true,
+};
+```
+
+#### SDK Message Routing
+
+The SDK yields `SDKMessage` types that map directly to our event system:
+
+| SDK Message Type | Action                                                    | Same as CLI? |
+| ---------------- | --------------------------------------------------------- | ------------ |
+| `stream_event`   | Unwrap inner `event`, emit as SSE                         | ✅ Identical |
+| `assistant`      | Log only                                                  | ✅ Identical |
+| `user`           | Extract `tool_result` blocks, emit `request_tool_results` | ✅ Identical |
+| `result`         | Emit `turn_stop` with usage/cost                          | ✅ Identical |
+| `system`         | Handle compaction events                                  | ✅ Identical |
+| `tool_progress`  | Emit tool_progress                                        | ✅ Identical |
+
+No `control_response` or `keep_alive` — the SDK handles those internally.
+
+#### SDK Control Methods
+
+| Operation      | CLI Engine                           | SDK Engine                             |
+| -------------- | ------------------------------------ | -------------------------------------- |
+| Prompt         | `sendToStdin(user msg)`              | `messageChannel.push(user msg)`        |
+| Interrupt      | `control_request` on stdin           | `query.interrupt()`                    |
+| Set permission | `control_request` on stdin           | `query.setPermissionMode(mode)`        |
+| Tool result    | `user msg` with tool_result on stdin | `messageChannel.push(tool_result msg)` |
+| Close          | `proc.kill()`                        | `query.close()` + `channel.close()`    |
+
+### Shared Patterns (Both Engines)
+
+#### Thinking Effort Levels
 
 | Effort   | Tokens |
 | -------- | ------ |
@@ -230,32 +335,36 @@ Effort levels map to `max_thinking_tokens`:
 | `high`   | 16,000 |
 | `max`    | 32,000 |
 
-### Key Pattern: stream_event Unwrapping
+#### stream_event Unwrapping
 
-The CLI wraps Anthropic SSE events in a `stream_event` envelope. We unwrap to preserve the standard format:
-
-```typescript
-// CLI sends:  { type: "stream_event", event: { type: "content_block_delta", ... } }
-// We emit:    { type: "content_block_delta", ... }  ← Same format for all consumers
-```
-
-### Key Pattern: Tool Results from User Messages
-
-After the CLI executes tools, it sends results as `type: "user"` messages with `tool_result` content blocks. We extract these and emit `request_tool_results` events so the UI can display tool output:
+Both engines receive Anthropic SSE events wrapped in `stream_event` envelopes. We unwrap to preserve the standard format:
 
 ```typescript
-// CLI sends:  { type: "user", message: { role: "user", content: [{ type: "tool_result", ... }] } }
-// We emit:    { type: "request_tool_results", tool_results: [{ tool_use_id, content, is_error }] }
+// Engine receives: { type: "stream_event", event: { type: "content_block_delta", ... } }
+// We emit:         { type: "content_block_delta", ... }  ← Same format for all consumers
 ```
+
+#### Tool Results from User Messages
+
+After Claude executes tools, results arrive as `type: "user"` messages with `tool_result` content blocks. We extract these and emit `request_tool_results` events so the UI can display tool output:
+
+```typescript
+// Engine receives: { type: "user", message: { role: "user", content: [{ type: "tool_result", ... }] } }
+// We emit:         { type: "request_tool_results", tool_results: [{ tool_use_id, content, is_error }] }
+```
+
+#### Interactive Tool Handling
+
+Both engines auto-approve `ExitPlanMode` and `EnterPlanMode` tools, and forward `AskUserQuestion` to the UI as `request_tool_results` events for user interaction.
 
 ### Session Lifecycle
 
-1. **Create**: Gateway sends `workspace.create-session` → Runtime creates session (lazy start — no process spawned yet)
-2. **First prompt**: `session.prompt` → `ensureProcess()` spawns CLI with `--session-id`
-3. **Resume**: `session.prompt` to existing session → `ensureProcess()` spawns CLI with `--resume`
+1. **Create**: Gateway sends `workspace.create-session` → Runtime creates session (lazy start — no process/query spawned yet)
+2. **First prompt**: `session.prompt` → `ensureProcess()`/`ensureQuery()` starts the engine with `sessionId`
+3. **Resume**: `session.prompt` to existing session → engine starts with `resume` flag
 4. **Auto-resume**: If session not running (runtime restarted), auto-spawns on next prompt with `cwd` from gateway
-5. **Interrupt**: Gateway sends `session.interrupt` → stdin control_request + synthetic stop events for immediate UI update
-6. **Close**: Kill CLI process (SIGTERM), clean up
+5. **Interrupt**: Gateway sends `session.interrupt` → engine-specific interrupt + synthetic stop events for immediate UI update
+6. **Close**: Engine-specific cleanup (kill process or close query)
 
 ### Interrupt Flow
 
@@ -263,18 +372,20 @@ Interrupts use a hybrid approach for responsiveness:
 
 ```
 User presses ESC → Gateway → Runtime → session.interrupt()
-  ├── sendToStdin(control_request: interrupt) → stdin to CLI (graceful)
+  ├── CLI:  sendToStdin(control_request: interrupt)  OR  SDK: query.interrupt()
   └── emitSyntheticStops()  → Immediate UI update (content_block_stop, message_stop, turn_stop)
 ```
 
-The synthetic events ensure the UI reflects the abort immediately, even if the CLI takes a moment to process the interrupt.
+The synthetic events ensure the UI reflects the abort immediately, even if the engine takes a moment to process the interrupt.
 
 ## Data Flow
 
 ### Prompts (User → Claude)
 
 ```
-Browser → Gateway WS → Runtime WS → RuntimeSession → stdin (NDJSON)
+Browser → Gateway WS → Runtime WS → Session Engine → Claude
+  CLI engine:  prompt → stdin (NDJSON user message)
+  SDK engine:  prompt → messageChannel.push(SDKUserMessage)
 ```
 
 Attachments are sent as Anthropic API content blocks:
@@ -285,8 +396,8 @@ Attachments are sent as Anthropic API content blocks:
 ### Streaming (Claude → User)
 
 ```
-Anthropic API → CLI → stdout (NDJSON stream_event) → RuntimeSession
-  → unwrap to SSE event → Manager EventEmitter → Runtime WS → Gateway WS → UI
+Anthropic API → Claude Code → Session Engine → unwrap to SSE event
+  → Manager EventEmitter → Runtime WS → Gateway WS → UI
 ```
 
 SSE event types: `message_start`, `content_block_start`, `content_block_delta`, `content_block_stop`, `message_delta`, `message_stop`, `turn_stop`
@@ -294,16 +405,17 @@ SSE event types: `message_start`, `content_block_start`, `content_block_delta`, 
 ### Tool Results
 
 ```
-CLI executes tool → sends type:"user" with tool_result blocks → stdout
-  → RuntimeSession extracts tool_results → emits request_tool_results → Gateway → UI
+Claude executes tool → sends type:"user" with tool_result blocks
+  → Session engine extracts tool_results → emits request_tool_results → Gateway → UI
 ```
 
 ### Thinking
 
 ```
-Session spawns CLI → sends control_request(set_max_thinking_tokens) on stdin
-CLI includes thinking in API requests → thinking blocks stream back as stream_event
-  → RuntimeSession unwraps → Gateway → UI
+CLI:  Session spawns CLI → control_request(set_max_thinking_tokens) on stdin
+SDK:  Query options include thinking: { type: "enabled", budgetTokens: N }
+
+Both: thinking blocks stream back as stream_event → engine unwraps → Gateway → UI
 ```
 
 Thinking blocks appear as `content_block_start` with `type: "thinking"`, followed by `content_block_delta` with thinking text.
@@ -462,8 +574,9 @@ packages/
   runtime/
     src/
       index.ts              # Bun.serve, single WS path (/ws), health endpoint
-      manager.ts            # Session lifecycle, event forwarding, auto-resume
-      session.ts            # CLI process spawn (stdio), NDJSON routing, thinking config
+      manager.ts            # Session lifecycle, engine selection, event forwarding, auto-resume
+      session.ts            # CLI engine — Bun.spawn + stdio NDJSON routing + thinking config
+      sdk-session.ts        # SDK engine — Agent SDK query() + MessageChannel + event routing
       SYSTEM_PROMPT.md      # Headless mode addendum appended to every session prompt
 
   cli/
@@ -575,10 +688,10 @@ Watchdog (port 30085)
 
 ## Ports
 
-| Port  | Service  | Description                                        |
-| ----- | -------- | -------------------------------------------------- |
-| 30085 | Watchdog | Process supervisor + dashboard                     |
-| 30086 | Gateway  | HTTP + WebSocket + SPA serving                     |
-| 30087 | Runtime  | Gateway WS + health check (stdio to CLI processes) |
+| Port  | Service  | Description                                         |
+| ----- | -------- | --------------------------------------------------- |
+| 30085 | Watchdog | Process supervisor + dashboard                      |
+| 30086 | Gateway  | HTTP + WebSocket + SPA serving                      |
+| 30087 | Runtime  | Gateway WS + health check (dual-engine: CLI or SDK) |
 
 Port 30086 = SHA256("Claudia") → x7586 → 30086

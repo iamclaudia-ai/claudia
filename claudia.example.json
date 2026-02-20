@@ -7,6 +7,13 @@
     "host": "localhost"
   },
 
+  "runtime": {
+    "port": 30087,
+    "host": "localhost",
+    // Session engine: "cli" (subprocess + stdio) or "sdk" (Agent SDK query)
+    "engine": "cli"
+  },
+
   "session": {
     // Default session settings (can be overridden per-request)
     "thinking": false,

@@ -1,96 +1,94 @@
-# Session Context — Claudia Runtime & Web UI
+# Session Context — Claudia Runtime
 
-## What We're Building
+Last updated: 2026-02-20
 
-Claudia's **session runtime** (`packages/runtime/`) manages Claude Code CLI processes via an HTTP proxy that intercepts Anthropic API calls. The **gateway** (`packages/gateway/`) connects to the runtime via WebSocket and relays streaming events to the **web UI** (`packages/ui/`).
+## Overview
+
+Claudia's **session runtime** (`packages/runtime/`) manages Claude sessions using one of two interchangeable engines. The **gateway** (`packages/gateway/`) connects to the runtime via WebSocket and relays streaming events to clients (web UI, mobile, CLI, VS Code, etc.).
 
 ## Architecture Flow
 
 ```
-Web UI ←→ Gateway (30086) ←→ Runtime (30087) ←→ [Proxy ←→ Anthropic API]
-                                                    ↑
-                                              Claude CLI process
+Clients ←→ Gateway (30086) ←→ Runtime (30087) ←→ Session Engine ←→ Claude Code ←→ Anthropic API
 ```
 
-The proxy is a MITM between Claude CLI and the Anthropic API. It:
+The Runtime supports two engines (configured via `runtime.engine` in `~/.claudia/claudia.json`):
 
-- Injects extended thinking config into requests (CLI doesn't support `--thinking`)
-- Captures SSE streaming events and forwards them to clients
-- Emits turn-level events (`turn_start`/`turn_stop`) for UI state management
-- Filters out Haiku model side-channel requests (safety checks)
+| Engine            | Class            | Mechanism                                                    |
+| ----------------- | ---------------- | ------------------------------------------------------------ |
+| `"cli"` (default) | `RuntimeSession` | `Bun.spawn` → Claude Code CLI with stdin/stdout NDJSON pipes |
+| `"sdk"`           | `SDKSession`     | `@anthropic-ai/claude-agent-sdk` `query()` async generator   |
 
-## Key Discoveries & Fixes (This Session)
+Both engines emit identical `StreamEvent`s via `EventEmitter`. The gateway and UI see no difference.
 
-### 1. Haiku Side-Channel Problem
+## Architecture History
 
-Claude CLI makes **concurrent** `/v1/messages` requests — primary model (Opus/Sonnet) AND Haiku (for tool result safety checks). Haiku responses were:
+The runtime has evolved through three phases:
 
-- Polluting the event stream with `<is_displaying_contents>` messages
-- Causing premature `turn_stop` events (Haiku's `end_turn` != actual turn end)
-- Making the thinking animation flicker on/off between tool calls
+1. **Proxy era** (removed) — HTTP MITM proxy intercepted CLI ↔ Anthropic API calls to inject thinking config and capture SSE events. Required Haiku side-channel filtering.
+2. **Direct stdio** (current default) — `Bun.spawn` with `--input-format stream-json --output-format stream-json`. Thinking via `control_request` on stdin. No proxy needed.
+3. **Agent SDK** (new option) — `query()` function wraps CLI internally. Push-based `MessageChannel` for multi-turn. Programmatic control via `query.interrupt()`, `query.setPermissionMode()`.
 
-**Fix**: Proxy checks `requestBody.model?.includes("haiku")` and skips ALL event emissions, turn tracking, and stop_reason updates for Haiku requests. Client also filters `message_start` where model includes "haiku" as a safety net.
-
-### 2. Turn-Level Events
-
-Problem: `message_start`/`message_stop` fire per API call, but a single "turn" spans multiple API calls (tool use → tool result → next response). UI was toggling thinking animation per message.
-
-**Fix**: Proxy emits `turn_start` on first `/v1/messages` request and `turn_stop` when `stop_reason !== "tool_use"`. The `_inTurn` flag prevents duplicate `turn_start` emissions during multi-call turns.
-
-### 3. Lazy Session Resumption
-
-When runtime restarts, all sessions die. Gateway had stale `activeRuntimeSessionId`.
-
-**Fix**: Manager's `prompt()` method auto-resumes sessions on first prompt if not found. Gateway passes `cwd` with prompt requests. No persistence needed — just lazy restart.
-
-### 4. Mid-Turn Recovery
-
-If browser refreshes during an active turn, UI misses `turn_start`.
-
-**Fix**: Client detects streaming events while `isQuerying=false` and auto-enables thinking animation.
-
-### 5. Model Config Not Passed on Lazy Resume
-
-`manager.prompt()` lazy resume only passed `{ sessionId, cwd }`, missing model/thinking config. Sessions fell back to hardcoded `DEFAULT_MODEL = "claude-sonnet-4-20250514"` instead of using `claudia.json` config (`claude-opus-4-6`).
-
-**Fix (just made, not yet tested)**: Manager now has `setConfig(config)` method. Runtime passes loaded `claudia.json` config. Lazy resume pulls `model`, `thinking`, `thinkingBudget` from config.
-
-## Current State of Key Files
-
-### `packages/runtime/src/proxy.ts`
-
-- Turn tracking: `_inTurn`, `_lastStopReason`, `_eventSequence`
-- Haiku filtering on ALL paths (request handling, SSE parsing, stream end, error handling)
-- `resetTurn()` method for interrupt handling
-- Thinking injection for non-Haiku requests only
-
-### `packages/runtime/src/session.ts`
-
-- Spawns Claude CLI with `--session-id` (new) or `--resume` (existing)
-- Sets `ANTHROPIC_BASE_URL` to proxy for MITM
-- Synthetic `turn_stop` emission on interrupt + `proxy.resetTurn()`
+## Key Files
 
 ### `packages/runtime/src/manager.ts`
 
+- `RuntimeSessionManager` — manages all active sessions
 - `setConfig()` stores `ClaudiaConfig` for session defaults
-- `prompt()` does lazy resume with config defaults (model, thinking, thinkingBudget)
-- `create()` / `resume()` / `interrupt()` / `close()` / `list()`
+- `engine` getter reads `config.runtime.engine`, defaults to `"cli"`
+- `create()`/`resume()` route to correct factory based on engine
+- `prompt()` does lazy resume with config defaults (model, thinking, effort)
+- `wireSession()` forwards all session events to gateway via EventEmitter
+
+### `packages/runtime/src/session.ts` (CLI Engine)
+
+- `RuntimeSession` — spawns Claude CLI with `--session-id` (new) or `--resume` (existing)
+- `ensureProcess()` — lazy spawn on first prompt
+- `routeMessage()` — parses NDJSON from stdout, routes by message type
+- `trackEventState()` / `emitSyntheticStops()` — event state tracking for interrupts
+- `autoApproveInteractiveTool()` — auto-approves ExitPlanMode/EnterPlanMode, forwards AskUserQuestion
+- Thinking via `control_request` with `set_max_thinking_tokens` on stdin
+
+### `packages/runtime/src/sdk-session.ts` (SDK Engine)
+
+- `SDKSession` — uses `query()` from `@anthropic-ai/claude-agent-sdk`
+- `MessageChannel` — push-based `AsyncIterable<SDKUserMessage>` for multi-turn conversations
+- `ensureQuery()` — lazy query creation on first prompt
+- `routeMessage()` — identical event routing logic to CLI engine
+- `buildQueryOptions()` — maps session config to SDK options (sessionId/resume, thinking, permissions)
+- All tool approval via `canUseTool: async () => ({ behavior: "allow" })`
 
 ### `packages/ui/src/hooks/useGateway.ts`
 
-- `turn_start` → `setIsQuerying(true)`, `turn_stop` → `setIsQuerying(false)`
-- `ignoringHaikuMessageRef` filters all events from Haiku message blocks
+- `turn_stop` → `setIsQuerying(false)`
 - Mid-turn recovery for HMR/refresh scenarios
-- `message_start`/`message_stop` no longer toggle `isQuerying`
+- Streaming event handling (content_block_delta, etc.)
 
-## Pending / TODO
+## Session ID Management
 
-- [ ] **Restart runtime** to test model config passthrough (changes just made to manager.ts + index.ts)
-- [ ] **Verify Opus model** shows in `message_start` payload after restart
-- [ ] **Commit** all changes: turn events, Haiku filtering, lazy resume, model config fix
-- [ ] **Clean up** debug artifacts if any remain (sequence numbers in events, extra logging)
-- [ ] Consider removing `_eventSequence` from proxy events (was for debugging)
-- [ ] Eventually: emit turn events from a higher level than HTTP proxy (like pi-agent's agent-loop approach)
+Two-tier ID system:
+
+```
+Gateway DB:  ses_xxx (TypeID) ←→ ccSessionId (UUID)
+Runtime:     ccSessionId (UUID) maps to CLI --session-id / SDK options.sessionId
+JSONL files: ~/.claude/projects/{cwd-encoded}/{uuid}.jsonl
+```
+
+The gateway generates the UUID (`ccSessionId`) when creating a session. It checks for JSONL file existence to determine new (`--session-id`) vs resume (`--resume`).
+
+## Event Flow
+
+Both engines emit identical events:
+
+| Event                 | When                                                                                       |
+| --------------------- | ------------------------------------------------------------------------------------------ |
+| `"sse"` + StreamEvent | Every Anthropic SSE event, plus turn_stop, request_tool_results, compaction, tool_progress |
+| `"ready"`             | After start()                                                                              |
+| `"prompt_sent"`       | After prompt written                                                                       |
+| `"process_started"`   | When engine starts (CLI spawn or SDK query begin)                                          |
+| `"process_ended"`     | When engine finishes (CLI exit or SDK generator done)                                      |
+| `"interrupted"`       | After interrupt                                                                            |
+| `"closed"`            | After close                                                                                |
 
 ## Config
 
@@ -98,10 +96,14 @@ If browser refreshes during an active turn, UI misses `turn_start`.
 
 ```json
 {
+  "runtime": {
+    "engine": "sdk" // or "cli" (default)
+  },
   "session": {
-    "model": "claude-opus-4-6",
+    "model": "sonnet",
     "thinking": true,
-    "thinkingBudget": 10000
+    "effort": "medium",
+    "systemPrompt": null
   }
 }
 ```

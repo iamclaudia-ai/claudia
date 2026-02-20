@@ -456,10 +456,10 @@ SessionManager                     Runtime (:30087)
 
 The runtime is a separate persistent service. It:
 
-- Survives gateway restarts (keeps Claude processes alive)
-- Manages Claude CLI processes via stdin/stdout NDJSON pipes
-- Emits stream events as `stream.{ccSessionId}.{eventType}`
-- Handles thinking config via `control_request` on stdin
+- Survives gateway restarts (keeps Claude sessions alive)
+- Dual-engine: CLI subprocess (stdin/stdout NDJSON) or Agent SDK (`query()` function) — configurable via `runtime.engine`
+- Both engines emit identical stream events as `stream.{ccSessionId}.{eventType}`
+- Handles thinking config (CLI: `control_request` on stdin, SDK: query options)
 
 ### Session Event Processing in SessionManager
 
