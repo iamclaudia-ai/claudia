@@ -15,10 +15,10 @@
     "typecheck": "tsc --noEmit -p ../../tsconfig.json"
   },
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.39",
     "@claudia/shared": "workspace:*"
   },
   "devDependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.2.39",
     "@anthropic-ai/sdk": "^0.74.0"
   }
 }

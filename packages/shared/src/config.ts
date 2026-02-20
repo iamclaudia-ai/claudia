@@ -53,6 +53,8 @@ export interface FederationPeer {
 export interface RuntimeConfig {
   port: number;
   host: string;
+  /** Session engine: "cli" (subprocess) or "sdk" (Agent SDK query). Defaults to "cli". */
+  engine?: "cli" | "sdk";
 }
 
 export interface FederationConfig {

@@ -284,6 +284,7 @@ export class RuntimeSession extends EventEmitter {
       lastActivity: new Date(this.lastActivityTime).toISOString(),
       healthy: this.isHealthy(),
       stale: this.isStale(),
+      engine: "cli" as const,
     };
   }
 

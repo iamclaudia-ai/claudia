@@ -19,8 +19,12 @@ import {
   type ResumeSessionOptions,
   type StreamEvent,
 } from "./session";
+import { SDKSession, createSDKSession, resumeSDKSession } from "./sdk-session";
 import { createLogger } from "@claudia/shared";
 import type { ClaudiaConfig, ThinkingEffort } from "@claudia/shared";
+
+/** Union of both session engine types — same public interface */
+type SessionInstance = RuntimeSession | SDKSession;
 import { join } from "node:path";
 import { homedir } from "node:os";
 
@@ -59,7 +63,7 @@ export interface SessionResumeParams {
 // ── Manager ──────────────────────────────────────────────────
 
 export class RuntimeSessionManager extends EventEmitter {
-  private sessions = new Map<string, RuntimeSession>();
+  private sessions = new Map<string, SessionInstance>();
   private config?: ClaudiaConfig;
 
   /**
@@ -68,6 +72,14 @@ export class RuntimeSessionManager extends EventEmitter {
    */
   setConfig(config: ClaudiaConfig): void {
     this.config = config;
+  }
+
+  /**
+   * Get the session engine type from config.
+   * Defaults to "cli" (RuntimeSession) for backwards compatibility.
+   */
+  private get engine(): "cli" | "sdk" {
+    return (this.config?.runtime as { engine?: "cli" | "sdk" })?.engine || "cli";
   }
 
   /**
@@ -83,13 +95,14 @@ export class RuntimeSessionManager extends EventEmitter {
       effort: params.effort,
     };
 
-    const session = createRuntimeSession(options);
+    const session =
+      this.engine === "sdk" ? createSDKSession(options) : createRuntimeSession(options);
     await session.start();
 
     this.sessions.set(session.id, session);
     this.wireSession(session);
 
-    log.info("Created session", { sessionId: session.id.slice(0, 8) });
+    log.info("Created session", { sessionId: session.id.slice(0, 8), engine: this.engine });
     return { sessionId: session.id };
   }
 
@@ -112,13 +125,16 @@ export class RuntimeSessionManager extends EventEmitter {
       effort: params.effort,
     };
 
-    const session = resumeRuntimeSession(params.sessionId, options);
+    const session =
+      this.engine === "sdk"
+        ? resumeSDKSession(params.sessionId, options)
+        : resumeRuntimeSession(params.sessionId, options);
     await session.start();
 
     this.sessions.set(session.id, session);
     this.wireSession(session);
 
-    log.info("Resumed session", { sessionId: session.id.slice(0, 8) });
+    log.info("Resumed session", { sessionId: session.id.slice(0, 8), engine: this.engine });
     return { sessionId: session.id };
   }
 
@@ -225,10 +241,13 @@ export class RuntimeSessionManager extends EventEmitter {
    * The eventName uses "stream.{sessionId}.{type}" prefix so streaming events
    * are cleanly separated from session request/response methods.
    */
-  private wireSession(session: RuntimeSession): void {
+  private wireSession(session: SessionInstance): void {
     const sessionId = session.id;
+    // Cast to EventEmitter for .on() — both session types extend EventEmitter
+    // with identical event signatures, but TS can't unify the union's .on() overloads.
+    const emitter = session as EventEmitter;
 
-    session.on("sse", (event: StreamEvent) => {
+    emitter.on("sse", (event: StreamEvent) => {
       this.emit("session.event", {
         eventName: `stream.${sessionId}.${event.type}`,
         sessionId,
@@ -236,7 +255,7 @@ export class RuntimeSessionManager extends EventEmitter {
       });
     });
 
-    session.on("process_started", () => {
+    emitter.on("process_started", () => {
       this.emit("session.event", {
         eventName: `stream.${sessionId}.process_started`,
         sessionId,
@@ -244,7 +263,7 @@ export class RuntimeSessionManager extends EventEmitter {
       });
     });
 
-    session.on("process_ended", () => {
+    emitter.on("process_ended", () => {
       this.emit("session.event", {
         eventName: `stream.${sessionId}.process_ended`,
         sessionId,
@@ -252,7 +271,7 @@ export class RuntimeSessionManager extends EventEmitter {
       });
     });
 
-    session.on("closed", () => {
+    emitter.on("closed", () => {
       this.sessions.delete(sessionId);
     });
   }

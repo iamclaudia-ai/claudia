@@ -59,7 +59,7 @@ Server extension loading is config-driven from `~/.claudia/claudia.json` and out
 - **Language**: TypeScript (strict)
 - **Server**: Bun.serve (HTTP + WebSocket on single port)
 - **Database**: SQLite (workspaces + sessions)
-- **Session Management**: Claude Code CLI via stdio pipes (official Agent SDK protocol)
+- **Session Management**: Dual-engine — CLI subprocess (stdio pipes) or Agent SDK `query()` function, configurable via `runtime.engine` in config
 - **Client-side Router**: Hand-rolled pushState router (~75 lines, zero deps)
 - **TTS**: Cartesia Sonic 3.0 (real-time streaming) + ElevenLabs v3 (pre-generated content via text-to-dialogue API)
 - **Network**: Tailscale for secure remote access
@@ -72,7 +72,7 @@ Server extension loading is config-driven from `~/.claudia/claudia.json` and out
 claudia/
 ├── packages/
 │   ├── gateway/          # Core server — single port serves everything
-│   ├── runtime/          # Session runtime — manages CLI processes via stdio
+│   ├── runtime/          # Session runtime — dual-engine (CLI subprocess or Agent SDK)
 │   ├── watchdog/         # Process supervisor — spawns gateway + runtime, health checks
 │   ├── extension-host/   # Generic shim for out-of-process extensions (NDJSON stdio)
 │   ├── cli/              # Schema-driven CLI with method discovery
@@ -114,14 +114,27 @@ Key files:
 
 ### Runtime (`packages/runtime`)
 
-Persistent service (port 30087) that manages Claude CLI processes:
+Persistent service (port 30087) with two interchangeable session engines:
+
+**CLI Engine** (`runtime.engine: "cli"` — default):
 
 - Spawns CLI with `--input-format stream-json --output-format stream-json --include-partial-messages`
 - Communicates via stdin/stdout NDJSON pipes — no WebSocket or HTTP proxy
-- Uses official Agent SDK types (`SDKMessage`, `SDKPartialAssistantMessage`, etc.) for type-safe message routing
 - Thinking via `control_request` with `set_max_thinking_tokens` on stdin
 - Graceful interrupt via `control_request` with `subtype: "interrupt"` — process stays alive
-- Survives gateway restarts — keeps Claude processes running
+
+**SDK Engine** (`runtime.engine: "sdk"`):
+
+- Uses `@anthropic-ai/claude-agent-sdk` `query()` function — async generator of `SDKMessage` types
+- Push-based `MessageChannel` (async iterable) enables multi-turn conversations over a single query
+- Same event emission as CLI engine — gateway sees identical events, no changes needed
+- `query.interrupt()`, `query.setPermissionMode()` for runtime control
+
+Both engines:
+
+- Use official Agent SDK types for type-safe message routing
+- Emit identical `StreamEvent`s through EventEmitter (gateway-compatible)
+- Survive gateway restarts — sessions can be lazily resumed
 - `SYSTEM_PROMPT.md` — headless mode addendum appended to every session's system prompt
 
 ### CLI (`packages/cli`)
