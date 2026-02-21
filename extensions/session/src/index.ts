@@ -373,16 +373,62 @@ export function createSessionExtension(config: Record<string, unknown> = {}): Cl
 
   // ── Method Handler ─────────────────────────────────────────
 
+  /** Short session ID for logging */
+  const sid = (id: string) => id.slice(0, 8);
+
+  /** Truncate prompt content for logging */
+  const truncate = (content: string | unknown[], maxLen = 80): string => {
+    if (typeof content === "string")
+      return content.length > maxLen ? content.slice(0, maxLen) + "…" : content;
+    return `[${(content as unknown[]).length} blocks]`;
+  };
+
   async function handleMethod(method: string, params: Record<string, unknown>): Promise<unknown> {
+    // Log all method calls (except high-frequency reads)
+    const isRead =
+      method === "session.list-sessions" ||
+      method === "session.list-workspaces" ||
+      method === "session.get-workspace" ||
+      method === "session.health-check";
+    if (!isRead) {
+      log.info(
+        `→ ${method}`,
+        params.sessionId ? { sessionId: sid(params.sessionId as string) } : undefined,
+      );
+    }
+
+    const start = Date.now();
+    try {
+      const result = await _handleMethod(method, params);
+      const elapsed = Date.now() - start;
+      if (!isRead && elapsed > 100) {
+        log.info(`← ${method} OK (${elapsed}ms)`);
+      }
+      return result;
+    } catch (err) {
+      const elapsed = Date.now() - start;
+      log.error(`← ${method} FAILED (${elapsed}ms)`, {
+        error: err instanceof Error ? err.message : String(err),
+        ...(params.sessionId ? { sessionId: sid(params.sessionId as string) } : {}),
+      });
+      throw err;
+    }
+  }
+
+  async function _handleMethod(method: string, params: Record<string, unknown>): Promise<unknown> {
     switch (method) {
       case "session.create-session": {
+        const cwd = params.cwd as string;
+        const model = params.model as string | undefined;
+        log.info("Creating session", { cwd, model: model || sessionConfig.model || "default" });
         const result = await manager.create({
-          cwd: params.cwd as string,
-          model: params.model as string | undefined,
+          cwd,
+          model,
           systemPrompt: params.systemPrompt as string | undefined,
           thinking: params.thinking as boolean | undefined,
           effort: params.effort as "low" | "medium" | "high" | "max" | undefined,
         });
+        log.info("Session created", { sessionId: sid(result.sessionId), cwd });
         return result;
       }
 
@@ -393,6 +439,13 @@ export function createSessionExtension(config: Record<string, unknown> = {}): Cl
         const streaming = params.streaming !== false;
         const source = params.source as string | undefined;
 
+        log.info("Sending prompt", {
+          sessionId: sid(sessionId),
+          streaming,
+          source: source || "web",
+          prompt: truncate(content),
+        });
+
         // Set up request context
         requestContexts.set(sessionId, {
           connectionId: ctx.connectionId,
@@ -402,14 +455,33 @@ export function createSessionExtension(config: Record<string, unknown> = {}): Cl
 
         if (streaming) {
           // Fire and forget — events stream back via ctx.emit
+          const promptStart = Date.now();
           await manager.prompt(sessionId, content, cwd);
+
+          // Log turn completion when we see turn_stop
+          const turnListener = (event: { sessionId: string; type?: string }) => {
+            if (event.sessionId !== sessionId || event.type !== "turn_stop") return;
+            const elapsed = Date.now() - promptStart;
+            const reqCtx = requestContexts.get(sessionId);
+            const responseLen = reqCtx?.responseText?.length || 0;
+            log.info("Streaming turn complete", {
+              sessionId: sid(sessionId),
+              elapsed: `${elapsed}ms`,
+              responseChars: responseLen,
+            });
+            manager.removeListener("session.event", turnListener);
+          };
+          manager.on("session.event", turnListener);
+
           return { status: "streaming", sessionId };
         }
 
         // Non-streaming: await completion, return final text
+        const promptStart = Date.now();
         return new Promise<unknown>((resolve, reject) => {
           const timeout = setTimeout(() => {
             cleanup();
+            log.error("Prompt timed out", { sessionId: sid(sessionId), elapsed: "300s" });
             reject(new Error("Prompt timed out after 5 minutes"));
           }, 300_000);
 
@@ -418,7 +490,14 @@ export function createSessionExtension(config: Record<string, unknown> = {}): Cl
             if (event.type === "turn_stop") {
               cleanup();
               const reqCtx = requestContexts.get(sessionId);
-              resolve({ text: reqCtx?.responseText || "", sessionId });
+              const text = reqCtx?.responseText || "";
+              const elapsed = Date.now() - promptStart;
+              log.info("Non-streaming prompt complete", {
+                sessionId: sid(sessionId),
+                elapsed: `${elapsed}ms`,
+                responseChars: text.length,
+              });
+              resolve({ text, sessionId });
             }
           };
 
@@ -437,18 +516,23 @@ export function createSessionExtension(config: Record<string, unknown> = {}): Cl
       }
 
       case "session.interrupt-session": {
+        log.info("Interrupting session", { sessionId: sid(params.sessionId as string) });
         const ok = manager.interrupt(params.sessionId as string);
         return { ok };
       }
 
       case "session.close-session": {
+        log.info("Closing session", { sessionId: sid(params.sessionId as string) });
         await manager.close(params.sessionId as string);
         requestContexts.delete(params.sessionId as string);
+        log.info("Session closed", { sessionId: sid(params.sessionId as string) });
         return { ok: true };
       }
 
       case "session.list-sessions": {
-        const sessions = discoverSessions(params.cwd as string);
+        const cwd = params.cwd as string;
+        const sessions = discoverSessions(cwd);
+        log.info("Listed sessions", { cwd, count: sessions.length });
         return {
           sessions: sessions.sort((a, b) => {
             const aTime = a.modified || a.created || "";
@@ -465,10 +549,18 @@ export function createSessionExtension(config: Record<string, unknown> = {}): Cl
 
         const filepath = resolveSessionPath(sessionId);
         if (!filepath) {
+          log.warn("Session file not found", { sessionId: sid(sessionId) });
           return { messages: [], total: 0, hasMore: false };
         }
 
-        return parseSessionFilePaginated(filepath, { limit, offset });
+        const result = parseSessionFilePaginated(filepath, { limit, offset });
+        log.info("Loaded history", {
+          sessionId: sid(sessionId),
+          total: (result as { total: number }).total,
+          limit,
+          offset,
+        });
+        return result;
       }
 
       case "session.switch-session": {
@@ -476,6 +568,7 @@ export function createSessionExtension(config: Record<string, unknown> = {}): Cl
         const cwd = params.cwd as string;
         const model = params.model as string | undefined;
 
+        log.info("Switching session", { sessionId: sid(sessionId), cwd, model });
         await manager.resume({
           sessionId,
           cwd,
@@ -485,8 +578,10 @@ export function createSessionExtension(config: Record<string, unknown> = {}): Cl
       }
 
       case "session.reset-session": {
+        const cwd = params.cwd as string;
+        log.info("Resetting session", { cwd });
         const result = await manager.create({
-          cwd: params.cwd as string,
+          cwd,
           model: params.model as string | undefined,
         });
         return result;
@@ -505,11 +600,20 @@ export function createSessionExtension(config: Record<string, unknown> = {}): Cl
       }
 
       case "session.set-permission-mode": {
+        log.info("Setting permission mode", {
+          sessionId: sid(params.sessionId as string),
+          mode: params.mode,
+        });
         const ok = manager.setPermissionMode(params.sessionId as string, params.mode as string);
         return { ok };
       }
 
       case "session.send-tool-result": {
+        log.info("Sending tool result", {
+          sessionId: sid(params.sessionId as string),
+          toolUseId: params.toolUseId,
+          isError: params.isError,
+        });
         const ok = manager.sendToolResult(
           params.sessionId as string,
           params.toolUseId as string,
@@ -529,10 +633,12 @@ export function createSessionExtension(config: Record<string, unknown> = {}): Cl
       }
 
       case "session.get-or-create-workspace": {
-        const result = getOrCreateWorkspace(
-          params.cwd as string,
-          params.name as string | undefined,
-        );
+        const cwd = params.cwd as string;
+        const result = getOrCreateWorkspace(cwd, params.name as string | undefined);
+        log.info("Get/create workspace", {
+          cwd,
+          created: (result as { created: boolean }).created,
+        });
         return result;
       }
 

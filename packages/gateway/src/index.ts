@@ -346,15 +346,23 @@ async function handleExtensionMethod(
   ws: ServerWebSocket<ClientState>,
   req: Request,
 ): Promise<void> {
+  const start = Date.now();
   try {
+    log.info(`→ ${req.method}`, { connectionId: req.connectionId?.slice(0, 8) });
     const result = await extensions.handleMethod(
       req.method,
       (req.params as Record<string, unknown>) || {},
       req.connectionId,
     );
+    const elapsed = Date.now() - start;
+    if (elapsed > 200) {
+      log.info(`← ${req.method} OK (${elapsed}ms)`);
+    }
     sendResponse(ws, req.id, result);
   } catch (error) {
+    const elapsed = Date.now() - start;
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    log.error(`← ${req.method} FAILED (${elapsed}ms)`, { error: errorMessage });
     sendError(ws, req.id, errorMessage);
   }
 }
