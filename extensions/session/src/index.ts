@@ -110,6 +110,34 @@ function readSessionsIndexMap(projectDir: string): Map<string, SessionIndexEntry
 }
 
 /**
+ * Extract cwd from a JSONL session file (from first user message).
+ */
+function extractSessionCwd(filepath: string): string | undefined {
+  try {
+    const buf = new Uint8Array(8192);
+    const fd = openSync(filepath, "r");
+    const bytesRead = readSync(fd, buf, 0, 8192, 0);
+    closeSync(fd);
+    const text = new TextDecoder().decode(buf.subarray(0, bytesRead));
+    const lines = text.split("\n");
+
+    for (let i = 0; i < Math.min(lines.length, 10); i++) {
+      const line = lines[i]?.trim();
+      if (!line) continue;
+      try {
+        const msg = JSON.parse(line);
+        if (msg.type === "user" && msg.cwd) return msg.cwd;
+      } catch {
+        // skip
+      }
+    }
+  } catch {
+    // skip
+  }
+  return undefined;
+}
+
+/**
  * Extract first user prompt from a JSONL session file.
  * Reads only the first ~20 lines (user message is typically line 1-2).
  *
@@ -554,13 +582,16 @@ export function createSessionExtension(config: Record<string, unknown> = {}): Cl
         }
 
         const result = parseSessionFilePaginated(filepath, { limit, offset });
+        // Extract cwd from the session file so the UI knows the workspace
+        const cwd = extractSessionCwd(filepath);
         log.info("Loaded history", {
           sessionId: sid(sessionId),
           total: (result as { total: number }).total,
+          cwd,
           limit,
           offset,
         });
-        return result;
+        return { ...result, cwd };
       }
 
       case "session.switch-session": {

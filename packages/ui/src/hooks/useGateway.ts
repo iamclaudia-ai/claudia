@@ -550,6 +550,13 @@ export function useGateway(gatewayUrl: string, options: UseGatewayOptions = {}):
             setTotalMessages(total);
             setHasMore(more);
             if (historyUsage) setUsage(historyUsage);
+
+            // If history response includes cwd and we don't have a workspace yet,
+            // resolve the workspace so sendPrompt has cwd for auto-resume
+            const historyCwd = payload.cwd as string | undefined;
+            if (historyCwd && !workspaceRef.current) {
+              sendRequest("session.get-or-create-workspace", { cwd: historyCwd });
+            }
           }
 
           // ── session.get-or-create-workspace (VS Code auto-discover) ──
