@@ -5,7 +5,7 @@ import type { WorkspaceInfo, SessionInfo } from "../hooks/useGateway";
 interface SessionListProps {
   gatewayUrl: string;
   workspaceId: string;
-  onSelectSession: (sessionId: string) => void;
+  onSelectSession: (sessionId: string, workspaceId: string) => void;
   onBack: () => void;
 }
 
@@ -74,7 +74,7 @@ export function SessionList({
           if (newSessionId) {
             setIsCreating(false);
             // Navigate straight to the new session
-            onSelectSession(newSessionId);
+            onSelectSession(newSessionId, workspaceId);
           }
         }
       }
@@ -196,7 +196,7 @@ export function SessionList({
                 session={s}
                 formatName={formatSessionName}
                 formatTime={formatTime}
-                onClick={() => onSelectSession(s.sessionId)}
+                onClick={() => onSelectSession(s.sessionId, workspaceId)}
               />
             ))}
           </div>

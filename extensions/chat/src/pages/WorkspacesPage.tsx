@@ -7,7 +7,7 @@ export function WorkspacesPage() {
     <WorkspaceList
       gatewayUrl={GATEWAY_URL}
       onSelectWorkspace={(id) => navigate(`/workspace/${id}`)}
-      onSessionReady={(id) => navigate(`/session/${id}`)}
+      onSessionReady={(wsId, sessionId) => navigate(`/workspace/${wsId}/session/${sessionId}`)}
     />
   );
 }

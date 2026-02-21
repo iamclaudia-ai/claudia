@@ -318,9 +318,11 @@ export function parseSessionUsage(filepath: string): HistoryUsage | null {
 
 /**
  * Resolve a session ID to a JSONL file path.
- * Searches ~/.claude/projects/ recursively.
+ *
+ * When `cwd` is provided, derives the project directory directly (O(1) lookup).
+ * Without cwd, falls back to scanning ~/.claude/projects/ recursively (slow).
  */
-export function resolveSessionPath(sessionId: string): string | null {
+export function resolveSessionPath(sessionId: string, cwd?: string): string | null {
   // If already a full path, use it
   if (sessionId.includes("/")) {
     return existsSync(sessionId) ? sessionId : null;
@@ -328,6 +330,15 @@ export function resolveSessionPath(sessionId: string): string | null {
 
   const projectsDir = join(homedir(), ".claude", "projects");
 
+  // Fast path: derive project dir from cwd (Claude Code encodes / as -)
+  if (cwd) {
+    const encodedCwd = cwd.replace(/\//g, "-");
+    const directPath = join(projectsDir, encodedCwd, `${sessionId}.jsonl`);
+    if (existsSync(directPath)) return directPath;
+    // cwd didn't match — fall through to scan
+  }
+
+  // Slow path: recursive scan
   const searchDir = (dir: string): string | null => {
     if (!existsSync(dir)) return null;
 

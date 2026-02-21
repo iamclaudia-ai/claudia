@@ -6,7 +6,7 @@ interface WorkspaceListProps {
   gatewayUrl: string;
   onSelectWorkspace: (workspaceId: string) => void;
   /** Called when a new workspace is created and its first session is ready */
-  onSessionReady?: (sessionId: string) => void;
+  onSessionReady?: (workspaceId: string, sessionId: string) => void;
 }
 
 function generateId(): string {
@@ -27,8 +27,8 @@ export function WorkspaceList({
   const [isCreating, setIsCreating] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const pendingRef = useRef<Map<string, string>>(new Map());
-  // Track workspace CWD for auto-session-create flow
-  const pendingCwdRef = useRef<string | null>(null);
+  // Track workspace for auto-session-create flow
+  const pendingWorkspaceRef = useRef<WorkspaceInfo | null>(null);
 
   const sendRequest = useCallback((method: string, params?: Record<string, unknown>) => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
@@ -66,16 +66,18 @@ export function WorkspaceList({
           const ws = payload.workspace as WorkspaceInfo | undefined;
           if (ws) {
             // Create first session for the workspace
-            pendingCwdRef.current = ws.cwd;
+            pendingWorkspaceRef.current = ws;
             sendRequest("session.create-session", { cwd: ws.cwd });
           }
         }
 
         if (method === "session.create-session") {
           const newSessionId = payload.sessionId as string | undefined;
-          if (newSessionId && onSessionReady) {
+          const pendingWs = pendingWorkspaceRef.current;
+          if (newSessionId && pendingWs && onSessionReady) {
             setIsCreating(false);
-            onSessionReady(newSessionId);
+            onSessionReady(pendingWs.id, newSessionId);
+            pendingWorkspaceRef.current = null;
           } else {
             // Fallback: refresh workspace list
             setIsCreating(false);

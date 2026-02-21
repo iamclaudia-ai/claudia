@@ -38,10 +38,16 @@ export interface SessionInfo {
 export interface UseGatewayOptions {
   /**
    * Explicit session ID (CC UUID) to load.
-   * Used by web client when navigating to /session/:id.
+   * Used by web client when navigating to /workspace/:wsId/session/:id.
    * When set, loads history for this specific session.
    */
   sessionId?: string;
+
+  /**
+   * Workspace ID — provides CWD context for session operations.
+   * Used together with sessionId for the web client session route.
+   */
+  workspaceId?: string;
 
   /**
    * Auto-discover mode: get workspace by CWD, find active session.
@@ -550,13 +556,6 @@ export function useGateway(gatewayUrl: string, options: UseGatewayOptions = {}):
             setTotalMessages(total);
             setHasMore(more);
             if (historyUsage) setUsage(historyUsage);
-
-            // If history response includes cwd and we don't have a workspace yet,
-            // resolve the workspace so sendPrompt has cwd for auto-resume
-            const historyCwd = payload.cwd as string | undefined;
-            if (historyCwd && !workspaceRef.current) {
-              sendRequest("session.get-or-create-workspace", { cwd: historyCwd });
-            }
           }
 
           // ── session.get-or-create-workspace (VS Code auto-discover) ──
@@ -726,6 +725,10 @@ export function useGateway(gatewayUrl: string, options: UseGatewayOptions = {}):
         setSessionId(opts.sessionId);
         subscribeToSession(opts.sessionId);
         sendRequest("session.get-history", { sessionId: opts.sessionId, limit: 50 });
+        // Look up workspace for CWD context (needed for send-prompt auto-resume)
+        if (opts.workspaceId) {
+          sendRequest("session.get-workspace", { id: opts.workspaceId });
+        }
       } else if (opts.autoDiscoverCwd) {
         // ── VS Code: auto-discover by CWD ──
         // This triggers workspace creation + session discovery + history loading

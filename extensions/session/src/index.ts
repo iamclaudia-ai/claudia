@@ -326,6 +326,7 @@ export function createSessionExtension(config: Record<string, unknown> = {}): Cl
       description: "Get session history from JSONL",
       inputSchema: z.object({
         sessionId: z.string().describe("Session UUID"),
+        cwd: z.string().optional().describe("Workspace CWD for fast file lookup"),
         limit: z.number().optional().default(50).describe("Max messages"),
         offset: z.number().optional().default(0).describe("Offset from most recent"),
       }),
@@ -572,26 +573,24 @@ export function createSessionExtension(config: Record<string, unknown> = {}): Cl
 
       case "session.get-history": {
         const sessionId = params.sessionId as string;
+        const cwd = params.cwd as string | undefined;
         const limit = (params.limit as number) || 50;
         const offset = (params.offset as number) || 0;
 
-        const filepath = resolveSessionPath(sessionId);
+        const filepath = resolveSessionPath(sessionId, cwd);
         if (!filepath) {
-          log.warn("Session file not found", { sessionId: sid(sessionId) });
+          log.warn("Session file not found", { sessionId: sid(sessionId), cwd: cwd || "none" });
           return { messages: [], total: 0, hasMore: false };
         }
 
         const result = parseSessionFilePaginated(filepath, { limit, offset });
-        // Extract cwd from the session file so the UI knows the workspace
-        const cwd = extractSessionCwd(filepath);
         log.info("Loaded history", {
           sessionId: sid(sessionId),
           total: (result as { total: number }).total,
-          cwd,
           limit,
           offset,
         });
-        return { ...result, cwd };
+        return result;
       }
 
       case "session.switch-session": {
