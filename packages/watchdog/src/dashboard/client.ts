@@ -245,7 +245,7 @@ async function refreshStatus(): Promise<void> {
 
     let html = "";
 
-    // Render service cards (gateway, runtime)
+    // Render service cards
     for (const [id, s] of Object.entries(data)) {
       if (id === "client") continue;
       const svc = s as ServiceStatus;

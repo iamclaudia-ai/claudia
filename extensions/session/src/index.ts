@@ -2,7 +2,7 @@
  * Session Extension
  *
  * Owns all session and workspace lifecycle — the "brain" of Claudia's session management.
- * Replaces packages/runtime/ entirely.
+ * Session lifecycle, workspace management, and Claude SDK integration.
  *
  * Gateway is a pure hub: this extension handles create, prompt, history, switch, etc.
  * Other extensions interact via ctx.call("session.*") through the gateway hub.

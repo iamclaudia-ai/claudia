@@ -50,13 +50,6 @@ export interface FederationPeer {
   role: "primary" | "replica";
 }
 
-export interface RuntimeConfig {
-  port: number;
-  host: string;
-  /** Session engine: "cli" (subprocess) or "sdk" (Agent SDK query). Defaults to "cli". */
-  engine?: "cli" | "sdk";
-}
-
 export interface FederationConfig {
   enabled: boolean;
   nodeId: string;
@@ -65,7 +58,6 @@ export interface FederationConfig {
 
 export interface ClaudiaConfig {
   gateway: GatewayConfig;
-  runtime: RuntimeConfig;
   session: SessionConfig;
   extensions: ExtensionsConfig;
   federation: FederationConfig;
@@ -78,10 +70,6 @@ export interface ClaudiaConfig {
 const DEFAULT_CONFIG: ClaudiaConfig = {
   gateway: {
     port: 30086,
-    host: "localhost",
-  },
-  runtime: {
-    port: 30087,
     host: "localhost",
   },
   session: {
@@ -191,7 +179,6 @@ export function loadConfig(configPath?: string): ClaudiaConfig {
   // Merge with defaults
   const config: ClaudiaConfig = {
     gateway: { ...DEFAULT_CONFIG.gateway, ...interpolated.gateway },
-    runtime: { ...DEFAULT_CONFIG.runtime, ...interpolated.runtime },
     session: { ...DEFAULT_CONFIG.session, ...interpolated.session },
     extensions: interpolated.extensions ?? DEFAULT_CONFIG.extensions,
     federation: { ...DEFAULT_CONFIG.federation, ...interpolated.federation },

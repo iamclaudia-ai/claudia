@@ -1,7 +1,7 @@
 /**
  * Service management — direct process supervision, health checks, auto-restart.
  *
- * Manages gateway and runtime as direct child processes (Bun.spawn).
+ * Manages gateway as a direct child process (Bun.spawn).
  * No tmux — stdout/stderr pipe to log files, watchdog owns the process lifecycle.
  */
 
@@ -46,18 +46,6 @@ export const services: Record<string, ManagedService> = {
     command: ["bun", "run", "--watch", "packages/gateway/src/start.ts"],
     healthUrl: "http://localhost:30086/health",
     port: 30086,
-    restartBackoff: 1000,
-    lastRestart: 0,
-    consecutiveFailures: 0,
-    history: [],
-    proc: null,
-  },
-  runtime: {
-    name: "Runtime",
-    id: "runtime",
-    command: ["bun", "run", "--watch", "packages/runtime/src/index.ts"],
-    healthUrl: "http://localhost:30087/health",
-    port: 30087,
     restartBackoff: 1000,
     lastRestart: 0,
     consecutiveFailures: 0,

@@ -2,7 +2,7 @@
  * Session Manager (SDK only)
  *
  * Manages all active SDKSession instances.
- * Simplified from packages/runtime/src/manager.ts — no CLI engine, no dual-engine selection.
+ * SDK-based session manager — single engine, no CLI subprocess.
  *
  * Provides create/resume/prompt/interrupt/close/list operations.
  * Forwards all SSE events from sessions via callback for gateway event relay.

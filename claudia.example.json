@@ -7,13 +7,6 @@
     "host": "localhost"
   },
 
-  "runtime": {
-    "port": 30087,
-    "host": "localhost",
-    // Session engine: "cli" (subprocess + stdio) or "sdk" (Agent SDK query)
-    "engine": "cli"
-  },
-
   "session": {
     // Default session settings (can be overridden per-request)
     "thinking": false,
@@ -69,7 +62,6 @@
         "pollIntervalMs": 30000,
         "minConversationMessages": 5,
         "timezone": "America/New_York",
-        "gatewayUrl": "ws://localhost:30086/ws",
         "model": "claude-sonnet-4-6",
         "processBatchSize": 10,
         "autoProcess": false
@@ -88,7 +80,6 @@
     // Uses `imsg` CLI: brew install steipete/tap/imsg
     "imessage": {
       "enabled": false,
-      "sourceRoutes": ["imessage"], // Handles "imessage/*" sources
       "config": {
         "cliPath": "imsg", // Path to imsg CLI (default: "imsg")
         "dbPath": null, // Messages DB path (default: ~/Library/Messages/chat.db)
