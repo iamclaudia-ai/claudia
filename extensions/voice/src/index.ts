@@ -201,6 +201,7 @@ export function createVoiceExtension(config: VoiceConfig = {}): ClaudiaExtension
   let currentChunker: SentenceChunker | null = null;
   let currentStreamId: string | null = null;
   let currentSessionId: string | null = null;
+  let currentConnectionId: string | null = null;
   let streamEnding = false;
   let streamChunkIndex = 0;
   let sentenceQueue: string[] = [];
@@ -430,10 +431,7 @@ export function createVoiceExtension(config: VoiceConfig = {}): ClaudiaExtension
 
     // Signal stream end to clients
     if (streamId) {
-      ctx?.emit("voice.stream_end", {
-        streamId,
-        sessionId,
-      });
+      ctx?.emit("voice.stream_end", { streamId, sessionId });
     }
 
     // Reset streaming state

@@ -23,7 +23,9 @@ type EventHandler = (event: GatewayEvent) => void | Promise<void>;
 export class ExtensionManager {
   private extensions = new Map<string, ClaudiaExtension>();
   private eventHandlers = new Map<string, Set<EventHandler>>();
-  private emitCallback: ((type: string, payload: unknown, origin: string) => void) | null = null;
+  private emitCallback:
+    | ((type: string, payload: unknown, source: string, connectionId?: string) => void)
+    | null = null;
 
   // Source routing: maps source prefix -> extension ID (or remote host)
   private sourceRoutes = new Map<string, string>();
@@ -36,7 +38,9 @@ export class ExtensionManager {
   /**
    * Set the callback for when extensions emit events
    */
-  setEmitCallback(callback: (type: string, payload: unknown, source: string) => void): void {
+  setEmitCallback(
+    callback: (type: string, payload: unknown, source: string, connectionId?: string) => void,
+  ): void {
     this.emitCallback = callback;
   }
 

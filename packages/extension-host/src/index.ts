@@ -79,7 +79,13 @@ export async function runExtensionHost(factory: ExtensionFactory): Promise<void>
   }
 
   function writeEvent(type: string, payload: unknown, options?: { source?: string }): void {
-    write({ type: "event", event: type, payload, source: options?.source });
+    write({
+      type: "event",
+      event: type,
+      payload,
+      source: options?.source,
+      connectionId: currentConnectionId,
+    });
   }
 
   function writeResponse(id: string, ok: boolean, payload: unknown): void {
@@ -314,7 +320,11 @@ export async function runExtensionHost(factory: ExtensionFactory): Promise<void>
         sessionId: msg.sessionId as string | undefined,
         connectionId: msg.connectionId as string | undefined,
       };
+      // Set context so any ctx.emit() during handler gets the right connectionId
+      const prevConnectionId = currentConnectionId;
+      currentConnectionId = event.connectionId || null;
       await broadcastToHandlers(event);
+      currentConnectionId = prevConnectionId;
     }
   }
 

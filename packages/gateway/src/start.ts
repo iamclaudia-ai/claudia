@@ -6,7 +6,7 @@
  * Each enabled extension runs in its own host process via stdio NDJSON.
  */
 
-import { extensions, broadcastEvent } from "./index";
+import { extensions, handleExtensionEvent } from "./index";
 import { getEnabledExtensions, createLogger } from "@claudia/shared";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -107,7 +107,8 @@ async function spawnOutOfProcessExtension(
     id,
     moduleSpec,
     config,
-    (type, payload, source) => broadcastEvent(type, payload, source || `extension:${id}`),
+    (type, payload, source, connectionId) =>
+      handleExtensionEvent(type, payload, source || `extension:${id}`, connectionId),
     (registration: ExtensionRegistration) => {
       // Allow config-level sourceRoutes to augment extension-declared routes.
       if (sourceRoutes?.length) {

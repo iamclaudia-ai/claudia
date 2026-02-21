@@ -72,8 +72,8 @@ async function runE2E(): Promise<void> {
   });
 
   try {
-    await request("subscribe", { events: ["session.*"] });
-    const wsResult = (await request("workspace.get_or_create", {
+    await request("gateway.subscribe", { events: ["session.*"] });
+    const wsResult = (await request("session.get_or_create_workspace", {
       cwd: process.cwd(),
       name: "Smoke Test",
     })) as {
@@ -81,9 +81,9 @@ async function runE2E(): Promise<void> {
     };
 
     const workspaceId = wsResult.workspace?.id;
-    if (!workspaceId) throw new Error("workspace.get_or_create returned no workspace id");
+    if (!workspaceId) throw new Error("session.get_or_create_workspace returned no workspace id");
 
-    const sessionResult = (await request("workspace.create_session", {
+    const sessionResult = (await request("session.create_session", {
       workspaceId,
       model,
       thinking,
@@ -92,9 +92,9 @@ async function runE2E(): Promise<void> {
     })) as { session?: { id: string } };
 
     const sessionId = sessionResult.session?.id;
-    if (!sessionId) throw new Error("workspace.create_session returned no session id");
+    if (!sessionId) throw new Error("session.create_session returned no session id");
 
-    await request("session.prompt", {
+    await request("session.send_prompt", {
       sessionId,
       content: "Reply with exactly: SMOKE_OK",
       model,

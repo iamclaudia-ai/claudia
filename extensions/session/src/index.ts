@@ -261,7 +261,7 @@ export function createSessionExtension(config: Record<string, unknown> = {}): Cl
       // Emit stream events with optional source routing
       ctx.emit(
         eventName,
-        { ...payload, sessionId },
+        { ...payload, sessionId, connectionId: reqCtx?.connectionId ?? undefined },
         reqCtx?.source ? { source: reqCtx.source } : undefined,
       );
 

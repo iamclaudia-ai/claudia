@@ -65,7 +65,12 @@ export class ExtensionHostProcess {
     private extensionId: string,
     private moduleSpec: string,
     private config: Record<string, unknown>,
-    private onEvent: (type: string, payload: unknown, source?: string) => void,
+    private onEvent: (
+      type: string,
+      payload: unknown,
+      source?: string,
+      connectionId?: string,
+    ) => void,
     private onRegister: (registration: ExtensionRegistration) => void,
     private onCall?: OnCallCallback,
   ) {}
@@ -360,8 +365,13 @@ export class ExtensionHostProcess {
       // Extension wants to call another extension via gateway hub
       this.handleCall(msg);
     } else if (msgType === "event") {
-      // Extension emitted an event — forward to gateway (with optional source)
-      this.onEvent(msg.event as string, msg.payload, msg.source as string | undefined);
+      // Extension emitted an event — forward to gateway (with optional source + connectionId)
+      this.onEvent(
+        msg.event as string,
+        msg.payload,
+        msg.source as string | undefined,
+        msg.connectionId as string | undefined,
+      );
     } else if (msgType === "error") {
       // Fatal error from host
       log.error("Extension host error", {

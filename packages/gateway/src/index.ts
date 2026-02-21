@@ -140,16 +140,22 @@ const extensions = new ExtensionManager();
 // Initialize database (runs migrations)
 getDb();
 
-// Wire up extension event emitting to broadcast
-extensions.setEmitCallback(async (type, payload, source) => {
+/**
+ * Unified event handler for all extension events (in-process and remote).
+ * Handles voice stream routing, cross-extension broadcast, and WS fan-out.
+ * connectionId flows on the envelope, NOT in extension payloads.
+ */
+function handleExtensionEvent(
+  type: string,
+  payload: unknown,
+  source: string,
+  connectionId?: string,
+): void {
   const payloadObj =
     payload && typeof payload === "object" ? (payload as Record<string, unknown>) : null;
 
   // Track voice stream origins for connection-scoped routing
   if (type === "voice.stream_start" && payloadObj?.streamId) {
-    const payloadConnectionId =
-      typeof payloadObj.connectionId === "string" ? payloadObj.connectionId : null;
-    const connectionId = payloadConnectionId;
     if (connectionId) {
       voiceStreamOrigins.set(payloadObj.streamId as string, connectionId);
     } else {
@@ -165,10 +171,9 @@ extensions.setEmitCallback(async (type, payload, source) => {
     : undefined;
 
   // gateway:caller routing — send only to originating connection
-  if (source === "gateway:caller" && payloadObj?.connectionId) {
-    const targetConnectionId = payloadObj.connectionId as string;
+  if (source === "gateway:caller" && connectionId) {
     for (const [ws, state] of clients) {
-      if (state.id === targetConnectionId) {
+      if (state.id === connectionId) {
         const event: Event = { type: "event", event: type, payload };
         ws.send(JSON.stringify(event));
         break;
@@ -181,7 +186,7 @@ extensions.setEmitCallback(async (type, payload, source) => {
         payload,
         timestamp: Date.now(),
         origin: source,
-        connectionId: payloadObj.connectionId as string,
+        connectionId,
       },
       sourceExtId,
     );
@@ -199,7 +204,7 @@ extensions.setEmitCallback(async (type, payload, source) => {
       origin: source,
       source,
       sessionId: (payloadObj?.sessionId as string) || undefined,
-      connectionId: (payloadObj?.connectionId as string) || undefined,
+      connectionId,
     },
     sourceExtId,
   );
@@ -207,7 +212,10 @@ extensions.setEmitCallback(async (type, payload, source) => {
   if (type === "voice.stream_end" && payloadObj?.streamId) {
     voiceStreamOrigins.delete(payloadObj.streamId as string);
   }
-});
+}
+
+// Wire up in-process extension events through the unified handler
+extensions.setEmitCallback(handleExtensionEvent);
 
 // Generate unique IDs
 const generateId = () => crypto.randomUUID();
@@ -454,10 +462,8 @@ function broadcastEvent(
 
   const streamId =
     typeof payloadObj?.streamId === "string" ? (payloadObj.streamId as string) : null;
-  const payloadConnectionId =
-    typeof payloadObj?.connectionId === "string" ? (payloadObj.connectionId as string) : null;
   const targetConnectionId = streamId
-    ? (voiceStreamOrigins.get(streamId) ?? payloadConnectionId ?? null)
+    ? (voiceStreamOrigins.get(streamId) ?? connectionId ?? null)
     : null;
   const isVoiceEvent = eventName.startsWith("voice.");
   const isConnectionScoped = isVoiceEvent && targetConnectionId !== null;
@@ -760,4 +766,4 @@ if (import.meta.hot) {
   });
 }
 
-export { server, broadcastEvent, extensions };
+export { server, broadcastEvent, handleExtensionEvent, extensions };

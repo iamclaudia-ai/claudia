@@ -40,7 +40,7 @@ async function methodListSmoke(): Promise<number> {
         JSON.stringify({
           type: "req",
           id: reqId,
-          method: "method.list",
+          method: "gateway.list_methods",
           params: {},
         } satisfies Message),
       );
@@ -52,7 +52,7 @@ async function methodListSmoke(): Promise<number> {
 
       if (!msg.ok) {
         ws.close();
-        reject(new Error(msg.error || "method.list failed"));
+        reject(new Error(msg.error || "gateway.list_methods failed"));
         return;
       }
 
@@ -68,7 +68,7 @@ async function methodListSmoke(): Promise<number> {
 async function main(): Promise<void> {
   await checkHealth();
   const methodCount = await methodListSmoke();
-  console.log(`[smoke] OK: gateway healthy + method.list returned ${methodCount} methods`);
+  console.log(`[smoke] OK: gateway healthy + gateway.list_methods returned ${methodCount} methods`);
 }
 
 main().catch((err) => {

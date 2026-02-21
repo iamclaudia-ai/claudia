@@ -484,8 +484,8 @@ async function invokeMethod(method: string, params: Record<string, unknown>): Pr
         const subMsg: Message = {
           type: "req",
           id: generateId(),
-          method: "subscribe",
-          params: { events: ["stream.*"] },
+          method: "gateway.subscribe",
+          params: { events: ["session.*"] },
         };
         ws.send(JSON.stringify(subMsg));
       }
@@ -554,7 +554,7 @@ async function speak(text: string): Promise<void> {
         JSON.stringify({
           type: "req",
           id: generateId(),
-          method: "subscribe",
+          method: "gateway.subscribe",
           params: { events: ["voice.*"] },
         }),
       );
@@ -636,7 +636,7 @@ async function promptCompat(args: string[]): Promise<void> {
   };
 
   ws.onopen = () => {
-    sendRequest("subscribe", { events: ["stream.*"] });
+    sendRequest("gateway.subscribe", { events: ["session.*"] });
     sendRequest("session.get_or_create_workspace", { cwd: process.cwd() });
   };
 

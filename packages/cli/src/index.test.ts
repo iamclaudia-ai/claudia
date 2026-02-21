@@ -54,9 +54,9 @@ describe("cli parsing", () => {
 
 describe("schema resolution and validation", () => {
   const sessionPromptSchema: JsonSchema = {
-    $ref: "#/definitions/session_prompt",
+    $ref: "#/definitions/session_send_prompt",
     definitions: {
-      session_prompt: {
+      session_send_prompt: {
         type: "object",
         required: ["sessionId", "content", "model", "thinking", "effort"],
         additionalProperties: false,
@@ -81,12 +81,12 @@ describe("schema resolution and validation", () => {
 
   it("enforces required params and type checks", () => {
     expect(() =>
-      validateParamsAgainstSchema("session.prompt", { sessionId: "s1" }, sessionPromptSchema),
-    ).toThrow("Missing required params for session.prompt: content, model, thinking, effort");
+      validateParamsAgainstSchema("session.send_prompt", { sessionId: "s1" }, sessionPromptSchema),
+    ).toThrow("Missing required params for session.send_prompt: content, model, thinking, effort");
 
     expect(() =>
       validateParamsAgainstSchema(
-        "session.prompt",
+        "session.send_prompt",
         {
           sessionId: "s1",
           content: "hello",
@@ -96,11 +96,11 @@ describe("schema resolution and validation", () => {
         } as unknown as Record<string, unknown>,
         sessionPromptSchema,
       ),
-    ).toThrow("Invalid type for session.prompt.thinking: expected boolean, got string");
+    ).toThrow("Invalid type for session.send_prompt.thinking: expected boolean, got string");
 
     expect(() =>
       validateParamsAgainstSchema(
-        "session.prompt",
+        "session.send_prompt",
         {
           sessionId: "s1",
           content: "hello",
@@ -111,13 +111,13 @@ describe("schema resolution and validation", () => {
         },
         sessionPromptSchema,
       ),
-    ).toThrow("Unknown params for session.prompt: extra");
+    ).toThrow("Unknown params for session.send_prompt: extra");
   });
 
   it("accepts valid payload", () => {
     expect(() =>
       validateParamsAgainstSchema(
-        "session.prompt",
+        "session.send_prompt",
         {
           sessionId: "s1",
           content: ["hello"],
@@ -141,7 +141,7 @@ describe("schema resolution and validation", () => {
 
 describe("help/example output", () => {
   const entry: MethodCatalogEntry = {
-    method: "session.prompt",
+    method: "session.send_prompt",
     source: "gateway",
     description: "Send prompt",
     inputSchema: {
@@ -182,7 +182,7 @@ describe("help/example output", () => {
     printMethodHelp(entry);
 
     const lines = logSpy.mock.calls.flat().map((v) => String(v));
-    expect(lines.some((l) => l.includes("claudia session prompt"))).toBe(true);
+    expect(lines.some((l) => l.includes("claudia session send_prompt"))).toBe(true);
     expect(lines.some((l) => l.includes("--sessionId <SESSIONID> (string, required)"))).toBe(true);
     expect(
       lines.some((l) => l.includes("--speakResponse [SPEAKRESPONSE] (boolean, optional)")),
@@ -197,7 +197,9 @@ describe("help/example output", () => {
 
     const lines = logSpy.mock.calls.flat().map((v) => String(v));
     expect(
-      lines.some((l) => l.includes('claudia session prompt --sessionId "value" --content "value"')),
+      lines.some((l) =>
+        l.includes('claudia session send_prompt --sessionId "value" --content "value"'),
+      ),
     ).toBe(true);
 
     logSpy.mockRestore();
@@ -228,7 +230,7 @@ describe("help/example output", () => {
     expect(
       lines.some((l) =>
         l.includes(
-          "claudia session prompt --sessionId <SESSIONID> --content <CONTENT> --speakResponse [SPEAKRESPONSE]",
+          "claudia session send_prompt --sessionId <SESSIONID> --content <CONTENT> --speakResponse [SPEAKRESPONSE]",
         ),
       ),
     ).toBe(true);
@@ -243,7 +245,7 @@ describe("help/example output", () => {
     const lines = logSpy.mock.calls.flat().map((v) => String(v));
     expect(lines.some((l) => l.includes("Namespace: dominatrix"))).toBe(true);
     expect(lines.some((l) => l.includes("claudia dominatrix html"))).toBe(true);
-    expect(lines.some((l) => l.includes("claudia session prompt"))).toBe(false);
+    expect(lines.some((l) => l.includes("claudia session send_prompt"))).toBe(false);
 
     logSpy.mockRestore();
   });
