@@ -577,7 +577,7 @@ export function createVoiceExtension(config: VoiceConfig = {}): ClaudiaExtension
 
       // Track content block type and per-request voice preference
       unsubscribers.push(
-        ctx.on("session.content_block_start", (event: GatewayEvent) => {
+        ctx.on("session.*.content_block_start", (event: GatewayEvent) => {
           const payload = event.payload as {
             content_block?: { type: string };
             speakResponse?: boolean;
@@ -608,7 +608,7 @@ export function createVoiceExtension(config: VoiceConfig = {}): ClaudiaExtension
 
       // Process text deltas
       unsubscribers.push(
-        ctx.on("session.content_block_delta", (event: GatewayEvent) => {
+        ctx.on("session.*.content_block_delta", (event: GatewayEvent) => {
           if (currentBlockType !== "text") return;
 
           const payload = event.payload as {
@@ -636,7 +636,7 @@ export function createVoiceExtension(config: VoiceConfig = {}): ClaudiaExtension
 
       // On message complete
       unsubscribers.push(
-        ctx.on("session.message_stop", async (event: GatewayEvent) => {
+        ctx.on("session.*.message_stop", async (event: GatewayEvent) => {
           fileLog(
             "INFO",
             `message_stop: streaming=${cfg.streaming}, hasActiveStream=${!!currentStreamId}, textBuffer=${textBuffer.length} chars, shouldSpeak=${shouldSpeak()}`,

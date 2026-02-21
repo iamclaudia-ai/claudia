@@ -27,7 +27,7 @@ export interface Workspace {
 export interface SessionRecord {
   id: string; // TypeID: ses_<ulid>
   workspaceId: string;
-  ccSessionId: string; // Claude Code UUID (for resume)
+  sessionId: string; // Claude Code UUID (for resume)
   status: "active" | "archived";
   title: string | null;
   summary: string | null;

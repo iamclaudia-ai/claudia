@@ -16,7 +16,7 @@ import type {
   Ping,
   GatewayEvent,
 } from "@claudia/shared";
-import { loadConfig, createLogger } from "@claudia/shared";
+import { loadConfig, createLogger, matchesEventPattern } from "@claudia/shared";
 export type { GatewayEvent };
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -159,6 +159,11 @@ extensions.setEmitCallback(async (type, payload, source) => {
     }
   }
 
+  // Determine source extension ID for loop prevention
+  const sourceExtId = source?.startsWith("extension:")
+    ? source.slice("extension:".length)
+    : undefined;
+
   // gateway:caller routing — send only to originating connection
   if (source === "gateway:caller" && payloadObj?.connectionId) {
     const targetConnectionId = payloadObj.connectionId as string;
@@ -170,17 +175,34 @@ extensions.setEmitCallback(async (type, payload, source) => {
       }
     }
     // Forward to extension handlers (but not WS clients — already handled above)
-    extensions.broadcast({
-      type,
-      payload,
-      timestamp: Date.now(),
-      origin: source,
-      connectionId: payloadObj.connectionId as string,
-    });
+    extensions.broadcast(
+      {
+        type,
+        payload,
+        timestamp: Date.now(),
+        origin: source,
+        connectionId: payloadObj.connectionId as string,
+      },
+      sourceExtId,
+    );
     return;
   }
 
   broadcastEvent(type, payload, source);
+
+  // Forward to other extensions — skip the one that emitted (loop prevention)
+  extensions.broadcast(
+    {
+      type,
+      payload,
+      timestamp: Date.now(),
+      origin: source,
+      source,
+      sessionId: (payloadObj?.sessionId as string) || undefined,
+      connectionId: (payloadObj?.connectionId as string) || undefined,
+    },
+    sourceExtId,
+  );
 
   if (type === "voice.stream_end" && payloadObj?.streamId) {
     voiceStreamOrigins.delete(payloadObj.streamId as string);
@@ -466,15 +488,9 @@ function broadcastEvent(
 
   // 3. Standard subscription matching for all clients
   for (const [ws, state] of clients) {
-    const isSubscribed = Array.from(state.subscriptions).some((pattern) => {
-      if (pattern === "*") return true;
-      if (pattern === eventName) return true;
-      if (pattern.endsWith(".*")) {
-        const prefix = pattern.slice(0, -2);
-        return eventName.startsWith(prefix + ".");
-      }
-      return false;
-    });
+    const isSubscribed = Array.from(state.subscriptions).some((pattern) =>
+      matchesEventPattern(eventName, pattern),
+    );
 
     if (isSubscribed) {
       ws.send(data);

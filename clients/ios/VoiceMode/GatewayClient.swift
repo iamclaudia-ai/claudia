@@ -22,7 +22,7 @@ class GatewayClient: NSObject, @unchecked Sendable {
     // Working directory for voice mode sessions
     private let cwd: String
     private var activeSessionRecordId: String?
-    private var activeCcSessionId: String?
+    private var activeSessionId: String?
 
     // Callbacks — set by AppState
     var onConnected: (() -> Void)?
@@ -86,11 +86,11 @@ class GatewayClient: NSObject, @unchecked Sendable {
                         if let dict = payload as? [String: Any],
                            let session = dict["session"] as? [String: Any],
                            let sessionRecordId = session["id"] as? String,
-                           let ccSessionId = session["ccSessionId"] as? String {
+                           let sessionId = session["sessionId"] as? String {
                             self.activeSessionRecordId = sessionRecordId
-                            self.activeCcSessionId = ccSessionId
-                            streamEvents.append("stream.\(ccSessionId).*")
-                            resolvedMessage = "[\(action)] session=\(sessionRecordId) cc=\(ccSessionId)"
+                            self.activeSessionId = sessionId
+                            streamEvents.append("session.\(sessionId).*")
+                            resolvedMessage = "[\(action)] session=\(sessionRecordId) id=\(sessionId)"
                             print("[Gateway] \(resolvedMessage)")
                         }
 

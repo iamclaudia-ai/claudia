@@ -13,7 +13,7 @@
  */
 
 import type { ClaudiaExtension, ExtensionContext, GatewayEvent } from "@claudia/shared";
-import { createLogger } from "@claudia/shared";
+import { createLogger, matchesEventPattern } from "@claudia/shared";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
@@ -29,18 +29,6 @@ interface PendingCall {
 }
 
 type EventHandler = (event: GatewayEvent) => void | Promise<void>;
-
-// ── Helpers ────────────────────────────────────────────────────
-
-function matchesPattern(eventType: string, pattern: string): boolean {
-  if (pattern === "*") return true;
-  if (pattern === eventType) return true;
-  if (pattern.endsWith(".*")) {
-    const prefix = pattern.slice(0, -2);
-    return eventType.startsWith(prefix + ".");
-  }
-  return false;
-}
 
 // ── Public API ─────────────────────────────────────────────────
 
@@ -120,7 +108,7 @@ export async function runExtensionHost(factory: ExtensionFactory): Promise<void>
   async function broadcastToHandlers(event: GatewayEvent): Promise<void> {
     const handlers: EventHandler[] = [];
     for (const [pattern, handlerSet] of eventHandlers) {
-      if (matchesPattern(event.type, pattern)) {
+      if (matchesEventPattern(event.type, pattern)) {
         handlers.push(...handlerSet);
       }
     }
@@ -330,6 +318,11 @@ export async function runExtensionHost(factory: ExtensionFactory): Promise<void>
     }
   }
 
+  // Store handleMessage in hot data so persisted stdin listener can find the latest version
+  if (import.meta.hot) {
+    import.meta.hot.data.handleMessage = handleMessage;
+  }
+
   // ── Stdin Reading ───────────────────────────────────────────
   // IMPORTANT: Only attach listeners once — they persist across HMR reloads
   // since process.stdin is the same object. We track this via import.meta.hot.data
@@ -358,15 +351,18 @@ export async function runExtensionHost(factory: ExtensionFactory): Promise<void>
         buffer = buffer.slice(newlineIndex + 1);
 
         if (line.length > 0) {
-          await handleMessage(line);
+          // Use latest handler from hot data (survives HMR reloads)
+          const handler = import.meta.hot?.data?.handleMessage || handleMessage;
+          await handler(line);
         }
       }
     });
 
     process.stdin.on("end", async () => {
       hostLog.info("Stdin closed, shutting down");
-      if (extension) {
-        await extension.stop();
+      const ext = import.meta.hot?.data?.extension || extension;
+      if (ext) {
+        await ext.stop();
       }
       process.exit(0);
     });
@@ -382,6 +378,9 @@ export async function runExtensionHost(factory: ExtensionFactory): Promise<void>
 
   try {
     extension = await loadAndStart();
+    if (import.meta.hot) {
+      import.meta.hot.data.extension = extension;
+    }
     readStdin();
   } catch (error) {
     hostLog.error("Failed to start extension", { error: String(error) });

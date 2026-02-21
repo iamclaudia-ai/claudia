@@ -11,7 +11,7 @@ import type {
   ExtensionMethodDefinition,
   GatewayEvent,
 } from "@claudia/shared";
-import { createLogger } from "@claudia/shared";
+import { createLogger, matchesEventPattern } from "@claudia/shared";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import type { ExtensionHostProcess, ExtensionRegistration } from "./extension-host";
@@ -175,12 +175,12 @@ export class ExtensionManager {
   /**
    * Broadcast an event to all subscribed extensions (local + remote)
    */
-  async broadcast(event: GatewayEvent): Promise<void> {
+  async broadcast(event: GatewayEvent, skipExtensionId?: string): Promise<void> {
     // Local handlers
     const handlers: EventHandler[] = [];
 
     for (const [pattern, handlerSet] of this.eventHandlers) {
-      if (this.matchesPattern(event.type, pattern)) {
+      if (matchesEventPattern(event.type, pattern)) {
         handlers.push(...handlerSet);
       }
     }
@@ -188,9 +188,11 @@ export class ExtensionManager {
     // Run all local handlers (allow async)
     await Promise.all(handlers.map((handler) => handler(event)));
 
-    // Forward to all remote extension hosts
-    for (const host of this.remoteHosts.values()) {
-      host.sendEvent(event);
+    // Forward to all remote extension hosts — skip the emitter
+    for (const [extId, host] of this.remoteHosts) {
+      if (extId !== skipExtensionId) {
+        host.sendEvent(event);
+      }
     }
   }
 
@@ -415,18 +417,5 @@ export class ExtensionManager {
 
       log: createLogger(extensionId, join(homedir(), ".claudia", "logs", `${extensionId}.log`)),
     };
-  }
-
-  /**
-   * Check if an event type matches a pattern
-   */
-  private matchesPattern(eventType: string, pattern: string): boolean {
-    if (pattern === "*") return true;
-    if (pattern === eventType) return true;
-    if (pattern.endsWith(".*")) {
-      const prefix = pattern.slice(0, -2);
-      return eventType.startsWith(prefix + ".");
-    }
-    return false;
   }
 }

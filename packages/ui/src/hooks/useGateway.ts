@@ -163,14 +163,14 @@ export function useGateway(gatewayUrl: string, options: UseGatewayOptions = {}):
       // Unsubscribe from old session's stream if any
       if (subscribedSessionRef.current) {
         sendRequest("gateway.unsubscribe", {
-          events: [`stream.${subscribedSessionRef.current}.*`],
+          events: [`session.${subscribedSessionRef.current}.*`],
         });
       }
 
       // Subscribe to this session's stream events
-      sendRequest("gateway.subscribe", { events: [`stream.${sid}.*`] });
+      sendRequest("gateway.subscribe", { events: [`session.${sid}.*`] });
       subscribedSessionRef.current = sid;
-      console.log(`[WS] Subscribed to stream: stream.${sid.slice(0, 8)}...*`);
+      console.log(`[WS] Subscribed to session: session.${sid.slice(0, 8)}...*`);
     },
     [sendRequest],
   );
@@ -671,10 +671,10 @@ export function useGateway(gatewayUrl: string, options: UseGatewayOptions = {}):
           return;
         }
 
-        // Streaming events: "stream.{sessionId}.{eventType}"
-        // Extract the eventType (everything after "stream.{sessionId}.")
+        // Streaming events: "session.{sessionId}.{eventType}"
+        // Extract the eventType (everything after "session.{sessionId}.")
         const parts = msg.event.split(".");
-        if (parts[0] === "stream" && parts.length >= 3) {
+        if (parts[0] === "session" && parts.length >= 3) {
           const eventType = parts.slice(2).join(".");
           const payload = msg.payload as Record<string, unknown>;
           handleStreamEvent(eventType, payload);

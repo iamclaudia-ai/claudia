@@ -74,7 +74,7 @@ export interface LibbyConfig {
  * The system prompt is sent as the first message to establish Libby's identity.
  */
 class LibbySession {
-  private sessionId: string | null = null;
+  private _sessionId: string | null = null;
   private initialized = false;
   promptCount = 0;
 
@@ -85,12 +85,12 @@ class LibbySession {
   ) {}
 
   get isOpen(): boolean {
-    return this.initialized && this.sessionId !== null;
+    return this.initialized && this._sessionId !== null;
   }
 
-  /** The session ID for this Libby session */
-  get ccSessionId(): string | null {
-    return this.sessionId;
+  /** The Claude Code session ID for this Libby session */
+  get sessionId(): string | null {
+    return this._sessionId;
   }
 
   /**
@@ -106,14 +106,14 @@ class LibbySession {
     const result = (await this.ctx.call("session.create_session", { cwd: LIBBY_CWD })) as {
       sessionId: string;
     };
-    this.sessionId = result.sessionId;
-    if (!this.sessionId) throw new Error("Failed to create session");
+    this._sessionId = result.sessionId;
+    if (!this._sessionId) throw new Error("Failed to create session");
 
     // Send system prompt as first message
     const initPrompt = `${SYSTEM_PROMPT}\n\n---\n\nYou are now ready to process conversation transcripts. For each transcript I send, use your tools to write memories to ~/memory/, then respond with a SUMMARY or SKIP line.\n\nRespond with "ready" to confirm you understand.`;
 
     await this.ctx.call("session.send_prompt", {
-      sessionId: this.sessionId,
+      sessionId: this._sessionId,
       content: initPrompt,
       streaming: false,
     });
@@ -133,14 +133,14 @@ class LibbySession {
    * Previous context is injected via DB-backed summaries.
    */
   async processTranscript(content: string): Promise<string> {
-    if (!this.sessionId || !this.initialized) {
+    if (!this._sessionId || !this.initialized) {
       throw new Error("Session not initialized");
     }
 
     this.promptCount++;
 
     const result = (await this.ctx.call("session.send_prompt", {
-      sessionId: this.sessionId,
+      sessionId: this._sessionId,
       content,
       streaming: false,
     })) as { text: string };
@@ -154,14 +154,14 @@ class LibbySession {
    * Close the session — release the runtime resources via gateway RPC.
    */
   async close(): Promise<void> {
-    if (this.sessionId) {
+    if (this._sessionId) {
       try {
-        await this.ctx.call("session.close_session", { sessionId: this.sessionId });
+        await this.ctx.call("session.close_session", { sessionId: this._sessionId });
       } catch {
         // Session may already be closed
       }
     }
-    this.sessionId = null;
+    this._sessionId = null;
     this.initialized = false;
     this.promptCount = 0;
   }
@@ -321,14 +321,14 @@ export class LibbyWorker {
     await this.session.open();
     this.log("INFO", "Libby: Session ready");
 
-    // Mark as processing with metadata (include ccSessionId for recovery checks)
+    // Mark as processing with metadata (include sessionId for recovery checks)
     updateConversationStatus(conv.id, "processing", {
       transcriptKB: Number(transcriptKB),
       entries: entries.length,
       date: transcript.date,
       timeRange: transcript.timeRange,
       cwd: transcript.primaryCwd,
-      ccSessionId: this.session.ccSessionId,
+      sessionId: this.session.sessionId,
     });
 
     // Look up previous conversations from same source for context

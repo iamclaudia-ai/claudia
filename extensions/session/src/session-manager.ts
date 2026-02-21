@@ -225,7 +225,7 @@ export class SessionManager extends EventEmitter {
 
     session.on("sse", (event: StreamEvent) => {
       this.emit("session.event", {
-        eventName: `stream.${sessionId}.${event.type}`,
+        eventName: `session.${sessionId}.${event.type}`,
         sessionId,
         ...event,
       });
@@ -233,7 +233,7 @@ export class SessionManager extends EventEmitter {
 
     session.on("process_started", () => {
       this.emit("session.event", {
-        eventName: `stream.${sessionId}.process_started`,
+        eventName: `session.${sessionId}.process_started`,
         sessionId,
         type: "process_started",
       });
@@ -241,7 +241,7 @@ export class SessionManager extends EventEmitter {
 
     session.on("process_ended", () => {
       this.emit("session.event", {
-        eventName: `stream.${sessionId}.process_ended`,
+        eventName: `session.${sessionId}.process_ended`,
         sessionId,
         type: "process_ended",
       });

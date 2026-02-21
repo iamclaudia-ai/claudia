@@ -503,23 +503,23 @@ export function getPreviousConversationContext(
  */
 export function getProcessingConversations(): Array<{
   id: number;
-  ccSessionId: string | null;
+  sessionId: string | null;
 }> {
   const rows = getDb()
     .query("SELECT id, metadata FROM memory_conversations WHERE status = 'processing'")
     .all() as Array<{ id: number; metadata: string | null }>;
 
   return rows.map((r) => {
-    let ccSessionId: string | null = null;
+    let sessionId: string | null = null;
     if (r.metadata) {
       try {
         const meta = JSON.parse(r.metadata);
-        ccSessionId = meta.ccSessionId ?? null;
+        sessionId = meta.sessionId ?? meta.ccSessionId ?? null;
       } catch {
         /* ignore parse errors */
       }
     }
-    return { id: r.id, ccSessionId };
+    return { id: r.id, sessionId };
   });
 }
 
