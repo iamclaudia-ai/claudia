@@ -15,20 +15,21 @@ Claudia is a personal AI assistant platform built around Claude Code CLI. A sing
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│              Gateway (port 30086) — Pure Hub              │
-│                                                          │
-│  Bun.serve:                                              │
-│    /ws     → WebSocket (all client communication)        │
-│    /health → JSON status endpoint                        │
-│    /*      → SPA (web UI with extension pages)           │
-│                                                          │
-│  ┌──────────────┐  ┌──────────────┐  ┌────────────────┐  │
-│  │   Extension  │  │   Event      │  │   ctx.call()   │  │
-│  │   Host       │  │   Bus        │  │   RPC Hub      │  │
-│  │  (per ext)   │  │  (WS pub/sub)│  │  (inter-ext)   │  │
-│  └──────────────┘  └──────────────┘  └────────────────┘  │
-└──────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────┐
+│               Gateway (port 30086) — Pure Hub              │
+│                                                            │
+│  Bun.serve:                                                │
+│    /ws     → WebSocket (all client communication)          │
+│    /health → JSON status endpoint                          │
+│    /*      → SPA (web UI with extension pages)             │
+│                                                            │
+│  ┌────────────────┐  ┌──────────────┐  ┌────────────────┐  │
+│  │  Extension     │  │   Event      │  │   ctx.call()   │  │
+│  │  Manager       │  │   Bus        │  │   RPC Hub      │  │
+│  │ (spawn + NDJSON│  │ (WS pub/sub) │  │  (inter-ext)   │  │
+│  │  per extension)│  │              │  │                │  │
+│  └────────────────┘  └──────────────┘  └────────────────┘  │
+└────────────────────────────────────────────────────────────┘
 ```
 
 ### Core Principle: Gateway as Pure Hub
@@ -45,13 +46,15 @@ Every feature — including the web chat UI — is an extension with routes and 
 
 Server extension loading is config-driven from `~/.claudia/claudia.json` and out-of-process by default (one extension-host child process per enabled extension). Each extension entrypoint must be `extensions/<id>/src/index.ts`.
 
-| Extension         | Location                      | Server methods                                        | Web pages                             |
-| ----------------- | ----------------------------- | ----------------------------------------------------- | ------------------------------------- |
-| `session`         | `extensions/session/`         | `session.create-session`, `session.send-prompt`, etc. | —                                     |
-| `chat`            | `extensions/chat/`            | `chat.health-check`                                   | `/`, `/workspace/:id`, `/session/:id` |
-| `voice`           | `extensions/voice/`           | `voice.speak`, `voice.stop`                           | —                                     |
-| `imessage`        | `extensions/imessage/`        | `imessage.send`, `imessage.chats`                     | —                                     |
-| `mission-control` | `extensions/mission-control/` | `mission-control.health-check`                        | `/mission-control`                    |
+| Extension         | Location                      | Server methods                                        | Web pages                                         |
+| ----------------- | ----------------------------- | ----------------------------------------------------- | ------------------------------------------------- |
+| `session`         | `extensions/session/`         | `session.create-session`, `session.send-prompt`, etc. | —                                                 |
+| `chat`            | `extensions/chat/`            | —                                                     | `/`, `/workspace/:workspaceId/session/:sessionId` |
+| `voice`           | `extensions/voice/`           | `voice.speak`, `voice.stop`                           | —                                                 |
+| `imessage`        | `extensions/imessage/`        | `imessage.send`, `imessage.chats`                     | —                                                 |
+| `hooks`           | `extensions/hooks/`           | `hooks.health-check`                                  | —                                                 |
+| `memory`          | `extensions/memory/`          | `memory.health-check`                                 | —                                                 |
+| `mission-control` | `extensions/mission-control/` | `mission-control.health-check`                        | `/mission-control`                                |
 
 ## Tech Stack
 
@@ -74,7 +77,7 @@ claudia/
 ├── packages/
 │   ├── gateway/          # Pure hub — routes messages, event fanout, no business logic
 │   ├── watchdog/         # Process supervisor — spawns gateway, health checks
-│   ├── extension-host/   # Generic shim for out-of-process extensions (NDJSON stdio)
+│   ├── extension-host/   # runExtensionHost() — NDJSON bridge imported by extensions
 │   ├── cli/              # Schema-driven CLI with method discovery
 │   ├── shared/           # Shared types, config, and protocol definitions
 │   ├── ui/               # Shared React components + router
@@ -88,6 +91,8 @@ claudia/
 │   ├── chat/             # Web chat pages (workspaces, sessions, chat)
 │   ├── voice/            # Cartesia TTS + auto-speak + audio store
 │   ├── imessage/         # iMessage bridge + auto-reply
+│   ├── hooks/            # Lifecycle hooks (post-response processing)
+│   ├── memory/           # Memory ingestion and processing (Libby pipeline)
 │   └── mission-control/  # System dashboard + health checks
 ├── skills/               # Claude Code skills (meditation, stories, TTS tools)
 ├── scripts/              # Smoke tests, E2E tests
@@ -117,9 +122,9 @@ Key files:
 
 Manages all Claude session lifecycle via the Agent SDK:
 
-- **SDK Engine**: Uses `@anthropic-ai/claude-agent-sdk` `query()` function
+- **SDK Engine**: Uses `@anthropic-ai/claude-agent-sdk` `query()` function — async generator of `SDKMessage` types
 - **Workspace CRUD**: SQLite (WAL mode) for workspace registry
-- **Session Source-of-Truth**: Filesystem — reads `~/.claude/projects/{encoded-cwd}/sessions-index.json`
+- **Session Discovery**: Filesystem — reads `~/.claude/projects/{encoded-cwd}/sessions-index.json`, resolves paths via `resolveSessionPath(cwd)`
 - **History**: Parses JSONL session files from Claude Code
 - **Inter-extension RPC**: Other extensions call `ctx.call("session.send-prompt", ...)` etc.
 
@@ -198,15 +203,12 @@ extensions/<name>/src/
 
 **Discovery**: `gateway.list-methods` — returns all methods with schemas
 
-**Extension methods**: `voice.speak`, `voice.stop`, `voice.health-check`, `imessage.send`, `imessage.chats`, `imessage.health-check`, `chat.health-check`, `mission-control.health-check`
+**Extension methods**: `voice.speak`, `voice.stop`, `voice.health-check`, `imessage.send`, `imessage.chats`, `imessage.health-check`, `hooks.health-check`, `memory.health-check`, `mission-control.health-check`
 
 ## Development
 
 ```bash
-# Start everything via watchdog (spawns gateway as child process)
-bun run watchdog
-
-# Or start gateway directly (serves web UI + WebSocket + extensions on port 30086)
+# Start gateway (serves web UI + WebSocket + spawns extensions on port 30086)
 bun run dev
 
 # Run tests
