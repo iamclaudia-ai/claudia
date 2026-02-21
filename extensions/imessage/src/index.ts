@@ -11,12 +11,7 @@
  * - Sends replies using the same chat_id
  */
 
-import type {
-  ClaudiaExtension,
-  ExtensionContext,
-  GatewayEvent,
-  HealthCheckResponse,
-} from "@claudia/shared";
+import type { ClaudiaExtension, ExtensionContext, HealthCheckResponse } from "@claudia/shared";
 import { ImsgRpcClient, type ImsgMessage, type ImsgAttachment } from "./imsg-client";
 import { z } from "zod";
 
@@ -64,6 +59,8 @@ export interface IMessageConfig {
   includeAttachments?: boolean;
   /** Include recent history as context (number of messages, 0 = disabled) */
   historyLimit?: number;
+  /** Workspace CWD for session management (default: process.cwd()) */
+  workspaceCwd?: string;
 }
 
 const DEFAULT_CONFIG: IMessageConfig = {
@@ -84,9 +81,7 @@ export function createIMessageExtension(config: IMessageConfig = {}): ClaudiaExt
   let client: ImsgRpcClient | null = null;
   let ctx: ExtensionContext | null = null;
   let lastRowId: number | null = null;
-
-  // Track pending responses by source (so we can send replies)
-  const pendingResponses = new Map<string, { chatId: number; text: string }>();
+  let currentSessionId: string | null = null;
 
   /**
    * Convert an attachment to a content block
@@ -259,22 +254,15 @@ export function createIMessageExtension(config: IMessageConfig = {}): ClaudiaExt
     // Build source for routing
     const source = buildSource(message.chat_id);
 
-    // Store chat info for response routing
-    pendingResponses.set(source, {
-      chatId: message.chat_id,
-      text: "",
-    });
-
     // Build content blocks (handles text + attachments)
     const contentBlocks = await buildContentBlocks(message);
 
     if (contentBlocks.length === 0) {
       ctx?.log.warn("No valid content blocks to send");
-      pendingResponses.delete(source);
       return;
     }
 
-    // Emit event to trigger gateway prompt
+    // Emit event for observability
     ctx?.emit("imessage.message", {
       source,
       chatId: message.chat_id,
@@ -285,23 +273,43 @@ export function createIMessageExtension(config: IMessageConfig = {}): ClaudiaExt
       participants: message.participants,
     });
 
-    // Emit prompt request with content blocks
-    // If only text, send as string for simplicity; otherwise send blocks array
+    // Build content — string for simple text, blocks array for multimodal
     const content =
       contentBlocks.length === 1 && contentBlocks[0].type === "text"
         ? (contentBlocks[0] as TextContentBlock).text
         : contentBlocks;
 
-    ctx?.emit("imessage.prompt_request", {
-      content,
-      source,
-      metadata: {
-        chatId: message.chat_id,
-        sender: message.sender,
-        isGroup: message.is_group,
-        hasAttachments,
-      },
-    });
+    // Send prompt via session extension (non-streaming — await completion)
+    try {
+      // Ensure we have a session
+      if (!currentSessionId) {
+        const cwd = cfg.workspaceCwd || process.cwd();
+        await ctx!.call("session.get-or-create-workspace", { cwd });
+        const created = (await ctx!.call("session.create-session", { cwd })) as {
+          sessionId: string;
+        };
+        currentSessionId = created.sessionId;
+      }
+
+      const result = (await ctx!.call("session.send-prompt", {
+        sessionId: currentSessionId,
+        content,
+        streaming: false,
+        source,
+      })) as { text: string; sessionId: string };
+
+      // Send reply back to iMessage
+      if (result.text?.trim()) {
+        ctx?.log.info(
+          `Sending reply to chat ${message.chat_id}: "${result.text.substring(0, 50)}..."`,
+        );
+        await client?.send({ chatId: message.chat_id, text: result.text });
+        ctx?.emit("imessage.sent", { chatId: message.chat_id, text: result.text });
+      }
+    } catch (err) {
+      ctx?.log.error(`Failed to process message: ${err}`);
+      ctx?.emit("imessage.error", { error: String(err), chatId: message.chat_id });
+    }
   }
 
   return {
@@ -339,8 +347,8 @@ export function createIMessageExtension(config: IMessageConfig = {}): ClaudiaExt
         inputSchema: z.object({}),
       },
     ],
-    events: ["imessage.message", "imessage.sent", "imessage.error", "imessage.prompt_request"],
-    sourceRoutes: ["imessage"], // Handle all "imessage/*" sources
+    events: ["imessage.message", "imessage.sent", "imessage.error"],
+    sourceRoutes: [],
 
     async start(context: ExtensionContext) {
       ctx = context;
@@ -451,48 +459,6 @@ export function createIMessageExtension(config: IMessageConfig = {}): ClaudiaExt
         default:
           throw new Error(`Unknown method: ${method}`);
       }
-    },
-
-    /**
-     * Handle response routing - send replies back to iMessage
-     */
-    async handleSourceResponse(source: string, event: GatewayEvent) {
-      // Extract chat_id from source (e.g., "imessage/2329" -> 2329)
-      const chatId = parseInt(source.split("/")[1], 10);
-      if (isNaN(chatId)) {
-        ctx?.log.error(`Invalid source format: ${source}`);
-        return;
-      }
-
-      // Only process message_stop events (final response)
-      if (event.type !== "session.message_stop") {
-        return;
-      }
-
-      // Get the accumulated response text from the gateway
-      const payload = event.payload as Record<string, unknown>;
-      const responseText = payload.responseText as string | undefined;
-
-      if (!responseText?.trim()) {
-        ctx?.log.warn("No response text to send");
-        pendingResponses.delete(source);
-        return;
-      }
-
-      ctx?.log.info(`Sending reply to chat ${chatId}: "${responseText.substring(0, 50)}..."`);
-
-      try {
-        await client?.send({
-          chatId,
-          text: responseText,
-        });
-        ctx?.emit("imessage.sent", { chatId, text: responseText });
-      } catch (err) {
-        ctx?.log.error(`Failed to send reply: ${err}`);
-        ctx?.emit("imessage.error", { error: String(err), chatId });
-      }
-
-      pendingResponses.delete(source);
     },
 
     health() {

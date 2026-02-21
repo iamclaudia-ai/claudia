@@ -313,7 +313,7 @@ export default function createDominatrixExtension(): ClaudiaExtension {
       clients.set(client.id, client);
 
       // Track connectionId → instanceId for disconnect cleanup
-      const connectionId = p._connectionId as string | undefined;
+      const connectionId = ctx.connectionId;
       if (connectionId) {
         connectionMap.set(connectionId, client.id);
       }

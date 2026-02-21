@@ -34,7 +34,6 @@ export type {
   UseGatewayReturn,
   WorkspaceInfo,
   SessionInfo,
-  SessionConfigInfo,
 } from "./hooks/useGateway";
 
 // Page components (for web client routing)

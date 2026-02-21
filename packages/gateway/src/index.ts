@@ -22,7 +22,6 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { ExtensionManager } from "./extensions";
 import { getDb, closeDb } from "./db/index";
-import { SessionManager } from "./session-manager";
 import { homedir } from "node:os";
 import { z, type ZodTypeAny } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
@@ -138,24 +137,8 @@ function getClientHealth(): {
 // Extension manager
 const extensions = new ExtensionManager();
 
-// Initialize database
-const db = getDb();
-
-// Session manager (replaces old singleton session)
-const sessionManager = new SessionManager({
-  db,
-  dataDir: DATA_DIR,
-  config,
-  broadcastEvent,
-  broadcastExtension: (event) => extensions.broadcast(event),
-  routeToSource: (source, event) => extensions.routeToSource(source, event),
-});
-
-// Migrate legacy .session-id file if present
-await sessionManager.migrateLegacySession();
-
-// Connect to the session runtime service
-sessionManager.connectToRuntime();
+// Initialize database (runs migrations)
+getDb();
 
 // Wire up extension event emitting to broadcast
 extensions.setEmitCallback(async (type, payload, source) => {
@@ -166,75 +149,41 @@ extensions.setEmitCallback(async (type, payload, source) => {
   if (type === "voice.stream_start" && payloadObj?.streamId) {
     const payloadConnectionId =
       typeof payloadObj.connectionId === "string" ? payloadObj.connectionId : null;
-    const sessionConnectionId =
-      typeof payloadObj.sessionId === "string"
-        ? sessionManager.getConnectionIdForSession(payloadObj.sessionId)
-        : null;
-    const connectionId = payloadConnectionId || sessionConnectionId;
+    const connectionId = payloadConnectionId;
     if (connectionId) {
       voiceStreamOrigins.set(payloadObj.streamId as string, connectionId);
     } else {
       log.warn("voice.stream_start without routable connection", {
         streamId: payloadObj.streamId,
-        sessionId: payloadObj.sessionId,
       });
     }
+  }
+
+  // gateway:caller routing — send only to originating connection
+  if (source === "gateway:caller" && payloadObj?.connectionId) {
+    const targetConnectionId = payloadObj.connectionId as string;
+    for (const [ws, state] of clients) {
+      if (state.id === targetConnectionId) {
+        const event: Event = { type: "event", event: type, payload };
+        ws.send(JSON.stringify(event));
+        break;
+      }
+    }
+    // Forward to extension handlers (but not WS clients — already handled above)
+    extensions.broadcast({
+      type,
+      payload,
+      timestamp: Date.now(),
+      origin: source,
+      connectionId: payloadObj.connectionId as string,
+    });
+    return;
   }
 
   broadcastEvent(type, payload, source);
 
   if (type === "voice.stream_end" && payloadObj?.streamId) {
     voiceStreamOrigins.delete(payloadObj.streamId as string);
-  }
-
-  // Handle prompt requests from extensions (e.g., iMessage)
-  if (type.endsWith(".prompt_request")) {
-    const req = payload as {
-      content: string | unknown[];
-      source?: string;
-      sessionId?: string;
-      model?: string;
-      thinking?: boolean;
-      effort?: string;
-      metadata?: Record<string, unknown>;
-    };
-
-    if (req.content) {
-      const isMultimodal = Array.isArray(req.content);
-      const preview = isMultimodal
-        ? `[${req.content.length} content blocks]`
-        : `"${String(req.content).substring(0, 50)}..."`;
-      log.info("Prompt request", { source, preview });
-
-      // Resolve explicit or default session/runtime config for extension-originated prompts
-      const info = sessionManager.getInfo();
-      const sessionId = req.sessionId || info.session?.id;
-      const model = req.model || info.sessionConfig.model;
-      const thinking = req.thinking ?? info.sessionConfig.thinking;
-      const effort = req.effort || info.sessionConfig.effort;
-
-      if (!sessionId || !model || thinking === undefined || !effort) {
-        log.warn(
-          "Ignoring prompt_request with unresolved required params: sessionId/model/thinking/effort",
-        );
-        return;
-      }
-
-      await sessionManager.prompt(
-        req.content as string | unknown[],
-        sessionId,
-        {
-          model,
-          thinking,
-          effort,
-        },
-        {
-          wantsVoice: false,
-          source: req.source || null,
-          connectionId: null,
-        },
-      );
-    }
   }
 });
 
@@ -249,131 +198,17 @@ type GatewayMethodDefinition = {
 
 const BUILTIN_METHODS: GatewayMethodDefinition[] = [
   {
-    method: "workspace.list",
-    description: "List all workspaces",
+    method: "gateway.list-methods",
+    description: "List all gateway and extension methods with schemas",
     inputSchema: z.object({}),
   },
   {
-    method: "workspace.get",
-    description: "Get one workspace by id",
-    inputSchema: z.object({ workspaceId: z.string().min(1) }),
-  },
-  {
-    method: "workspace.get-or-create",
-    description: "Get or create a workspace for an explicit cwd",
-    inputSchema: z.object({
-      cwd: z.string().min(1),
-      name: z.string().optional(),
-    }),
-  },
-  {
-    method: "workspace.list-sessions",
-    description: "List sessions for a specific workspace",
-    inputSchema: z.object({ workspaceId: z.string().min(1) }),
-  },
-  {
-    method: "workspace.create-session",
-    description: "Create a new session for a workspace with explicit runtime config",
-    inputSchema: z.object({
-      workspaceId: z.string().min(1),
-      model: z.string().min(1),
-      thinking: z.boolean(),
-      effort: z.string().min(1),
-      title: z.string().optional(),
-      systemPrompt: z.string().optional(),
-    }),
-  },
-  {
-    method: "session.info",
-    description: "Get current runtime/session info",
-    inputSchema: z.object({}),
-  },
-  {
-    method: "session.prompt",
-    description: "Send prompt to explicit session with explicit runtime config",
-    inputSchema: z.object({
-      sessionId: z.string().min(1),
-      content: z.union([z.string(), z.array(z.unknown())]),
-      model: z.string().min(1),
-      thinking: z.boolean(),
-      effort: z.string().min(1),
-      streaming: z
-        .boolean()
-        .optional()
-        .describe(
-          "Stream events (default: true). When false, awaits completion and returns accumulated text.",
-        ),
-      speakResponse: z.boolean().optional(),
-      source: z.string().optional(),
-    }),
-  },
-  {
-    method: "session.interrupt",
-    description: "Interrupt a specific session",
-    inputSchema: z.object({ sessionId: z.string().min(1) }),
-  },
-  {
-    method: "session.permission-mode",
-    description:
-      "Set the permission mode for a session (bypassPermissions, acceptEdits, plan, default)",
-    inputSchema: z.object({
-      sessionId: z.string().min(1),
-      mode: z.enum(["bypassPermissions", "acceptEdits", "plan", "default", "delegate", "dontAsk"]),
-    }),
-  },
-  {
-    method: "session.tool-result",
-    description:
-      "Send a tool_result for an interactive tool (ExitPlanMode, EnterPlanMode, AskUserQuestion)",
-    inputSchema: z.object({
-      sessionId: z.string().min(1),
-      toolUseId: z.string().min(1),
-      content: z.string(),
-      isError: z.boolean().optional(),
-    }),
-  },
-  {
-    method: "session.get",
-    description: "Get one session record by id",
-    inputSchema: z.object({ sessionId: z.string().min(1) }),
-  },
-  {
-    method: "session.history",
-    description: "Get history for a specific session",
-    inputSchema: z.object({
-      sessionId: z.string().min(1),
-      limit: z.number().int().positive().optional(),
-      offset: z.number().int().min(0).optional(),
-    }),
-  },
-  {
-    method: "session.switch",
-    description: "Switch runtime to an explicit session id",
-    inputSchema: z.object({ sessionId: z.string().min(1) }),
-  },
-  {
-    method: "session.reset",
-    description: "Create a replacement session for a workspace with explicit runtime config",
-    inputSchema: z.object({
-      workspaceId: z.string().min(1),
-      model: z.string().min(1),
-      thinking: z.boolean(),
-      effort: z.string().min(1),
-      systemPrompt: z.string().optional(),
-    }),
-  },
-  {
-    method: "extension.list",
+    method: "gateway.list-extensions",
     description: "List loaded extensions and their methods",
     inputSchema: z.object({}),
   },
   {
-    method: "method.list",
-    description: "List gateway and extension methods with schemas",
-    inputSchema: z.object({}),
-  },
-  {
-    method: "subscribe",
+    method: "gateway.subscribe",
     description: "Subscribe to events",
     inputSchema: z.object({
       events: z.array(z.string()).optional(),
@@ -381,22 +216,10 @@ const BUILTIN_METHODS: GatewayMethodDefinition[] = [
     }),
   },
   {
-    method: "unsubscribe",
+    method: "gateway.unsubscribe",
     description: "Unsubscribe from events",
     inputSchema: z.object({
       events: z.array(z.string()).optional(),
-    }),
-  },
-  {
-    method: "runtime.health-check",
-    description: "Return runtime session health status for Mission Control",
-    inputSchema: z.object({}),
-  },
-  {
-    method: "runtime.kill-session",
-    description: "Kill a Claude process on the runtime",
-    inputSchema: z.object({
-      sessionId: z.string().min(1),
     }),
   },
 ];
@@ -427,9 +250,13 @@ function handleMessage(ws: ServerWebSocket<ClientState>, data: string): void {
 }
 
 /**
- * Route requests to handlers
+ * Route requests to handlers.
+ *
+ * Gateway is a pure hub — only `gateway.*` methods are handled locally.
+ * Everything else routes through the extension system.
  */
 function handleRequest(ws: ServerWebSocket<ClientState>, req: Request): void {
+  // Validate builtin methods
   const methodDef = BUILTIN_METHODS_BY_NAME.get(req.method);
   if (methodDef) {
     const parsed = methodDef.inputSchema.safeParse(req.params ?? {});
@@ -443,32 +270,21 @@ function handleRequest(ws: ServerWebSocket<ClientState>, req: Request): void {
     req.params = parsed.data as Record<string, unknown>;
   }
 
-  const [namespace, action] = req.method.split(".");
-
-  switch (namespace) {
-    case "session":
-      handleSessionMethod(ws, req, action);
+  switch (req.method) {
+    case "gateway.list-methods":
+      handleListMethods(ws, req);
       break;
-    case "workspace":
-      handleWorkspaceMethod(ws, req, action);
+    case "gateway.list-extensions":
+      handleListExtensions(ws, req);
       break;
-    case "extension":
-      handleExtensionBuiltin(ws, req, action);
-      break;
-    case "runtime":
-      handleRuntimeMethod(ws, req, action);
-      break;
-    case "method":
-      handleMethodBuiltin(ws, req, action);
-      break;
-    case "subscribe":
+    case "gateway.subscribe":
       handleSubscribe(ws, req);
       break;
-    case "unsubscribe":
+    case "gateway.unsubscribe":
       handleUnsubscribe(ws, req);
       break;
     default:
-      // Check if an extension handles this method
+      // Everything else routes through extensions
       if (extensions.hasMethod(req.method)) {
         handleExtensionMethod(ws, req);
       } else {
@@ -477,539 +293,54 @@ function handleRequest(ws: ServerWebSocket<ClientState>, req: Request): void {
   }
 }
 
-function handleMethodBuiltin(ws: ServerWebSocket<ClientState>, req: Request, action: string): void {
-  switch (action) {
-    case "list": {
-      const builtin = BUILTIN_METHODS.map((m) => ({
-        method: m.method,
-        source: "gateway",
-        description: m.description,
-        inputSchema: zodToJsonSchema(m.inputSchema, m.method),
-      }));
-      const extensionMethods = extensions.getMethodDefinitions().map((m) => {
-        // Remote extensions don't have Zod schemas — their inputSchema is a plain object
-        let inputSchema: unknown;
-        try {
-          inputSchema = zodToJsonSchema(m.method.inputSchema, m.method.name);
-        } catch {
-          inputSchema = m.method.inputSchema ?? {};
-        }
-        let outputSchema: unknown;
-        if (m.method.outputSchema) {
-          try {
-            outputSchema = zodToJsonSchema(m.method.outputSchema, `${m.method.name}.output`);
-          } catch {
-            outputSchema = m.method.outputSchema;
-          }
-        }
-        return {
-          method: m.method.name,
-          source: "extension",
-          extensionId: m.extensionId,
-          extensionName: m.extensionName,
-          description: m.method.description,
-          inputSchema,
-          outputSchema,
-        };
-      });
-      sendResponse(ws, req.id, { methods: [...builtin, ...extensionMethods] });
-      break;
-    }
-    default:
-      sendError(ws, req.id, `Unknown method action: ${action}`);
-  }
-}
-
 /**
- * Handle workspace methods
+ * gateway.list-methods — list all gateway and extension methods with schemas
  */
-async function handleWorkspaceMethod(
-  ws: ServerWebSocket<ClientState>,
-  req: Request,
-  action: string,
-): Promise<void> {
-  const emitWorkspaceContext = async (
-    workspace: { id: string; name: string; cwd: string } | null,
-  ): Promise<void> => {
-    if (!workspace) return;
-
-    await extensions.broadcast({
-      type: "workspace.context",
-      payload: { workspace },
-      timestamp: Date.now(),
-      origin: "gateway",
-    });
-  };
-
-  try {
-    switch (action) {
-      case "list": {
-        const workspaces = sessionManager.listWorkspaces();
-        sendResponse(ws, req.id, { workspaces });
-        break;
-      }
-
-      case "get": {
-        const workspaceId = req.params?.workspaceId as string;
-        if (!workspaceId) {
-          sendError(ws, req.id, "Missing workspaceId parameter");
-          return;
-        }
-        const workspace = sessionManager.getWorkspace(workspaceId);
-        if (!workspace) {
-          sendError(ws, req.id, `Workspace not found: ${workspaceId}`);
-          return;
-        }
-        sendResponse(ws, req.id, { workspace });
-        await emitWorkspaceContext(workspace);
-        break;
-      }
-
-      case "get-or-create": {
-        const cwd = req.params?.cwd as string;
-        if (!cwd) {
-          sendError(
-            ws,
-            req.id,
-            "Missing cwd parameter — workspace.get-or-create requires an explicit CWD",
-          );
-          return;
-        }
-        const name = req.params?.name as string | undefined;
-        const result = sessionManager.getOrCreateWorkspace(cwd, name);
-        sendResponse(ws, req.id, result);
-        await emitWorkspaceContext(result.workspace);
-        break;
-      }
-
-      case "list-sessions": {
-        const workspaceId = req.params?.workspaceId as string;
-        if (!workspaceId) {
-          sendError(ws, req.id, "Missing workspaceId parameter");
-          return;
-        }
-        const sessions = sessionManager.listSessions(workspaceId);
-        sendResponse(ws, req.id, { sessions });
-
-        const workspace = sessionManager.getWorkspace(workspaceId);
-        await emitWorkspaceContext(workspace);
-        break;
-      }
-
-      case "create-session": {
-        const workspaceId = req.params?.workspaceId as string;
-        const model = req.params?.model as string;
-        const thinking = req.params?.thinking as boolean | undefined;
-        const effort = req.params?.effort as string | undefined;
-        if (!workspaceId) {
-          sendError(ws, req.id, "Missing workspaceId parameter");
-          return;
-        }
-        if (!model || thinking === undefined || !effort) {
-          sendError(ws, req.id, "Missing required params: model, thinking, and effort");
-          return;
-        }
-        const title = req.params?.title as string | undefined;
-        const systemPrompt = req.params?.systemPrompt as string | undefined;
-        const result = await sessionManager.createNewSession(workspaceId, title, {
-          model,
-          thinking,
-          effort,
-          systemPrompt,
-        });
-        sendResponse(ws, req.id, result);
-
-        const workspace = sessionManager.getWorkspace(workspaceId);
-        await emitWorkspaceContext(workspace);
-        break;
-      }
-
-      default:
-        sendError(ws, req.id, `Unknown workspace action: ${action}`);
+function handleListMethods(ws: ServerWebSocket<ClientState>, req: Request): void {
+  const builtin = BUILTIN_METHODS.map((m) => ({
+    method: m.method,
+    source: "gateway",
+    description: m.description,
+    inputSchema: zodToJsonSchema(m.inputSchema, m.method),
+  }));
+  const extensionMethods = extensions.getMethodDefinitions().map((m) => {
+    // Remote extensions don't have Zod schemas — their inputSchema is a plain object
+    let inputSchema: unknown;
+    try {
+      inputSchema = zodToJsonSchema(m.method.inputSchema, m.method.name);
+    } catch {
+      inputSchema = m.method.inputSchema ?? {};
     }
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : "Unknown error";
-    sendError(ws, req.id, errorMessage);
-  }
-}
-/**
- * Handle extension discovery methods (built-in, not routed to extensions)
- */
-function handleExtensionBuiltin(
-  ws: ServerWebSocket<ClientState>,
-  req: Request,
-  action: string,
-): void {
-  switch (action) {
-    case "list": {
-      // Include real extensions + synthetic "runtime" entry for Mission Control discovery
-      const extensionList = [
-        ...extensions.getExtensionList(),
-        {
-          id: "runtime",
-          name: "Runtime Sessions",
-          methods: ["runtime.health-check", "runtime.kill-session"],
-        },
-      ];
-      sendResponse(ws, req.id, { extensions: extensionList });
-      break;
+    let outputSchema: unknown;
+    if (m.method.outputSchema) {
+      try {
+        outputSchema = zodToJsonSchema(m.method.outputSchema, `${m.method.name}.output`);
+      } catch {
+        outputSchema = m.method.outputSchema;
+      }
     }
-    default:
-      sendError(ws, req.id, `Unknown extension action: ${action}`);
-  }
+    return {
+      method: m.method.name,
+      source: "extension",
+      extensionId: m.extensionId,
+      extensionName: m.extensionName,
+      description: m.method.description,
+      inputSchema,
+      outputSchema,
+    };
+  });
+  sendResponse(ws, req.id, { methods: [...builtin, ...extensionMethods] });
 }
 
 /**
- * Handle runtime methods — runtime.health-check, runtime.kill-session
- * These are "virtual" extension methods that query the runtime service directly.
- * Mission Control auto-discovers them via the synthetic "runtime" entry in extension.list.
+ * gateway.list-extensions — list loaded extensions and their methods
  */
-async function handleRuntimeMethod(
-  ws: ServerWebSocket<ClientState>,
-  req: Request,
-  action: string,
-): Promise<void> {
-  const runtimeHost = config.runtime?.host || "localhost";
-  const runtimePort = config.runtime?.port || 30087;
-  const runtimeUrl = `http://${runtimeHost}:${runtimePort}`;
-
-  try {
-    switch (action) {
-      case "health-check": {
-        // Query the runtime's /health endpoint
-        let runtimeData: {
-          status: string;
-          clients: number;
-          sessions: Array<{
-            id: string;
-            cwd: string;
-            model: string;
-            isActive: boolean;
-            isProcessRunning: boolean;
-            createdAt?: string;
-            lastActivity?: string;
-            healthy?: boolean;
-            stale?: boolean;
-          }>;
-        };
-
-        try {
-          const res = await fetch(`${runtimeUrl}/health`);
-          runtimeData = await res.json();
-        } catch {
-          // Runtime is unreachable
-          sendResponse(ws, req.id, {
-            ok: false,
-            status: "disconnected",
-            label: "Runtime Sessions",
-            metrics: [{ label: "Status", value: "disconnected" }],
-          });
-          return;
-        }
-
-        const sessions = runtimeData.sessions || [];
-        const activeSessions = sessions.filter((s) => s.isActive);
-
-        // Build health items from runtime sessions
-        const items = sessions.map((s) => {
-          const lastActivity = s.lastActivity ? formatTimeAgo(new Date(s.lastActivity)) : "unknown";
-
-          // Determine status
-          let status: "healthy" | "stale" | "dead" | "inactive" = "inactive";
-          if (s.healthy) status = "healthy";
-          else if (s.stale) status = "stale";
-          else if (s.isActive && !s.isProcessRunning) status = "dead";
-          else if (s.isActive) status = "healthy";
-
-          // Shorten cwd for display
-          const cwdLabel = s.cwd.replace(homedir(), "~");
-          const modelShort = s.model;
-
-          return {
-            id: s.id,
-            label: `${cwdLabel} (${modelShort})`,
-            status,
-            details: {
-              model: modelShort,
-              lastActivity,
-              process: s.isProcessRunning ? "running" : "stopped",
-            },
-          };
-        });
-
-        sendResponse(ws, req.id, {
-          ok: true,
-          status: activeSessions.length > 0 ? "healthy" : "inactive",
-          label: "Runtime Sessions",
-          metrics: [
-            { label: "Active Sessions", value: activeSessions.length },
-            {
-              label: "Runtime",
-              value: sessionManager.isRuntimeConnected ? "connected" : "disconnected",
-            },
-          ],
-          items,
-          actions: [
-            {
-              method: "runtime.kill-session",
-              label: "Kill",
-              confirm: "Kill this Claude process?",
-              params: [{ name: "sessionId", source: "item.id" }],
-              scope: "item",
-            },
-          ],
-        });
-        break;
-      }
-
-      case "kill-session": {
-        const sessionId = req.params?.sessionId as string;
-        if (!sessionId) {
-          sendError(ws, req.id, "Missing sessionId parameter");
-          return;
-        }
-
-        // Kill via runtime HTTP endpoint
-        const res = await fetch(`${runtimeUrl}/session/${sessionId}`, { method: "DELETE" });
-        const result = await res.json();
-        sendResponse(ws, req.id, result);
-        break;
-      }
-
-      default:
-        sendError(ws, req.id, `Unknown runtime action: ${action}`);
-    }
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : "Unknown error";
-    sendError(ws, req.id, errorMessage);
-  }
+function handleListExtensions(ws: ServerWebSocket<ClientState>, req: Request): void {
+  sendResponse(ws, req.id, { extensions: extensions.getExtensionList() });
 }
 
 /**
- * Format a Date as a human-readable "X ago" string
- */
-function formatTimeAgo(date: Date): string {
-  const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
-  if (seconds < 60) return `${seconds}s ago`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-}
-
-/**
- * Handle session methods
- */
-async function handleSessionMethod(
-  ws: ServerWebSocket<ClientState>,
-  req: Request,
-  action: string,
-): Promise<void> {
-  try {
-    switch (action) {
-      case "info": {
-        sendResponse(ws, req.id, sessionManager.getInfo());
-        break;
-      }
-
-      case "prompt": {
-        const content = req.params?.content as string | unknown[];
-        const targetSessionId = req.params?.sessionId as string;
-        const model = req.params?.model as string;
-        const thinking = req.params?.thinking as boolean | undefined;
-        const effort = req.params?.effort as string | undefined;
-        if (!content) {
-          sendError(ws, req.id, "Missing content parameter");
-          return;
-        }
-        if (!targetSessionId) {
-          sendError(ws, req.id, "Missing sessionId parameter");
-          return;
-        }
-        if (!model || thinking === undefined || !effort) {
-          sendError(ws, req.id, "Missing required params: model, thinking, and effort");
-          return;
-        }
-
-        const source = (req.params?.source as string) || null;
-        const streaming = req.params?.streaming !== false; // default true
-
-        // Send prompt through session manager with per-session routing context
-        const promptResult = await sessionManager.prompt(
-          content,
-          targetSessionId,
-          {
-            model,
-            thinking,
-            effort,
-          },
-          {
-            wantsVoice: req.params?.speakResponse === true,
-            source,
-            connectionId: ws.data.id,
-            streaming,
-          },
-        );
-
-        // Broadcast the user message to all other connections viewing this session
-        broadcastEvent(`stream.${promptResult.ccSessionId}.user_message`, {
-          content: req.params?.content,
-          connectionId: ws.data.id,
-        });
-
-        if (streaming) {
-          // Streaming mode: respond immediately, events follow
-          sendResponse(ws, req.id, {
-            status: "ok",
-            sessionId: promptResult.ccSessionId,
-            source,
-          });
-        } else {
-          // Non-streaming mode: prompt() already awaited completion
-          sendResponse(ws, req.id, {
-            status: "ok",
-            sessionId: promptResult.ccSessionId,
-            text: promptResult.text,
-            source,
-          });
-        }
-        break;
-      }
-
-      case "interrupt": {
-        const sessionId = req.params?.sessionId as string;
-        if (!sessionId) {
-          sendError(ws, req.id, "Missing sessionId parameter");
-          return;
-        }
-        const interrupted = await sessionManager.interrupt(sessionId);
-        if (interrupted) {
-          sendResponse(ws, req.id, { status: "interrupted" });
-        } else {
-          sendError(ws, req.id, `Session not found or not interruptible: ${sessionId}`);
-        }
-        break;
-      }
-
-      case "permission-mode": {
-        const sessionId = req.params?.sessionId as string;
-        const mode = req.params?.mode as string;
-        if (!sessionId || !mode) {
-          sendError(ws, req.id, "Missing sessionId or mode parameter");
-          return;
-        }
-        const ok = await sessionManager.setPermissionMode(sessionId, mode);
-        if (ok) {
-          sendResponse(ws, req.id, { status: "ok", mode });
-        } else {
-          sendError(ws, req.id, `Session not found: ${sessionId}`);
-        }
-        break;
-      }
-
-      case "tool-result": {
-        const sessionId = req.params?.sessionId as string;
-        const toolUseId = req.params?.toolUseId as string;
-        const content = req.params?.content as string;
-        const isError = (req.params?.isError as boolean) || false;
-        if (!sessionId || !toolUseId || content === undefined) {
-          sendError(ws, req.id, "Missing sessionId, toolUseId, or content parameter");
-          return;
-        }
-        const ok = await sessionManager.sendToolResult(sessionId, toolUseId, content, isError);
-        if (ok) {
-          sendResponse(ws, req.id, { status: "ok" });
-        } else {
-          sendError(ws, req.id, `Session not found: ${sessionId}`);
-        }
-        break;
-      }
-
-      case "get": {
-        const getSessionId = req.params?.sessionId as string;
-        if (!getSessionId) {
-          sendError(ws, req.id, "Missing sessionId parameter");
-          return;
-        }
-        const sessionRecord = sessionManager.getSession(getSessionId);
-        if (!sessionRecord) {
-          sendError(ws, req.id, `Session not found: ${getSessionId}`);
-          return;
-        }
-        sendResponse(ws, req.id, { session: sessionRecord });
-        break;
-      }
-
-      case "history": {
-        const historySessionId = req.params?.sessionId as string;
-        if (!historySessionId) {
-          sendError(ws, req.id, "Missing sessionId parameter");
-          return;
-        }
-        const limit = req.params?.limit as number | undefined;
-        const offset = req.params?.offset as number | undefined;
-        const result = sessionManager.getSessionHistory(
-          historySessionId,
-          limit ? { limit, offset: offset || 0 } : undefined,
-        );
-        // Include offset in response so client can distinguish initial vs load-more
-        sendResponse(ws, req.id, { ...result, offset: offset || 0 });
-
-        // Fire hooks on initial history load (offset 0) so status bar populates
-        if (!offset) {
-          extensions.broadcast({
-            type: "session.history_loaded",
-            payload: {},
-            timestamp: Date.now(),
-            origin: "gateway",
-          });
-        }
-        break;
-      }
-
-      case "switch": {
-        const sessionId = req.params?.sessionId as string;
-        if (!sessionId) {
-          sendError(ws, req.id, "Missing sessionId parameter");
-          return;
-        }
-        const sessionRecord = await sessionManager.switchSession(sessionId);
-        sendResponse(ws, req.id, { session: sessionRecord });
-        break;
-      }
-
-      case "reset": {
-        const workspaceId = req.params?.workspaceId as string;
-        const model = req.params?.model as string;
-        const thinking = req.params?.thinking as boolean | undefined;
-        const effort = req.params?.effort as string | undefined;
-        if (!workspaceId || !model || thinking === undefined || !effort) {
-          sendError(ws, req.id, "Missing required params: workspaceId/model/thinking/effort");
-          return;
-        }
-        await sessionManager.createNewSession(workspaceId, undefined, {
-          model,
-          thinking,
-          effort,
-          systemPrompt: req.params?.systemPrompt as string | undefined,
-        });
-        sendResponse(ws, req.id, { status: "reset" });
-        break;
-      }
-
-      default:
-        sendError(ws, req.id, `Unknown session action: ${action}`);
-    }
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : "Unknown error";
-    sendError(ws, req.id, errorMessage);
-  }
-}
-
-/**
- * Handle extension method calls
+ * Handle extension method calls — routes through the extension system
  */
 async function handleExtensionMethod(
   ws: ServerWebSocket<ClientState>,
@@ -1175,22 +506,10 @@ const server = Bun.serve<ClientState>({
   routes: {
     // Health check endpoint
     "/health": () => {
-      const info = sessionManager.getInfo();
       return new globalThis.Response(
         JSON.stringify({
           status: "ok",
           clients: clients.size,
-          runtime: {
-            connected: info.isRuntimeConnected,
-          },
-          workspace: sessionManager.getCurrentWorkspace(),
-          session: info.sessionId
-            ? {
-                id: info.sessionId,
-                active: info.isActive,
-                running: info.isProcessRunning,
-              }
-            : null,
           extensions: extensions.getHealth(),
           sourceRoutes: extensions.getSourceRoutes(),
           client: getClientHealth(),
@@ -1389,7 +708,6 @@ async function shutdown(signal: string) {
     clearInterval(pingInterval);
     server.stop();
     await extensions.killRemoteHosts();
-    await sessionManager.close();
     closeDb();
   } catch (e) {
     log.error("Error during shutdown", { error: String(e) });
@@ -1414,9 +732,8 @@ if (import.meta.hot) {
     clearInterval(pingInterval);
     server.stop();
     await extensions.killRemoteHosts();
-    await sessionManager.close();
     closeDb();
   });
 }
 
-export { server, broadcastEvent, extensions, sessionManager };
+export { server, broadcastEvent, extensions };

@@ -98,10 +98,8 @@ function ChatInner({
         <Header
           isConnected={gateway.isConnected}
           sessionId={gateway.sessionId}
-          sessionRecordId={gateway.sessionRecordId}
           workspace={gateway.workspace}
           sessions={gateway.sessions}
-          sessionConfig={gateway.sessionConfig}
           onCreateSession={gateway.createNewSession}
           onSwitchSession={gateway.switchSession}
           sendRequest={gateway.sendRequest}

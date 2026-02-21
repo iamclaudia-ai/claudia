@@ -20,42 +20,24 @@ export interface WorkspaceInfo {
   id: string;
   name: string;
   cwd: string;
-  activeSessionId: string | null;
   createdAt: string;
   updatedAt: string;
 }
 
 export interface SessionInfo {
-  id: string;
-  workspaceId: string;
-  ccSessionId: string;
-  status: "active" | "archived";
-  title: string | null;
-  summary: string | null;
-  previousSessionId: string | null;
-  lastActivity: string;
-  createdAt: string;
+  sessionId: string;
+  created?: string;
+  modified?: string;
+  messageCount?: number;
+  firstPrompt?: string;
+  gitBranch?: string;
 }
-
-export interface SessionConfigInfo {
-  model: string;
-  thinking: boolean;
-  effort: string;
-  systemPrompt: string | null;
-}
-
-const DEFAULT_SESSION_CONFIG: SessionConfigInfo = {
-  model: "claude-opus-4-6",
-  thinking: true,
-  effort: "medium",
-  systemPrompt: null,
-};
 
 // ─── Options ─────────────────────────────────────────────────
 
 export interface UseGatewayOptions {
   /**
-   * Explicit session ID (ses_...) to load.
+   * Explicit session ID (CC UUID) to load.
    * Used by web client when navigating to /session/:id.
    * When set, loads history for this specific session.
    */
@@ -64,7 +46,7 @@ export interface UseGatewayOptions {
   /**
    * Auto-discover mode: get workspace by CWD, find active session.
    * Used by VS Code extension. Provide the CWD string.
-   * When set, sends workspace.get-or-create on connect.
+   * When set, sends session.get-or-create-workspace on connect.
    */
   autoDiscoverCwd?: string;
 }
@@ -81,8 +63,6 @@ export interface UseGatewayReturn {
   /** Whether context compaction is currently in progress */
   isCompacting: boolean;
   sessionId: string | null;
-  /** The TypeID (ses_...) of the current session record */
-  sessionRecordId: string | null;
   usage: Usage | null;
   eventCount: number;
   visibleCount: number;
@@ -92,7 +72,6 @@ export interface UseGatewayReturn {
   hasMore: boolean;
   workspace: WorkspaceInfo | null;
   sessions: SessionInfo[];
-  sessionConfig: SessionConfigInfo | null;
   sendPrompt(text: string, attachments: Attachment[]): void;
   sendToolResult(toolUseId: string, content: string, isError?: boolean): void;
   sendInterrupt(): void;
@@ -119,7 +98,6 @@ export function useGateway(gatewayUrl: string, options: UseGatewayOptions = {}):
   const [isQuerying, setIsQuerying] = useState(false);
   const [isCompacting, setIsCompacting] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const [sessionRecordId, setSessionRecordId] = useState<string | null>(null);
   const [usage, setUsage] = useState<Usage | null>(null);
   const [eventCount, setEventCount] = useState(0);
   const [visibleCount, setVisibleCount] = useState(50);
@@ -127,7 +105,6 @@ export function useGateway(gatewayUrl: string, options: UseGatewayOptions = {}):
   const [hasMore, setHasMore] = useState(false);
   const [workspace, setWorkspace] = useState<WorkspaceInfo | null>(null);
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
-  const [sessionConfig, setSessionConfig] = useState<SessionConfigInfo | null>(null);
   const [hookState, setHookState] = useState<Record<string, unknown>>({});
 
   const wsRef = useRef<WebSocket | null>(null);
@@ -135,7 +112,8 @@ export function useGateway(gatewayUrl: string, options: UseGatewayOptions = {}):
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const connectionIdRef = useRef<string | null>(null);
   const isQueryingRef = useRef(isQuerying);
-  const sessionRecordIdRef = useRef(sessionRecordId);
+  const sessionIdRef = useRef(sessionId);
+  const workspaceRef = useRef(workspace);
   const historyLoadedRef = useRef(false);
   const pendingRequestsRef = useRef<Map<string, string>>(new Map());
   const optionsRef = useRef(options);
@@ -149,8 +127,12 @@ export function useGateway(gatewayUrl: string, options: UseGatewayOptions = {}):
   }, [isQuerying]);
 
   useEffect(() => {
-    sessionRecordIdRef.current = sessionRecordId;
-  }, [sessionRecordId]);
+    sessionIdRef.current = sessionId;
+  }, [sessionId]);
+
+  useEffect(() => {
+    workspaceRef.current = workspace;
+  }, [workspace]);
 
   // Auto-scroll to bottom (instant for history load, smooth for streaming)
   useEffect(() => {
@@ -167,20 +149,22 @@ export function useGateway(gatewayUrl: string, options: UseGatewayOptions = {}):
     wsRef.current.send(JSON.stringify(msg));
   }, []);
 
-  // Subscribe to session-scoped streaming events when we learn the ccSessionId
+  // Subscribe to session-scoped streaming events when we learn the sessionId
   const subscribeToSession = useCallback(
-    (ccSessionId: string) => {
-      if (subscribedSessionRef.current === ccSessionId) return;
+    (sid: string) => {
+      if (subscribedSessionRef.current === sid) return;
 
       // Unsubscribe from old session's stream if any
       if (subscribedSessionRef.current) {
-        sendRequest("unsubscribe", { events: [`stream.${subscribedSessionRef.current}.*`] });
+        sendRequest("gateway.unsubscribe", {
+          events: [`stream.${subscribedSessionRef.current}.*`],
+        });
       }
 
       // Subscribe to this session's stream events
-      sendRequest("subscribe", { events: [`stream.${ccSessionId}.*`] });
-      subscribedSessionRef.current = ccSessionId;
-      console.log(`[WS] Subscribed to stream: stream.${ccSessionId.slice(0, 8)}…*`);
+      sendRequest("gateway.subscribe", { events: [`stream.${sid}.*`] });
+      subscribedSessionRef.current = sid;
+      console.log(`[WS] Subscribed to stream: stream.${sid.slice(0, 8)}...*`);
     },
     [sendRequest],
   );
@@ -523,8 +507,8 @@ export function useGateway(gatewayUrl: string, options: UseGatewayOptions = {}):
             setSessionId(payload.sessionId as string);
           }
 
-          // ── session.history ──
-          if (method === "session.history") {
+          // ── session.get-history ──
+          if (method === "session.get-history") {
             const historyMessages = payload.messages as Message[] | undefined;
             const historyUsage = payload.usage as Usage | undefined;
             const total = (payload.total as number) || 0;
@@ -568,60 +552,22 @@ export function useGateway(gatewayUrl: string, options: UseGatewayOptions = {}):
             if (historyUsage) setUsage(historyUsage);
           }
 
-          // ── workspace.get-or-create (VS Code auto-discover) ──
-          if (method === "workspace.get-or-create") {
+          // ── session.get-or-create-workspace (VS Code auto-discover) ──
+          if (method === "session.get-or-create-workspace") {
             const ws = payload.workspace as WorkspaceInfo | undefined;
             if (ws) {
               setWorkspace(ws);
               console.log(
                 `[Workspace] ${payload.created ? "Created" : "Loaded"}: ${ws.name} (${ws.id}), cwd: ${ws.cwd}`,
               );
-              console.log(`[Workspace] activeSessionId: ${ws.activeSessionId || "none"}`);
 
-              // If workspace has an active session, load its history
-              if (ws.activeSessionId) {
-                setSessionRecordId(ws.activeSessionId);
-                sendRequest("session.history", { sessionId: ws.activeSessionId, limit: 50 });
-                // Also get the CC session ID for this record
-                sendRequest("session.get", { sessionId: ws.activeSessionId });
-              } else {
-                // No active session — auto-create first session for this workspace
-                console.log("[Workspace] No active session — creating first session");
-                sendRequest("workspace.create-session", {
-                  workspaceId: ws.id,
-                  model: DEFAULT_SESSION_CONFIG.model,
-                  thinking: DEFAULT_SESSION_CONFIG.thinking,
-                  effort: DEFAULT_SESSION_CONFIG.effort,
-                });
-              }
-
-              // Load session list for this workspace
-              sendRequest("workspace.list-sessions", { workspaceId: ws.id });
+              // Load session list for this workspace (uses cwd)
+              sendRequest("session.list-sessions", { cwd: ws.cwd });
             }
           }
 
-          // ── session.get (fetch single session record) ──
-          if (method === "session.get") {
-            const sessionRecord = payload.session as SessionInfo | undefined;
-            if (sessionRecord) {
-              setSessionId(sessionRecord.ccSessionId);
-              setSessionRecordId(sessionRecord.id);
-              subscribeToSession(sessionRecord.ccSessionId);
-              console.log(
-                `[Session] Got record: ${sessionRecord.id} (cc: ${sessionRecord.ccSessionId})`,
-              );
-
-              // If we don't have workspace/sessions yet, fetch them
-              // (this happens in web explicit-session flow)
-              if (sessionRecord.workspaceId) {
-                sendRequest("workspace.get", { workspaceId: sessionRecord.workspaceId });
-                sendRequest("workspace.list-sessions", { workspaceId: sessionRecord.workspaceId });
-              }
-            }
-          }
-
-          // ── workspace.get (fetch single workspace) ──
-          if (method === "workspace.get") {
+          // ── session.get-workspace (fetch single workspace) ──
+          if (method === "session.get-workspace") {
             const ws = payload.workspace as WorkspaceInfo | undefined;
             if (ws) {
               setWorkspace(ws);
@@ -629,63 +575,70 @@ export function useGateway(gatewayUrl: string, options: UseGatewayOptions = {}):
             }
           }
 
-          // ── workspace.list-sessions ──
-          if (method === "workspace.list-sessions") {
+          // ── session.list-sessions ──
+          if (method === "session.list-sessions") {
             const sessionList = payload.sessions as SessionInfo[] | undefined;
             if (sessionList) {
               setSessions(sessionList);
               console.log(
                 `[Sessions] Loaded ${sessionList.length} sessions`,
-                sessionList.map((s) => `${s.id} (cc: ${s.ccSessionId.slice(0, 8)}…)`),
+                sessionList.map((s) => `${s.sessionId.slice(0, 8)}…`),
               );
-            }
-          }
 
-          // ── workspace.create-session ──
-          if (method === "workspace.create-session") {
-            const newSession = payload.session as SessionInfo | undefined;
-            if (newSession) {
-              setSessionId(newSession.ccSessionId);
-              setSessionRecordId(newSession.id);
-              subscribeToSession(newSession.ccSessionId);
-              setMessages(() => []);
-              setUsage(null);
-              setTotalMessages(0);
-              setHasMore(false);
-              historyLoadedRef.current = false;
-              console.log(`[Session] Created: ${newSession.id}`);
-              if (newSession.workspaceId) {
-                sendRequest("workspace.list-sessions", { workspaceId: newSession.workspaceId });
+              // If we don't have a session yet, auto-select the most recent one
+              if (sessionList.length > 0 && !sessionIdRef.current) {
+                const mostRecent = sessionList[0]; // already sorted by modified desc
+                setSessionId(mostRecent.sessionId);
+                subscribeToSession(mostRecent.sessionId);
+                sendRequest("session.get-history", { sessionId: mostRecent.sessionId, limit: 50 });
               }
             }
           }
 
-          // ── session.switch ──
-          if (method === "session.switch") {
-            const switched = payload.session as SessionInfo | undefined;
-            if (switched) {
-              setSessionId(switched.ccSessionId);
-              setSessionRecordId(switched.id);
-              subscribeToSession(switched.ccSessionId);
+          // ── session.create-session ──
+          if (method === "session.create-session") {
+            const newSessionId = payload.sessionId as string | undefined;
+            if (newSessionId) {
+              setSessionId(newSessionId);
+              subscribeToSession(newSessionId);
               setMessages(() => []);
               setUsage(null);
               setTotalMessages(0);
               setHasMore(false);
               historyLoadedRef.current = false;
-              console.log(`[Session] Switched to: ${switched.id}`);
-              sendRequest("session.history", { sessionId: switched.id, limit: 50 });
-              sendRequest("workspace.list-sessions", { workspaceId: switched.workspaceId });
+              console.log(`[Session] Created: ${newSessionId}`);
+              // Refresh session list
+              if (workspaceRef.current?.cwd) {
+                sendRequest("session.list-sessions", { cwd: workspaceRef.current.cwd });
+              }
             }
           }
 
-          // ── session.info ──
-          if (method === "session.info") {
+          // ── session.switch-session ──
+          if (method === "session.switch-session") {
+            const switchedSessionId = payload.sessionId as string | undefined;
+            if (switchedSessionId) {
+              setSessionId(switchedSessionId);
+              subscribeToSession(switchedSessionId);
+              setMessages(() => []);
+              setUsage(null);
+              setTotalMessages(0);
+              setHasMore(false);
+              historyLoadedRef.current = false;
+              console.log(`[Session] Switched to: ${switchedSessionId}`);
+              sendRequest("session.get-history", { sessionId: switchedSessionId, limit: 50 });
+              if (workspaceRef.current?.cwd) {
+                sendRequest("session.list-sessions", { cwd: workspaceRef.current.cwd });
+              }
+            }
+          }
+
+          // ── session.get-info ──
+          if (method === "session.get-info") {
             if (payload.sessionId) {
               setSessionId(payload.sessionId as string);
               subscribeToSession(payload.sessionId as string);
             }
-            const sessionRecord = payload.session as SessionInfo | undefined;
-            if (sessionRecord) setSessionRecordId(sessionRecord.id);
             if (payload.workspaceId && payload.workspaceName) {
               setWorkspace((prev) =>
                 prev
@@ -695,14 +648,6 @@ export function useGateway(gatewayUrl: string, options: UseGatewayOptions = {}):
                       name: payload.workspaceName as string,
                     }
                   : null,
-              );
-            }
-            // Extract session config (model, thinking, etc.)
-            const cfg = payload.sessionConfig as SessionConfigInfo | undefined;
-            if (cfg) {
-              setSessionConfig(cfg);
-              console.log(
-                `[Config] model: ${cfg.model}, thinking: ${cfg.thinking}, effort: ${cfg.effort}`,
               );
             }
           }
@@ -760,28 +705,28 @@ export function useGateway(gatewayUrl: string, options: UseGatewayOptions = {}):
 
       // Fetch session info on connect
       // Streaming events are subscribed per-session via subscribeToSession()
-      // when we learn the ccSessionId from session.get/create/switch/info
-      sendRequest("session.info");
+      // when we learn the sessionId from create/switch/info
+      sendRequest("session.get-info");
 
       // Subscribe to voice and hook events (global, not session-scoped)
-      sendRequest("subscribe", { events: ["voice.*", "hook.*"] });
+      sendRequest("gateway.subscribe", { events: ["voice.*", "hook.*"] });
 
       const opts = optionsRef.current;
 
       if (opts.sessionId) {
-        // ── Web client: explicit session ID ──
-        // Load history for this specific session
-        setSessionRecordId(opts.sessionId);
-        sendRequest("session.history", { sessionId: opts.sessionId, limit: 50 });
-        sendRequest("session.get", { sessionId: opts.sessionId });
+        // ── Web client: explicit session ID (CC UUID) ──
+        // Load history and subscribe to stream
+        setSessionId(opts.sessionId);
+        subscribeToSession(opts.sessionId);
+        sendRequest("session.get-history", { sessionId: opts.sessionId, limit: 50 });
       } else if (opts.autoDiscoverCwd) {
         // ── VS Code: auto-discover by CWD ──
         // This triggers workspace creation + session discovery + history loading
-        sendRequest("workspace.get-or-create", { cwd: opts.autoDiscoverCwd });
+        sendRequest("session.get-or-create-workspace", { cwd: opts.autoDiscoverCwd });
       } else {
         // ── No session specified (e.g. listing pages) ──
         // Just get basic info
-        sendRequest("session.info");
+        sendRequest("session.get-info");
       }
     };
 
@@ -858,76 +803,65 @@ export function useGateway(gatewayUrl: string, options: UseGatewayOptions = {}):
         ];
       }
 
-      // Pass session record ID so the gateway targets the right session
-      const sid = sessionRecordIdRef.current;
+      // Pass session ID so the gateway targets the right session
+      const sid = sessionIdRef.current;
       if (!sid) {
-        console.warn("[sendPrompt] missing sessionRecordId");
+        console.warn("[sendPrompt] missing sessionId");
         return;
       }
-      const cfg = sessionConfig || DEFAULT_SESSION_CONFIG;
       const params: Record<string, unknown> = {
         content,
         sessionId: sid,
-        model: cfg.model,
-        thinking: cfg.thinking,
-        effort: cfg.effort,
       };
-      sendRequest("session.prompt", params);
+      sendRequest("session.send-prompt", params);
     },
-    [sendRequest, setMessages, sessionConfig],
+    [sendRequest, setMessages],
   );
 
   const sendToolResult = useCallback(
     (toolUseId: string, content: string, isError = false) => {
-      const sid = sessionRecordIdRef.current;
+      const sid = sessionIdRef.current;
       if (!sid) {
-        console.warn("[sendToolResult] missing sessionRecordId");
+        console.warn("[sendToolResult] missing sessionId");
         return;
       }
-      sendRequest("session.tool-result", { sessionId: sid, toolUseId, content, isError });
+      sendRequest("session.send-tool-result", { sessionId: sid, toolUseId, content, isError });
     },
     [sendRequest],
   );
 
   const sendInterrupt = useCallback(() => {
     if (!isQueryingRef.current) return;
-    if (!sessionRecordIdRef.current) return;
-    sendRequest("session.interrupt", { sessionId: sessionRecordIdRef.current });
+    if (!sessionIdRef.current) return;
+    sendRequest("session.interrupt-session", { sessionId: sessionIdRef.current });
   }, [sendRequest]);
 
   const loadEarlierMessages = useCallback(() => {
     if (!hasMore) return;
-    if (!sessionRecordIdRef.current) return;
+    if (!sessionIdRef.current) return;
     // Request next page of older messages from the server
     const offset = messages.length;
     const params: Record<string, unknown> = {
-      sessionId: sessionRecordIdRef.current,
+      sessionId: sessionIdRef.current,
       limit: 50,
       offset,
     };
-    sendRequest("session.history", params);
+    sendRequest("session.get-history", params);
   }, [hasMore, messages.length, sendRequest]);
 
   const createNewSession = useCallback(
-    (title?: string) => {
-      if (!workspace?.id) return;
-      const cfg = sessionConfig || DEFAULT_SESSION_CONFIG;
-      sendRequest("workspace.create-session", {
-        workspaceId: workspace.id,
-        model: cfg.model,
-        thinking: cfg.thinking,
-        effort: cfg.effort,
-        ...(title ? { title } : {}),
-      });
+    (_title?: string) => {
+      if (!workspace?.cwd) return;
+      sendRequest("session.create-session", { cwd: workspace.cwd });
     },
-    [sendRequest, workspace?.id, sessionConfig],
+    [sendRequest, workspace?.cwd],
   );
 
   const switchSession = useCallback(
     (sid: string) => {
-      sendRequest("session.switch", { sessionId: sid });
+      sendRequest("session.switch-session", { sessionId: sid, cwd: workspace?.cwd });
     },
-    [sendRequest],
+    [sendRequest, workspace?.cwd],
   );
 
   const onEvent = useCallback((listener: EventListener): (() => void) => {
@@ -943,7 +877,6 @@ export function useGateway(gatewayUrl: string, options: UseGatewayOptions = {}):
     isQuerying,
     isCompacting,
     sessionId,
-    sessionRecordId,
     usage,
     eventCount,
     visibleCount,
@@ -951,7 +884,6 @@ export function useGateway(gatewayUrl: string, options: UseGatewayOptions = {}):
     hasMore,
     workspace,
     sessions,
-    sessionConfig,
     sendPrompt,
     sendToolResult,
     sendInterrupt,

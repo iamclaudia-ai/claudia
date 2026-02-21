@@ -56,144 +56,67 @@ const MEMORY_ROOT = join(homedir(), "memory");
 // ============================================================================
 
 export interface LibbyConfig {
-  gatewayUrl: string;
   model: string;
   timezone: string;
   minConversationMessages: number;
 }
 
 // ============================================================================
-// Gateway WebSocket Session
+// Libby Session (RPC via ctx.call)
 // ============================================================================
-
-/**
- * Send a req over a WebSocket and await the response payload.
- */
-function wsRequest(
-  ws: WebSocket,
-  method: string,
-  params: Record<string, unknown>,
-  timeoutMs = 30_000,
-): Promise<Record<string, unknown>> {
-  return new Promise((resolve, reject) => {
-    const reqId = `libby-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const timeout = setTimeout(() => {
-      cleanup();
-      reject(new Error(`Gateway '${method}' timed out after ${timeoutMs}ms`));
-    }, timeoutMs);
-
-    function handler(event: MessageEvent) {
-      try {
-        const msg = JSON.parse(event.data as string);
-        if (msg.type === "res" && msg.id === reqId) {
-          cleanup();
-          if (!msg.ok) reject(new Error(msg.error || `Gateway error on ${method}`));
-          else resolve(msg.payload ?? {});
-        }
-      } catch {
-        // Ignore parse errors
-      }
-    }
-
-    function cleanup() {
-      clearTimeout(timeout);
-      ws.removeEventListener("message", handler);
-    }
-
-    ws.addEventListener("message", handler);
-    ws.send(JSON.stringify({ type: "req", id: reqId, method, params }));
-  });
-}
 
 /**
  * A persistent session for Libby's processing.
  *
- * Creates one WebSocket connection and one gateway session,
- * then reuses it for sequential prompts. The system prompt
- * is sent as the first message to establish Libby's identity.
+ * Uses ctx.call() RPC to communicate with the gateway — proper
+ * request/response instead of fire-and-forget WebSocket messages.
+ * Creates one session and reuses it for sequential prompts.
+ * The system prompt is sent as the first message to establish Libby's identity.
  */
 class LibbySession {
-  private ws: WebSocket | null = null;
-  private sessionId: string | null = null; // Gateway record ID
-  private runtimeSessionId: string | null = null; // CLI session ID (ccSessionId)
+  private sessionId: string | null = null;
   private initialized = false;
   promptCount = 0;
 
   constructor(
-    private gatewayUrl: string,
+    private ctx: ExtensionContext,
     private model: string,
     private log: (level: string, msg: string) => void,
   ) {}
 
   get isOpen(): boolean {
-    return this.initialized && this.ws !== null;
+    return this.initialized && this.sessionId !== null;
   }
 
-  /** The runtime session ID (ccSessionId) for this Libby session */
+  /** The session ID for this Libby session */
   get ccSessionId(): string | null {
-    return this.runtimeSessionId;
+    return this.sessionId;
   }
 
   /**
-   * Connect to gateway, create workspace + session, send system prompt.
+   * Create workspace + session, send system prompt.
    */
   async open(): Promise<void> {
-    this.close(); // Clean up any existing connection
-
-    this.ws = new WebSocket(this.gatewayUrl);
-
-    await new Promise<void>((resolve, reject) => {
-      this.ws!.addEventListener("open", () => resolve());
-      this.ws!.addEventListener("error", (e) =>
-        reject(new Error(`WebSocket connect failed: ${e}`)),
-      );
-    });
-
-    // Respond to gateway ping/pong to avoid connection pruning
-    this.ws.addEventListener("message", (event) => {
-      try {
-        const msg = JSON.parse(event.data as string);
-        if (msg.type === "ping") {
-          this.ws?.send(JSON.stringify({ type: "pong", id: msg.id }));
-        }
-      } catch {
-        /* ignore */
-      }
-    });
+    await this.close(); // Clean up any existing session
 
     // Get or create Libby's workspace
-    const wsResult = await wsRequest(this.ws, "workspace.get-or-create", { cwd: LIBBY_CWD });
-    const workspaceId = (wsResult.workspace as Record<string, unknown>)?.id as string;
-    if (!workspaceId) throw new Error("Failed to get workspace ID");
+    await this.ctx.call("session.get-or-create-workspace", { cwd: LIBBY_CWD });
 
-    // Create a session — reused for sequential processing
-    const sesResult = await wsRequest(this.ws, "workspace.create-session", {
-      workspaceId,
-      model: this.model,
-      thinking: false,
-      effort: "low",
-    });
-    const session = sesResult.session as Record<string, unknown>;
-    this.sessionId = session?.id as string;
-    this.runtimeSessionId = session?.ccSessionId as string;
-    if (!this.sessionId) throw new Error("Failed to get session ID");
+    // Create a session
+    const result = (await this.ctx.call("session.create-session", { cwd: LIBBY_CWD })) as {
+      sessionId: string;
+    };
+    this.sessionId = result.sessionId;
+    if (!this.sessionId) throw new Error("Failed to create session");
 
     // Send system prompt as first message
     const initPrompt = `${SYSTEM_PROMPT}\n\n---\n\nYou are now ready to process conversation transcripts. For each transcript I send, use your tools to write memories to ~/memory/, then respond with a SUMMARY or SKIP line.\n\nRespond with "ready" to confirm you understand.`;
 
-    await wsRequest(
-      this.ws,
-      "session.prompt",
-      {
-        sessionId: this.sessionId,
-        content: initPrompt,
-        model: this.model,
-        thinking: false,
-        effort: "low",
-        streaming: false,
-      },
-      60_000,
-    );
+    await this.ctx.call("session.send-prompt", {
+      sessionId: this.sessionId,
+      content: initPrompt,
+      streaming: false,
+    });
 
     this.initialized = true;
     this.promptCount = 0;
@@ -210,45 +133,35 @@ class LibbySession {
    * Previous context is injected via DB-backed summaries.
    */
   async processTranscript(content: string): Promise<string> {
-    if (!this.ws || !this.sessionId || !this.initialized) {
+    if (!this.sessionId || !this.initialized) {
       throw new Error("Session not initialized");
     }
 
     this.promptCount++;
 
-    const promptResult = await wsRequest(
-      this.ws,
-      "session.prompt",
-      {
-        sessionId: this.sessionId,
-        content,
-        model: this.model,
-        thinking: false,
-        effort: "low",
-        streaming: false,
-      },
-      300_000, // 5 minute timeout — no compaction, just tool use
-    );
+    const result = (await this.ctx.call("session.send-prompt", {
+      sessionId: this.sessionId,
+      content,
+      streaming: false,
+    })) as { text: string };
 
-    const text = promptResult.text as string;
+    const text = result.text;
     if (!text) throw new Error("No text in prompt response");
     return text;
   }
 
   /**
-   * Close the session — kill the runtime CLI process via gateway, then drop WebSocket.
+   * Close the session — release the runtime resources via gateway RPC.
    */
-  close(): void {
-    if (this.ws) {
+  async close(): Promise<void> {
+    if (this.sessionId) {
       try {
-        this.ws.close();
+        await this.ctx.call("session.close-session", { sessionId: this.sessionId });
       } catch {
-        /* ignore */
+        // Session may already be closed
       }
-      this.ws = null;
     }
     this.sessionId = null;
-    this.runtimeSessionId = null;
     this.initialized = false;
     this.promptCount = 0;
   }
@@ -302,8 +215,10 @@ export class LibbyWorker {
       await this.loopPromise;
       this.loopPromise = null;
     }
-    this.session?.close();
-    this.session = null;
+    if (this.session) {
+      await this.session.close();
+      this.session = null;
+    }
     this.log("INFO", "Libby: Worker stopped");
   }
 
@@ -400,7 +315,8 @@ export class LibbyWorker {
     );
 
     // Fresh session per conversation — no compaction overhead
-    this.session = new LibbySession(this.config.gatewayUrl, this.config.model, this.log);
+    if (!this.ctx) throw new Error("Libby: No extension context — cannot create session");
+    this.session = new LibbySession(this.ctx, this.config.model, this.log);
     this.log("INFO", "Libby: Opening session...");
     await this.session.open();
     this.log("INFO", "Libby: Session ready");
@@ -478,8 +394,10 @@ export class LibbyWorker {
       updateConversationStatus(conv.id, "queued");
     } finally {
       // Always close session — fresh one per conversation
-      this.session?.close();
-      this.session = null;
+      if (this.session) {
+        await this.session.close();
+        this.session = null;
+      }
     }
   }
 

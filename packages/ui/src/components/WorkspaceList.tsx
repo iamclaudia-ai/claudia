@@ -1,10 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import type { GatewayMessage } from "../types";
-import type { WorkspaceInfo, SessionInfo } from "../hooks/useGateway";
-
-const DEFAULT_MODEL = "claude-opus-4-6";
-const DEFAULT_THINKING = true;
-const DEFAULT_EFFORT = "medium";
+import type { WorkspaceInfo } from "../hooks/useGateway";
 
 interface WorkspaceListProps {
   gatewayUrl: string;
@@ -31,8 +27,8 @@ export function WorkspaceList({
   const [isCreating, setIsCreating] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const pendingRef = useRef<Map<string, string>>(new Map());
-  // Track workspace ID for auto-session-create flow
-  const pendingWorkspaceRef = useRef<string | null>(null);
+  // Track workspace CWD for auto-session-create flow
+  const pendingCwdRef = useRef<string | null>(null);
 
   const sendRequest = useCallback((method: string, params?: Record<string, unknown>) => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
@@ -48,7 +44,7 @@ export function WorkspaceList({
 
     ws.onopen = () => {
       setIsConnected(true);
-      sendRequest("workspace.list");
+      sendRequest("session.list-workspaces");
     };
 
     ws.onclose = () => setIsConnected(false);
@@ -60,41 +56,30 @@ export function WorkspaceList({
         const method = data.id ? pendingRef.current.get(data.id) : undefined;
         if (data.id) pendingRef.current.delete(data.id);
 
-        if (method === "workspace.list") {
+        if (method === "session.list-workspaces") {
           const list = payload.workspaces as WorkspaceInfo[] | undefined;
           setWorkspaces(list || []);
           setIsLoading(false);
         }
 
-        if (method === "workspace.get-or-create") {
+        if (method === "session.get-or-create-workspace") {
           const ws = payload.workspace as WorkspaceInfo | undefined;
           if (ws) {
-            // If workspace has an active session, navigate straight to it
-            if (ws.activeSessionId && onSessionReady) {
-              setIsCreating(false);
-              onSessionReady(ws.activeSessionId);
-            } else {
-              // Create first session for the new workspace
-              pendingWorkspaceRef.current = ws.id;
-              sendRequest("workspace.create-session", {
-                workspaceId: ws.id,
-                model: DEFAULT_MODEL,
-                thinking: DEFAULT_THINKING,
-                effort: DEFAULT_EFFORT,
-              });
-            }
+            // Create first session for the workspace
+            pendingCwdRef.current = ws.cwd;
+            sendRequest("session.create-session", { cwd: ws.cwd });
           }
         }
 
-        if (method === "workspace.create-session") {
-          const session = payload.session as SessionInfo | undefined;
-          if (session && onSessionReady) {
+        if (method === "session.create-session") {
+          const newSessionId = payload.sessionId as string | undefined;
+          if (newSessionId && onSessionReady) {
             setIsCreating(false);
-            onSessionReady(session.id);
+            onSessionReady(newSessionId);
           } else {
             // Fallback: refresh workspace list
             setIsCreating(false);
-            sendRequest("workspace.list");
+            sendRequest("session.list-workspaces");
           }
         }
       }
@@ -115,7 +100,7 @@ export function WorkspaceList({
     if (!cwd) return;
 
     setIsCreating(true);
-    sendRequest("workspace.get-or-create", {
+    sendRequest("session.get-or-create-workspace", {
       cwd,
       name: newName.trim() || undefined,
     });
@@ -144,7 +129,7 @@ export function WorkspaceList({
     <div className="flex flex-col h-screen max-w-3xl mx-auto">
       <header className="p-6 border-b border-gray-200">
         <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-semibold">💙 Claudia</h1>
+          <h1 className="text-2xl font-semibold">Claudia</h1>
           <div className="flex items-center gap-3 text-sm">
             <button
               onClick={() => setShowCreateForm(!showCreateForm)}
@@ -197,7 +182,7 @@ export function WorkspaceList({
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Name{" "}
                 <span className="text-gray-400 font-normal">
-                  (optional — defaults to folder name)
+                  (optional -- defaults to folder name)
                 </span>
               </label>
               <input

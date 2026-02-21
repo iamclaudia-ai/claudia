@@ -2,10 +2,6 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import type { GatewayMessage } from "../types";
 import type { WorkspaceInfo, SessionInfo } from "../hooks/useGateway";
 
-const DEFAULT_MODEL = "claude-opus-4-6";
-const DEFAULT_THINKING = true;
-const DEFAULT_EFFORT = "medium";
-
 interface SessionListProps {
   gatewayUrl: string;
   workspaceId: string;
@@ -45,8 +41,8 @@ export function SessionList({
 
     ws.onopen = () => {
       setIsConnected(true);
-      sendRequest("workspace.list-sessions", { workspaceId });
-      sendRequest("workspace.get", { workspaceId });
+      // First get the workspace to learn its CWD, then list sessions
+      sendRequest("session.get-workspace", { id: workspaceId });
     };
 
     ws.onclose = () => setIsConnected(false);
@@ -58,23 +54,27 @@ export function SessionList({
         const method = data.id ? pendingRef.current.get(data.id) : undefined;
         if (data.id) pendingRef.current.delete(data.id);
 
-        if (method === "workspace.list-sessions") {
+        if (method === "session.get-workspace") {
+          const ws = payload.workspace as WorkspaceInfo | undefined;
+          if (ws) {
+            setWorkspace(ws);
+            // Now list sessions using the workspace CWD
+            sendRequest("session.list-sessions", { cwd: ws.cwd });
+          }
+        }
+
+        if (method === "session.list-sessions") {
           const list = payload.sessions as SessionInfo[] | undefined;
           setSessions(list || []);
           setIsLoading(false);
         }
 
-        if (method === "workspace.get") {
-          const ws = payload.workspace as WorkspaceInfo | undefined;
-          if (ws) setWorkspace(ws);
-        }
-
-        if (method === "workspace.create-session") {
-          const session = payload.session as SessionInfo | undefined;
-          if (session) {
+        if (method === "session.create-session") {
+          const newSessionId = payload.sessionId as string | undefined;
+          if (newSessionId) {
             setIsCreating(false);
             // Navigate straight to the new session
-            onSelectSession(session.id);
+            onSelectSession(newSessionId);
           }
         }
       }
@@ -91,12 +91,15 @@ export function SessionList({
   }, [gatewayUrl, workspaceId, sendRequest]);
 
   const formatSessionName = (s: SessionInfo) => {
-    if (s.title) return s.title;
-    return `Session ${s.id.slice(4)}`;
+    if (s.firstPrompt) {
+      // Truncate to ~60 chars
+      return s.firstPrompt.length > 60 ? s.firstPrompt.slice(0, 57) + "..." : s.firstPrompt;
+    }
+    return `Session ${s.sessionId.slice(0, 8)}...`;
   };
 
   const formatTime = (dateStr: string) => {
-    const date = new Date(dateStr + "Z");
+    const date = new Date(dateStr);
     const now = new Date();
     const diffMs = now.getTime() - date.getTime();
     const diffMins = Math.floor(diffMs / 60000);
@@ -109,13 +112,12 @@ export function SessionList({
     return date.toLocaleDateString();
   };
 
-  // Separate active vs archived, sort by last activity
-  const activeSessions = sessions
-    .filter((s) => s.status === "active")
-    .sort((a, b) => new Date(b.lastActivity).getTime() - new Date(a.lastActivity).getTime());
-  const archivedSessions = sessions
-    .filter((s) => s.status === "archived")
-    .sort((a, b) => new Date(b.lastActivity).getTime() - new Date(a.lastActivity).getTime());
+  // Sort by most recently modified
+  const sortedSessions = [...sessions].sort((a, b) => {
+    const aTime = new Date(a.modified || a.created || 0).getTime();
+    const bTime = new Date(b.modified || b.created || 0).getTime();
+    return bTime - aTime;
+  });
 
   return (
     <div className="flex flex-col h-screen max-w-3xl mx-auto">
@@ -137,7 +139,7 @@ export function SessionList({
             </svg>
           </button>
           <div>
-            <h1 className="text-2xl font-semibold">💙 {workspace?.name || "..."}</h1>
+            <h1 className="text-2xl font-semibold">{workspace?.name || "..."}</h1>
             {workspace && <p className="text-xs text-gray-400 mt-0.5">{workspace.cwd}</p>}
           </div>
         </div>
@@ -146,15 +148,11 @@ export function SessionList({
           <div className="flex items-center gap-3 text-sm">
             <button
               onClick={() => {
+                if (!workspace?.cwd) return;
                 setIsCreating(true);
-                sendRequest("workspace.create-session", {
-                  workspaceId,
-                  model: DEFAULT_MODEL,
-                  thinking: DEFAULT_THINKING,
-                  effort: DEFAULT_EFFORT,
-                });
+                sendRequest("session.create-session", { cwd: workspace.cwd });
               }}
-              disabled={isCreating}
+              disabled={isCreating || !workspace?.cwd}
               className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 disabled:opacity-50 transition-colors"
             >
               <svg
@@ -191,48 +189,16 @@ export function SessionList({
             </p>
           </div>
         ) : (
-          <div className="space-y-6">
-            {/* Active sessions */}
-            {activeSessions.length > 0 && (
-              <div>
-                <h3 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2 px-1">
-                  Active
-                </h3>
-                <div className="space-y-2">
-                  {activeSessions.map((s) => (
-                    <SessionCard
-                      key={s.id}
-                      session={s}
-                      isActive={workspace?.activeSessionId === s.id}
-                      formatName={formatSessionName}
-                      formatTime={formatTime}
-                      onClick={() => onSelectSession(s.id)}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Archived sessions */}
-            {archivedSessions.length > 0 && (
-              <div>
-                <h3 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2 px-1">
-                  Archived
-                </h3>
-                <div className="space-y-2">
-                  {archivedSessions.map((s) => (
-                    <SessionCard
-                      key={s.id}
-                      session={s}
-                      isActive={false}
-                      formatName={formatSessionName}
-                      formatTime={formatTime}
-                      onClick={() => onSelectSession(s.id)}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
+          <div className="space-y-2">
+            {sortedSessions.map((s) => (
+              <SessionCard
+                key={s.sessionId}
+                session={s}
+                formatName={formatSessionName}
+                formatTime={formatTime}
+                onClick={() => onSelectSession(s.sessionId)}
+              />
+            ))}
           </div>
         )}
       </div>
@@ -242,44 +208,37 @@ export function SessionList({
 
 function SessionCard({
   session,
-  isActive,
   formatName,
   formatTime,
   onClick,
 }: {
   session: SessionInfo;
-  isActive: boolean;
   formatName: (s: SessionInfo) => string;
   formatTime: (dateStr: string) => string;
   onClick: () => void;
 }) {
+  const timeStr = session.modified || session.created;
+
   return (
     <button
       onClick={onClick}
-      className={`w-full text-left px-4 py-3 rounded-lg border transition-colors group ${
-        isActive
-          ? "border-blue-200 bg-blue-50/50 hover:border-blue-300"
-          : "border-gray-200 hover:border-gray-300 hover:bg-gray-50/50"
-      }`}
+      className="w-full text-left px-4 py-3 rounded-lg border border-gray-200 hover:border-gray-300 hover:bg-gray-50/50 transition-colors group"
     >
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 min-w-0">
-          <span
-            className={`w-2 h-2 rounded-full flex-shrink-0 ${
-              session.status === "active" ? "bg-green-400" : "bg-gray-300"
-            }`}
-          />
-          <span className={`font-medium truncate ${isActive ? "text-blue-700" : "text-gray-900"}`}>
-            {formatName(session)}
-          </span>
-          {isActive && (
-            <span className="text-xs bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded font-medium">
-              current
+          <span className="w-2 h-2 rounded-full flex-shrink-0 bg-green-400" />
+          <span className="font-medium text-gray-900 truncate">{formatName(session)}</span>
+          {session.gitBranch && (
+            <span className="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded font-mono">
+              {session.gitBranch}
             </span>
           )}
         </div>
         <div className="flex items-center gap-3 flex-shrink-0 ml-4">
-          <span className="text-xs text-gray-400">{formatTime(session.lastActivity)}</span>
+          {session.messageCount != null && (
+            <span className="text-xs text-gray-400">{session.messageCount} msgs</span>
+          )}
+          {timeStr && <span className="text-xs text-gray-400">{formatTime(timeStr)}</span>}
           <svg
             className="w-4 h-4 text-gray-300 group-hover:text-gray-400"
             fill="none"
@@ -291,9 +250,6 @@ function SessionCard({
           </svg>
         </div>
       </div>
-      {session.summary && (
-        <p className="text-sm text-gray-500 mt-1 truncate pl-4">{session.summary}</p>
-      )}
     </button>
   );
 }

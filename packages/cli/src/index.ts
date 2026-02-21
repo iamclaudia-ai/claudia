@@ -5,15 +5,12 @@
  * Usage:
  *   claudia "Hello, how are you?"
  *   claudia workspace list
- *   claudia session prompt --sessionId ses_123 --content "Hello" --model claude-opus-4-6 --thinking true --effort medium
+ *   claudia session send-prompt --sessionId ses_123 --content "Hello"
  *   claudia voice speak --text "Hello"
  *   claudia methods
  */
 
 const GATEWAY_URL = process.env.CLAUDIA_GATEWAY_URL || "ws://localhost:30086/ws";
-const MODEL = process.env.CLAUDIA_MODEL || "claude-opus-4-6";
-const THINKING = process.env.CLAUDIA_THINKING ? process.env.CLAUDIA_THINKING === "true" : true;
-const EFFORT = process.env.CLAUDIA_THINKING_EFFORT || "medium";
 
 interface Message {
   type: "req" | "res" | "event";
@@ -443,7 +440,7 @@ async function fetchMethodCatalog(): Promise<MethodCatalogEntry[]> {
     const reqId = generateId();
 
     ws.onopen = () => {
-      const msg: Message = { type: "req", id: reqId, method: "method.list", params: {} };
+      const msg: Message = { type: "req", id: reqId, method: "gateway.list-methods", params: {} };
       ws.send(JSON.stringify(msg));
     };
 
@@ -454,7 +451,7 @@ async function fetchMethodCatalog(): Promise<MethodCatalogEntry[]> {
 
         if (!msg.ok) {
           ws.close();
-          reject(new Error(msg.error || "method.list failed"));
+          reject(new Error(msg.error || "gateway.list-methods failed"));
           return;
         }
 
@@ -478,7 +475,7 @@ async function invokeMethod(method: string, params: Record<string, unknown>): Pr
 
   return new Promise((resolve, reject) => {
     const reqId = generateId();
-    const streamPrompt = method === "session.prompt";
+    const streamPrompt = method === "session.send-prompt";
     let gotFinalStreamEvent = false;
     let gotResponse = false;
 
@@ -487,8 +484,8 @@ async function invokeMethod(method: string, params: Record<string, unknown>): Pr
         const subMsg: Message = {
           type: "req",
           id: generateId(),
-          method: "subscribe",
-          params: { events: ["session.*"] },
+          method: "gateway.subscribe",
+          params: { events: ["stream.*"] },
         };
         ws.send(JSON.stringify(subMsg));
       }
@@ -521,14 +518,14 @@ async function invokeMethod(method: string, params: Record<string, unknown>): Pr
       if (!streamPrompt || msg.type !== "event") return;
 
       const payload = (msg.payload || {}) as Record<string, unknown>;
-      if (msg.event === "session.content_block_delta") {
+      if (msg.event?.includes(".content_block_delta")) {
         const delta = payload.delta as { type?: string; text?: string } | undefined;
         if (delta?.type === "text_delta" && delta.text) {
           process.stdout.write(delta.text);
         }
       }
 
-      if (msg.event === "session.message_stop") {
+      if (msg.event?.includes(".message_stop")) {
         gotFinalStreamEvent = true;
         process.stdout.write("\n");
         ws.close();
@@ -557,7 +554,7 @@ async function speak(text: string): Promise<void> {
         JSON.stringify({
           type: "req",
           id: generateId(),
-          method: "subscribe",
+          method: "gateway.subscribe",
           params: { events: ["voice.*"] },
         }),
       );
@@ -639,8 +636,8 @@ async function promptCompat(args: string[]): Promise<void> {
   };
 
   ws.onopen = () => {
-    sendRequest("subscribe", { events: ["session.*"] });
-    sendRequest("workspace.get-or-create", { cwd: process.cwd() });
+    sendRequest("gateway.subscribe", { events: ["stream.*"] });
+    sendRequest("session.get-or-create-workspace", { cwd: process.cwd() });
   };
 
   ws.onmessage = (event) => {
@@ -651,56 +648,51 @@ async function promptCompat(args: string[]): Promise<void> {
       if (msg.id) pendingMethods.delete(msg.id);
       const payload = (msg.payload || {}) as Record<string, unknown>;
 
-      if (method === "workspace.get-or-create") {
-        const workspace = payload.workspace as
-          | { id: string; activeSessionId?: string | null }
-          | undefined;
-        if (!workspace) return;
-        if (workspace.activeSessionId) {
-          sessionRecordId = workspace.activeSessionId;
+      if (method === "session.get-or-create-workspace") {
+        // Workspace exists, now find sessions
+        sendRequest("session.list-sessions", { cwd: process.cwd() });
+        return;
+      }
+
+      if (method === "session.list-sessions") {
+        const sessions = payload.sessions as { sessionId: string }[] | undefined;
+        if (sessions && sessions.length > 0) {
+          sessionRecordId = sessions[0].sessionId;
           console.error(`[session] Reusing ${sessionRecordId}`);
         } else {
-          sendRequest("workspace.create-session", {
-            workspaceId: workspace.id,
-            model: MODEL,
-            thinking: THINKING,
-            effort: EFFORT,
-          });
+          sendRequest("session.create-session", { cwd: process.cwd() });
           return;
         }
       }
 
-      if (method === "workspace.create-session") {
-        const session = payload.session as { id: string } | undefined;
-        if (session?.id) {
-          sessionRecordId = session.id;
+      if (method === "session.create-session") {
+        const sid = payload.sessionId as string | undefined;
+        if (sid) {
+          sessionRecordId = sid;
           console.error(`[session] Created ${sessionRecordId}`);
         }
       }
 
       if (
-        (method === "workspace.get-or-create" || method === "workspace.create-session") &&
+        (method === "session.list-sessions" || method === "session.create-session") &&
         sessionRecordId
       ) {
-        sendRequest("session.prompt", {
+        sendRequest("session.send-prompt", {
           sessionId: sessionRecordId,
           content: prompt,
-          model: MODEL,
-          thinking: THINKING,
-          effort: EFFORT,
         });
       }
     }
 
     if (msg.type === "event") {
       const payload = msg.payload as Record<string, unknown>;
-      if (msg.event === "session.content_block_delta") {
+      if (msg.event?.includes(".content_block_delta")) {
         const delta = payload.delta as { type: string; text?: string } | undefined;
         if (delta?.type === "text_delta" && delta.text) {
           process.stdout.write(delta.text);
           responseText += delta.text;
         }
-      } else if (msg.event === "session.message_stop") {
+      } else if (msg.event?.includes(".message_stop")) {
         isComplete = true;
         if (responseText && !responseText.endsWith("\n")) console.log();
         ws.close();

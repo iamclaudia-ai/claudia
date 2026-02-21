@@ -80,9 +80,7 @@ export interface MemoryConfig {
   minConversationMessages?: number;
   /** Timezone for Libby's transcript formatting (default: America/New_York) */
   timezone?: string;
-  /** Gateway WebSocket URL for Libby's session.prompt calls (default: ws://localhost:30086/ws) */
-  gatewayUrl?: string;
-  /** Model for Libby to use via session.prompt (default: claude-sonnet-4-6) */
+  /** Model for Libby to use via session.send-prompt (default: claude-sonnet-4-6) */
   model?: string;
   /** Max conversations per memory.process invocation (default: 10) */
   processBatchSize?: number;
@@ -97,7 +95,6 @@ const DEFAULT_CONFIG: Required<MemoryConfig> = {
   pollIntervalMs: 30000,
   minConversationMessages: 5,
   timezone: "America/New_York",
-  gatewayUrl: "ws://localhost:30086/ws",
   model: "claude-sonnet-4-6",
   processBatchSize: 10,
   autoProcess: false,
@@ -291,7 +288,6 @@ export function createMemoryExtension(config: MemoryConfig = {}): ClaudiaExtensi
 
       // Step 5: Start Libby's background worker
       const libbyConfig: LibbyConfig = {
-        gatewayUrl: cfg.gatewayUrl,
         model: cfg.model,
         timezone: cfg.timezone,
         minConversationMessages: cfg.minConversationMessages,

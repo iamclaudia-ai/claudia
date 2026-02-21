@@ -1,14 +1,12 @@
 import { useState, useRef, useEffect } from "react";
 import { useBridge } from "../bridge";
-import type { WorkspaceInfo, SessionInfo, SessionConfigInfo } from "../hooks/useGateway";
+import type { WorkspaceInfo, SessionInfo } from "../hooks/useGateway";
 
 interface HeaderProps {
   isConnected: boolean;
   sessionId: string | null;
-  sessionRecordId: string | null;
   workspace: WorkspaceInfo | null;
   sessions: SessionInfo[];
-  sessionConfig: SessionConfigInfo | null;
   onCreateSession: () => void;
   onSwitchSession: (sessionId: string) => void;
   /** Send a raw gateway request */
@@ -20,10 +18,8 @@ interface HeaderProps {
 export function Header({
   isConnected,
   sessionId,
-  sessionRecordId,
   workspace,
   sessions,
-  sessionConfig,
   onCreateSession,
   onSwitchSession,
   sendRequest,
@@ -45,20 +41,20 @@ export function Header({
     return () => document.removeEventListener("mousedown", handleClick);
   }, [isDropdownOpen]);
 
-  // Find current session in the list (match by record ID or CC session ID)
-  const currentSession = sessions.find(
-    (s) => s.id === sessionRecordId || s.ccSessionId === sessionId,
-  );
+  // Find current session in the list
+  const currentSession = sessions.find((s) => s.sessionId === sessionId);
 
   // Format session display name
   const formatSessionName = (s: SessionInfo) => {
-    if (s.title) return s.title;
-    return `Session ${s.id.slice(4)}`;
+    if (s.firstPrompt) {
+      return s.firstPrompt.length > 40 ? s.firstPrompt.slice(0, 37) + "..." : s.firstPrompt;
+    }
+    return `Session ${s.sessionId.slice(0, 8)}...`;
   };
 
   // Format relative time
   const formatTime = (dateStr: string) => {
-    const date = new Date(dateStr + "Z"); // JSONL dates are UTC
+    const date = new Date(dateStr);
     const now = new Date();
     const diffMs = now.getTime() - date.getTime();
     const diffMins = Math.floor(diffMs / 60000);
@@ -83,7 +79,7 @@ export function Header({
               ←
             </button>
           )}
-          <h1 className="text-xl font-semibold">💙 Claudia</h1>
+          <h1 className="text-xl font-semibold">Claudia</h1>
         </div>
         <div className="flex items-center gap-2 text-sm">
           {bridge.openTerminal && (
@@ -92,7 +88,7 @@ export function Header({
               className="px-2 py-1 rounded text-xs bg-gray-100 hover:bg-gray-200 text-gray-600 transition-colors"
               title="Split terminal below"
             >
-              ⌨ Terminal
+              Terminal
             </button>
           )}
 
@@ -113,7 +109,7 @@ export function Header({
                 {currentSession ? (
                   <span className="text-gray-400 ml-1">· {formatSessionName(currentSession)}</span>
                 ) : sessionId ? (
-                  <span className="text-gray-400 ml-1">· {sessionId.slice(0, 8)}…</span>
+                  <span className="text-gray-400 ml-1">· {sessionId.slice(0, 8)}...</span>
                 ) : null}
               </span>
               <svg
@@ -157,13 +153,14 @@ export function Header({
                     </div>
                   ) : (
                     sessions.map((s) => {
-                      const isCurrent = s.id === sessionRecordId || s.ccSessionId === sessionId;
+                      const isCurrent = s.sessionId === sessionId;
+                      const timeStr = s.modified || s.created;
                       return (
                         <button
-                          key={s.id}
+                          key={s.sessionId}
                           onClick={() => {
                             if (!isCurrent) {
-                              onSwitchSession(s.id);
+                              onSwitchSession(s.sessionId);
                             }
                             setIsDropdownOpen(false);
                           }}
@@ -174,16 +171,14 @@ export function Header({
                           }`}
                         >
                           <div className="flex items-center gap-2 min-w-0">
-                            <span
-                              className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                                s.status === "active" ? "bg-green-400" : "bg-gray-300"
-                              }`}
-                            />
+                            <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 bg-green-400" />
                             <span className="truncate">{formatSessionName(s)}</span>
                           </div>
-                          <span className="text-xs text-gray-400 flex-shrink-0 ml-2">
-                            {formatTime(s.lastActivity)}
-                          </span>
+                          {timeStr && (
+                            <span className="text-xs text-gray-400 flex-shrink-0 ml-2">
+                              {formatTime(timeStr)}
+                            </span>
+                          )}
                         </button>
                       );
                     })
@@ -195,33 +190,21 @@ export function Header({
         </div>
       </div>
 
-      {/* Session config badges */}
-      {sessionConfig && (
+      {/* YOLO button */}
+      {sessionId && (
         <div className="flex items-center gap-2 mt-2 text-xs">
-          <span className="px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 font-medium">
-            {sessionConfig.model}
-          </span>
-          <span
-            className={`px-2 py-0.5 rounded-full font-medium ${
-              sessionConfig.thinking ? "bg-purple-50 text-purple-600" : "bg-gray-100 text-gray-400"
-            }`}
+          <button
+            onClick={() =>
+              sendRequest("session.permission-mode", {
+                sessionId,
+                mode: "bypassPermissions",
+              })
+            }
+            className="px-2 py-0.5 rounded-full font-medium bg-red-50 text-red-600 hover:bg-red-100 transition-colors cursor-pointer"
+            title="Exit plan mode -- set permission mode to bypassPermissions (YOLO)"
           >
-            {sessionConfig.thinking ? `🧠 adaptive (${sessionConfig.effort})` : "thinking off"}
-          </span>
-          {sessionRecordId && (
-            <button
-              onClick={() =>
-                sendRequest("session.permission-mode", {
-                  sessionId: sessionRecordId,
-                  mode: "bypassPermissions",
-                })
-              }
-              className="px-2 py-0.5 rounded-full font-medium bg-red-50 text-red-600 hover:bg-red-100 transition-colors cursor-pointer"
-              title="Exit plan mode — set permission mode to bypassPermissions (YOLO)"
-            >
-              YOLO
-            </button>
-          )}
+            YOLO
+          </button>
         </div>
       )}
     </header>
