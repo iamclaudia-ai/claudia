@@ -220,7 +220,7 @@ export interface HealthMetric {
 }
 
 export interface HealthAction {
-  /** WebSocket method to call: "runtime.kill-session" */
+  /** WebSocket method to call: "session.close_session" */
   method: string;
   /** Button label: "Kill Session" */
   label: string;

@@ -269,7 +269,7 @@ export function createHooksExtension(config: HooksConfig = {}): ClaudiaExtension
     name: "Hooks",
     methods: [
       {
-        name: "hooks.health-check",
+        name: "hooks.health_check",
         description: "Return health status of the hooks extension",
         inputSchema: z.object({}),
       },
@@ -319,7 +319,7 @@ export function createHooksExtension(config: HooksConfig = {}): ClaudiaExtension
 
     async handleMethod(method: string, _params: Record<string, unknown>) {
       switch (method) {
-        case "hooks.health-check": {
+        case "hooks.health_check": {
           const response: HealthCheckResponse = {
             ok: true,
             status: hooks.length > 0 ? "healthy" : "degraded",

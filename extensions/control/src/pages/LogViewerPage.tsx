@@ -147,7 +147,7 @@ export function LogViewerPage() {
   // Load file list
   useEffect(() => {
     if (!connected) return;
-    request<{ files: LogFile[] }>("mission-control.log-list").then(({ files }) => {
+    request<{ files: LogFile[] }>("control.log_list").then(({ files }) => {
       setFiles(files);
       // Auto-select first file (usually most recent)
       if (files.length > 0 && !selectedFile) {
@@ -163,7 +163,7 @@ export function LogViewerPage() {
     if (!connected || !selectedFile || paused) return;
 
     try {
-      const result = await request<TailResponse>("mission-control.log-tail", {
+      const result = await request<TailResponse>("control.log_tail", {
         file: selectedFile,
         lines: 200,
         offset: offsetRef.current,
@@ -222,10 +222,7 @@ export function LogViewerPage() {
       <div className="border-b border-zinc-800 px-6 py-4 flex-shrink-0">
         <div className="flex items-center justify-between max-w-7xl mx-auto">
           <div className="flex items-center gap-3">
-            <Link
-              to="/mission-control"
-              className="text-zinc-500 hover:text-zinc-300 transition-colors"
-            >
+            <Link to="/control" className="text-zinc-500 hover:text-zinc-300 transition-colors">
               &larr;
             </Link>
             <h1 className="text-lg font-semibold">Log Viewer</h1>

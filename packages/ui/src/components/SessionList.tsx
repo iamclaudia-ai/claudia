@@ -42,7 +42,7 @@ export function SessionList({
     ws.onopen = () => {
       setIsConnected(true);
       // First get the workspace to learn its CWD, then list sessions
-      sendRequest("session.get-workspace", { id: workspaceId });
+      sendRequest("session.get_workspace", { id: workspaceId });
     };
 
     ws.onclose = () => setIsConnected(false);
@@ -54,22 +54,22 @@ export function SessionList({
         const method = data.id ? pendingRef.current.get(data.id) : undefined;
         if (data.id) pendingRef.current.delete(data.id);
 
-        if (method === "session.get-workspace") {
+        if (method === "session.get_workspace") {
           const ws = payload.workspace as WorkspaceInfo | undefined;
           if (ws) {
             setWorkspace(ws);
             // Now list sessions using the workspace CWD
-            sendRequest("session.list-sessions", { cwd: ws.cwd });
+            sendRequest("session.list_sessions", { cwd: ws.cwd });
           }
         }
 
-        if (method === "session.list-sessions") {
+        if (method === "session.list_sessions") {
           const list = payload.sessions as SessionInfo[] | undefined;
           setSessions(list || []);
           setIsLoading(false);
         }
 
-        if (method === "session.create-session") {
+        if (method === "session.create_session") {
           const newSessionId = payload.sessionId as string | undefined;
           if (newSessionId) {
             setIsCreating(false);
@@ -150,7 +150,7 @@ export function SessionList({
               onClick={() => {
                 if (!workspace?.cwd) return;
                 setIsCreating(true);
-                sendRequest("session.create-session", { cwd: workspace.cwd });
+                sendRequest("session.create_session", { cwd: workspace.cwd });
               }}
               disabled={isCreating || !workspace?.cwd}
               className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 disabled:opacity-50 transition-colors"

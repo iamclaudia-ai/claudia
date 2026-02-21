@@ -44,7 +44,7 @@ export function WorkspaceList({
 
     ws.onopen = () => {
       setIsConnected(true);
-      sendRequest("session.list-workspaces");
+      sendRequest("session.list_workspaces");
     };
 
     ws.onclose = () => setIsConnected(false);
@@ -56,22 +56,22 @@ export function WorkspaceList({
         const method = data.id ? pendingRef.current.get(data.id) : undefined;
         if (data.id) pendingRef.current.delete(data.id);
 
-        if (method === "session.list-workspaces") {
+        if (method === "session.list_workspaces") {
           const list = payload.workspaces as WorkspaceInfo[] | undefined;
           setWorkspaces(list || []);
           setIsLoading(false);
         }
 
-        if (method === "session.get-or-create-workspace") {
+        if (method === "session.get_or_create_workspace") {
           const ws = payload.workspace as WorkspaceInfo | undefined;
           if (ws) {
             // Create first session for the workspace
             pendingWorkspaceRef.current = ws;
-            sendRequest("session.create-session", { cwd: ws.cwd });
+            sendRequest("session.create_session", { cwd: ws.cwd });
           }
         }
 
-        if (method === "session.create-session") {
+        if (method === "session.create_session") {
           const newSessionId = payload.sessionId as string | undefined;
           const pendingWs = pendingWorkspaceRef.current;
           if (newSessionId && pendingWs && onSessionReady) {
@@ -81,7 +81,7 @@ export function WorkspaceList({
           } else {
             // Fallback: refresh workspace list
             setIsCreating(false);
-            sendRequest("session.list-workspaces");
+            sendRequest("session.list_workspaces");
           }
         }
       }
@@ -102,7 +102,7 @@ export function WorkspaceList({
     if (!cwd) return;
 
     setIsCreating(true);
-    sendRequest("session.get-or-create-workspace", {
+    sendRequest("session.get_or_create_workspace", {
       cwd,
       name: newName.trim() || undefined,
     });

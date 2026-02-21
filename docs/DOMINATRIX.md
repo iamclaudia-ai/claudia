@@ -166,7 +166,7 @@ Add a periodic sweep in the dominatrix extension that pings registered clients:
 
 ```typescript
 // Every 30s, emit a heartbeat event
-// Chrome extensions that are alive respond via dominatrix.heartbeat-response
+// Chrome extensions that are alive respond via dominatrix.heartbeat_response
 // Clients that don't respond within 10s get pruned
 setInterval(() => {
   for (const [id, client] of clients) {
@@ -222,7 +222,7 @@ This prevents Cause 1 (new UUIDs on restart) since re-registering with the same 
 
 ## Health Check
 
-Mission Control queries `dominatrix.health-check` which returns:
+Mission Control queries `dominatrix.health_check` which returns:
 
 ```typescript
 {

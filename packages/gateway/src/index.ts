@@ -198,12 +198,12 @@ type GatewayMethodDefinition = {
 
 const BUILTIN_METHODS: GatewayMethodDefinition[] = [
   {
-    method: "gateway.list-methods",
+    method: "gateway.list_methods",
     description: "List all gateway and extension methods with schemas",
     inputSchema: z.object({}),
   },
   {
-    method: "gateway.list-extensions",
+    method: "gateway.list_extensions",
     description: "List loaded extensions and their methods",
     inputSchema: z.object({}),
   },
@@ -271,10 +271,10 @@ function handleRequest(ws: ServerWebSocket<ClientState>, req: Request): void {
   }
 
   switch (req.method) {
-    case "gateway.list-methods":
+    case "gateway.list_methods":
       handleListMethods(ws, req);
       break;
-    case "gateway.list-extensions":
+    case "gateway.list_extensions":
       handleListExtensions(ws, req);
       break;
     case "gateway.subscribe":
@@ -294,7 +294,7 @@ function handleRequest(ws: ServerWebSocket<ClientState>, req: Request): void {
 }
 
 /**
- * gateway.list-methods — list all gateway and extension methods with schemas
+ * gateway.list_methods — list all gateway and extension methods with schemas
  */
 function handleListMethods(ws: ServerWebSocket<ClientState>, req: Request): void {
   const builtin = BUILTIN_METHODS.map((m) => ({
@@ -333,7 +333,7 @@ function handleListMethods(ws: ServerWebSocket<ClientState>, req: Request): void
 }
 
 /**
- * gateway.list-extensions — list loaded extensions and their methods
+ * gateway.list_extensions — list loaded extensions and their methods
  */
 function handleListExtensions(ws: ServerWebSocket<ClientState>, req: Request): void {
   sendResponse(ws, req.id, { extensions: extensions.getExtensionList() });

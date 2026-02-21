@@ -58,8 +58,8 @@ Env:
 
 Checks:
 
-- `workspace.get-or-create`
-- `workspace.create-session`
+- `workspace.get_or_create`
+- `workspace.create_session`
 - `session.prompt` streaming completion + expected output marker
 
 Env:

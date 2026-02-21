@@ -52,7 +52,7 @@ export interface UseGatewayOptions {
   /**
    * Auto-discover mode: get workspace by CWD, find active session.
    * Used by VS Code extension. Provide the CWD string.
-   * When set, sends session.get-or-create-workspace on connect.
+   * When set, sends session.get_or_create_workspace on connect.
    */
   autoDiscoverCwd?: string;
 }
@@ -513,8 +513,8 @@ export function useGateway(gatewayUrl: string, options: UseGatewayOptions = {}):
             setSessionId(payload.sessionId as string);
           }
 
-          // ── session.get-history ──
-          if (method === "session.get-history") {
+          // ── session.get_history ──
+          if (method === "session.get_history") {
             const historyMessages = payload.messages as Message[] | undefined;
             const historyUsage = payload.usage as Usage | undefined;
             const total = (payload.total as number) || 0;
@@ -558,8 +558,8 @@ export function useGateway(gatewayUrl: string, options: UseGatewayOptions = {}):
             if (historyUsage) setUsage(historyUsage);
           }
 
-          // ── session.get-or-create-workspace (VS Code auto-discover) ──
-          if (method === "session.get-or-create-workspace") {
+          // ── session.get_or_create_workspace (VS Code auto-discover) ──
+          if (method === "session.get_or_create_workspace") {
             const ws = payload.workspace as WorkspaceInfo | undefined;
             if (ws) {
               setWorkspace(ws);
@@ -568,12 +568,12 @@ export function useGateway(gatewayUrl: string, options: UseGatewayOptions = {}):
               );
 
               // Load session list for this workspace (uses cwd)
-              sendRequest("session.list-sessions", { cwd: ws.cwd });
+              sendRequest("session.list_sessions", { cwd: ws.cwd });
             }
           }
 
-          // ── session.get-workspace (fetch single workspace) ──
-          if (method === "session.get-workspace") {
+          // ── session.get_workspace (fetch single workspace) ──
+          if (method === "session.get_workspace") {
             const ws = payload.workspace as WorkspaceInfo | undefined;
             if (ws) {
               setWorkspace(ws);
@@ -581,8 +581,8 @@ export function useGateway(gatewayUrl: string, options: UseGatewayOptions = {}):
             }
           }
 
-          // ── session.list-sessions ──
-          if (method === "session.list-sessions") {
+          // ── session.list_sessions ──
+          if (method === "session.list_sessions") {
             const sessionList = payload.sessions as SessionInfo[] | undefined;
             if (sessionList) {
               setSessions(sessionList);
@@ -596,13 +596,13 @@ export function useGateway(gatewayUrl: string, options: UseGatewayOptions = {}):
                 const mostRecent = sessionList[0]; // already sorted by modified desc
                 setSessionId(mostRecent.sessionId);
                 subscribeToSession(mostRecent.sessionId);
-                sendRequest("session.get-history", { sessionId: mostRecent.sessionId, limit: 50 });
+                sendRequest("session.get_history", { sessionId: mostRecent.sessionId, limit: 50 });
               }
             }
           }
 
-          // ── session.create-session ──
-          if (method === "session.create-session") {
+          // ── session.create_session ──
+          if (method === "session.create_session") {
             const newSessionId = payload.sessionId as string | undefined;
             if (newSessionId) {
               setSessionId(newSessionId);
@@ -615,13 +615,13 @@ export function useGateway(gatewayUrl: string, options: UseGatewayOptions = {}):
               console.log(`[Session] Created: ${newSessionId}`);
               // Refresh session list
               if (workspaceRef.current?.cwd) {
-                sendRequest("session.list-sessions", { cwd: workspaceRef.current.cwd });
+                sendRequest("session.list_sessions", { cwd: workspaceRef.current.cwd });
               }
             }
           }
 
-          // ── session.switch-session ──
-          if (method === "session.switch-session") {
+          // ── session.switch_session ──
+          if (method === "session.switch_session") {
             const switchedSessionId = payload.sessionId as string | undefined;
             if (switchedSessionId) {
               setSessionId(switchedSessionId);
@@ -632,15 +632,15 @@ export function useGateway(gatewayUrl: string, options: UseGatewayOptions = {}):
               setHasMore(false);
               historyLoadedRef.current = false;
               console.log(`[Session] Switched to: ${switchedSessionId}`);
-              sendRequest("session.get-history", { sessionId: switchedSessionId, limit: 50 });
+              sendRequest("session.get_history", { sessionId: switchedSessionId, limit: 50 });
               if (workspaceRef.current?.cwd) {
-                sendRequest("session.list-sessions", { cwd: workspaceRef.current.cwd });
+                sendRequest("session.list_sessions", { cwd: workspaceRef.current.cwd });
               }
             }
           }
 
-          // ── session.get-info ──
-          if (method === "session.get-info") {
+          // ── session.get_info ──
+          if (method === "session.get_info") {
             if (payload.sessionId) {
               setSessionId(payload.sessionId as string);
               subscribeToSession(payload.sessionId as string);
@@ -712,7 +712,7 @@ export function useGateway(gatewayUrl: string, options: UseGatewayOptions = {}):
       // Fetch session info on connect
       // Streaming events are subscribed per-session via subscribeToSession()
       // when we learn the sessionId from create/switch/info
-      sendRequest("session.get-info");
+      sendRequest("session.get_info");
 
       // Subscribe to voice and hook events (global, not session-scoped)
       sendRequest("gateway.subscribe", { events: ["voice.*", "hook.*"] });
@@ -724,19 +724,19 @@ export function useGateway(gatewayUrl: string, options: UseGatewayOptions = {}):
         // Load history and subscribe to stream
         setSessionId(opts.sessionId);
         subscribeToSession(opts.sessionId);
-        sendRequest("session.get-history", { sessionId: opts.sessionId, limit: 50 });
+        sendRequest("session.get_history", { sessionId: opts.sessionId, limit: 50 });
         // Look up workspace for CWD context (needed for send-prompt auto-resume)
         if (opts.workspaceId) {
-          sendRequest("session.get-workspace", { id: opts.workspaceId });
+          sendRequest("session.get_workspace", { id: opts.workspaceId });
         }
       } else if (opts.autoDiscoverCwd) {
         // ── VS Code: auto-discover by CWD ──
         // This triggers workspace creation + session discovery + history loading
-        sendRequest("session.get-or-create-workspace", { cwd: opts.autoDiscoverCwd });
+        sendRequest("session.get_or_create_workspace", { cwd: opts.autoDiscoverCwd });
       } else {
         // ── No session specified (e.g. listing pages) ──
         // Just get basic info
-        sendRequest("session.get-info");
+        sendRequest("session.get_info");
       }
     };
 
@@ -824,7 +824,7 @@ export function useGateway(gatewayUrl: string, options: UseGatewayOptions = {}):
         sessionId: sid,
         cwd: workspaceRef.current?.cwd,
       };
-      sendRequest("session.send-prompt", params);
+      sendRequest("session.send_prompt", params);
     },
     [sendRequest, setMessages],
   );
@@ -836,7 +836,7 @@ export function useGateway(gatewayUrl: string, options: UseGatewayOptions = {}):
         console.warn("[sendToolResult] missing sessionId");
         return;
       }
-      sendRequest("session.send-tool-result", { sessionId: sid, toolUseId, content, isError });
+      sendRequest("session.send_tool_result", { sessionId: sid, toolUseId, content, isError });
     },
     [sendRequest],
   );
@@ -844,7 +844,7 @@ export function useGateway(gatewayUrl: string, options: UseGatewayOptions = {}):
   const sendInterrupt = useCallback(() => {
     if (!isQueryingRef.current) return;
     if (!sessionIdRef.current) return;
-    sendRequest("session.interrupt-session", { sessionId: sessionIdRef.current });
+    sendRequest("session.interrupt_session", { sessionId: sessionIdRef.current });
   }, [sendRequest]);
 
   const loadEarlierMessages = useCallback(() => {
@@ -857,20 +857,20 @@ export function useGateway(gatewayUrl: string, options: UseGatewayOptions = {}):
       limit: 50,
       offset,
     };
-    sendRequest("session.get-history", params);
+    sendRequest("session.get_history", params);
   }, [hasMore, messages.length, sendRequest]);
 
   const createNewSession = useCallback(
     (_title?: string) => {
       if (!workspace?.cwd) return;
-      sendRequest("session.create-session", { cwd: workspace.cwd });
+      sendRequest("session.create_session", { cwd: workspace.cwd });
     },
     [sendRequest, workspace?.cwd],
   );
 
   const switchSession = useCallback(
     (sid: string) => {
-      sendRequest("session.switch-session", { sessionId: sid, cwd: workspace?.cwd });
+      sendRequest("session.switch_session", { sessionId: sid, cwd: workspace?.cwd });
     },
     [sendRequest, workspace?.cwd],
   );

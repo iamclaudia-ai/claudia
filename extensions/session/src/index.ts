@@ -7,7 +7,7 @@
  * Gateway is a pure hub: this extension handles create, prompt, history, switch, etc.
  * Other extensions interact via ctx.call("session.*") through the gateway hub.
  *
- * Method naming: session.verb-noun (exception: session.health-check)
+ * Method naming: session.verb_noun (e.g. session.health_check)
  */
 
 import { z } from "zod";
@@ -279,7 +279,7 @@ export function createSessionExtension(config: Record<string, unknown> = {}): Cl
 
   const methods: ExtensionMethodDefinition[] = [
     {
-      name: "session.create-session",
+      name: "session.create_session",
       description: "Create a new Claude session for a workspace CWD",
       inputSchema: z.object({
         cwd: z.string().describe("Working directory"),
@@ -290,7 +290,7 @@ export function createSessionExtension(config: Record<string, unknown> = {}): Cl
       }),
     },
     {
-      name: "session.send-prompt",
+      name: "session.send_prompt",
       description: "Send a prompt to a session (streaming or await completion)",
       inputSchema: z.object({
         sessionId: z.string().describe("Session UUID"),
@@ -301,28 +301,28 @@ export function createSessionExtension(config: Record<string, unknown> = {}): Cl
       }),
     },
     {
-      name: "session.interrupt-session",
+      name: "session.interrupt_session",
       description: "Interrupt current response",
       inputSchema: z.object({
         sessionId: z.string().describe("Session UUID"),
       }),
     },
     {
-      name: "session.close-session",
+      name: "session.close_session",
       description: "Close a session (kills CLI process via query.close())",
       inputSchema: z.object({
         sessionId: z.string().describe("Session UUID"),
       }),
     },
     {
-      name: "session.list-sessions",
+      name: "session.list_sessions",
       description: "List sessions for a workspace (reads sessions-index.json)",
       inputSchema: z.object({
         cwd: z.string().describe("Workspace CWD"),
       }),
     },
     {
-      name: "session.get-history",
+      name: "session.get_history",
       description: "Get session history from JSONL",
       inputSchema: z.object({
         sessionId: z.string().describe("Session UUID"),
@@ -332,7 +332,7 @@ export function createSessionExtension(config: Record<string, unknown> = {}): Cl
       }),
     },
     {
-      name: "session.switch-session",
+      name: "session.switch_session",
       description: "Switch active session for a workspace",
       inputSchema: z.object({
         sessionId: z.string().describe("Session UUID to switch to"),
@@ -341,7 +341,7 @@ export function createSessionExtension(config: Record<string, unknown> = {}): Cl
       }),
     },
     {
-      name: "session.reset-session",
+      name: "session.reset_session",
       description: "Create a replacement session for workspace",
       inputSchema: z.object({
         cwd: z.string().describe("Workspace CWD"),
@@ -349,14 +349,14 @@ export function createSessionExtension(config: Record<string, unknown> = {}): Cl
       }),
     },
     {
-      name: "session.get-info",
+      name: "session.get_info",
       description: "Get current session and extension info",
       inputSchema: z.object({
         sessionId: z.string().optional().describe("Session UUID (optional)"),
       }),
     },
     {
-      name: "session.set-permission-mode",
+      name: "session.set_permission_mode",
       description: "Set CLI permission mode",
       inputSchema: z.object({
         sessionId: z.string().describe("Session UUID"),
@@ -364,7 +364,7 @@ export function createSessionExtension(config: Record<string, unknown> = {}): Cl
       }),
     },
     {
-      name: "session.send-tool-result",
+      name: "session.send_tool_result",
       description: "Send tool result for interactive tools",
       inputSchema: z.object({
         sessionId: z.string().describe("Session UUID"),
@@ -374,19 +374,19 @@ export function createSessionExtension(config: Record<string, unknown> = {}): Cl
       }),
     },
     {
-      name: "session.list-workspaces",
+      name: "session.list_workspaces",
       description: "List all workspaces",
       inputSchema: z.object({}),
     },
     {
-      name: "session.get-workspace",
+      name: "session.get_workspace",
       description: "Get workspace by ID",
       inputSchema: z.object({
         id: z.string().describe("Workspace ID"),
       }),
     },
     {
-      name: "session.get-or-create-workspace",
+      name: "session.get_or_create_workspace",
       description: "Get or create workspace for CWD",
       inputSchema: z.object({
         cwd: z.string().describe("Working directory"),
@@ -394,7 +394,7 @@ export function createSessionExtension(config: Record<string, unknown> = {}): Cl
       }),
     },
     {
-      name: "session.health-check",
+      name: "session.health_check",
       description: "Health status of session extension",
       inputSchema: z.object({}),
     },
@@ -415,10 +415,10 @@ export function createSessionExtension(config: Record<string, unknown> = {}): Cl
   async function handleMethod(method: string, params: Record<string, unknown>): Promise<unknown> {
     // Log all method calls (except high-frequency reads)
     const isRead =
-      method === "session.list-sessions" ||
-      method === "session.list-workspaces" ||
-      method === "session.get-workspace" ||
-      method === "session.health-check";
+      method === "session.list_sessions" ||
+      method === "session.list_workspaces" ||
+      method === "session.get_workspace" ||
+      method === "session.health_check";
     if (!isRead) {
       log.info(
         `→ ${method}`,
@@ -446,7 +446,7 @@ export function createSessionExtension(config: Record<string, unknown> = {}): Cl
 
   async function _handleMethod(method: string, params: Record<string, unknown>): Promise<unknown> {
     switch (method) {
-      case "session.create-session": {
+      case "session.create_session": {
         const cwd = params.cwd as string;
         const model = params.model as string | undefined;
         log.info("Creating session", { cwd, model: model || sessionConfig.model || "default" });
@@ -461,7 +461,7 @@ export function createSessionExtension(config: Record<string, unknown> = {}): Cl
         return result;
       }
 
-      case "session.send-prompt": {
+      case "session.send_prompt": {
         const sessionId = params.sessionId as string;
         const content = params.content as string | unknown[];
         const cwd = params.cwd as string | undefined;
@@ -544,13 +544,13 @@ export function createSessionExtension(config: Record<string, unknown> = {}): Cl
         });
       }
 
-      case "session.interrupt-session": {
+      case "session.interrupt_session": {
         log.info("Interrupting session", { sessionId: sid(params.sessionId as string) });
         const ok = manager.interrupt(params.sessionId as string);
         return { ok };
       }
 
-      case "session.close-session": {
+      case "session.close_session": {
         log.info("Closing session", { sessionId: sid(params.sessionId as string) });
         await manager.close(params.sessionId as string);
         requestContexts.delete(params.sessionId as string);
@@ -558,7 +558,7 @@ export function createSessionExtension(config: Record<string, unknown> = {}): Cl
         return { ok: true };
       }
 
-      case "session.list-sessions": {
+      case "session.list_sessions": {
         const cwd = params.cwd as string;
         const sessions = discoverSessions(cwd);
         log.info("Listed sessions", { cwd, count: sessions.length });
@@ -571,7 +571,7 @@ export function createSessionExtension(config: Record<string, unknown> = {}): Cl
         };
       }
 
-      case "session.get-history": {
+      case "session.get_history": {
         const sessionId = params.sessionId as string;
         const cwd = params.cwd as string | undefined;
         const limit = (params.limit as number) || 50;
@@ -593,7 +593,7 @@ export function createSessionExtension(config: Record<string, unknown> = {}): Cl
         return result;
       }
 
-      case "session.switch-session": {
+      case "session.switch_session": {
         const sessionId = params.sessionId as string;
         const cwd = params.cwd as string;
         const model = params.model as string | undefined;
@@ -607,7 +607,7 @@ export function createSessionExtension(config: Record<string, unknown> = {}): Cl
         return { sessionId };
       }
 
-      case "session.reset-session": {
+      case "session.reset_session": {
         const cwd = params.cwd as string;
         log.info("Resetting session", { cwd });
         const result = await manager.create({
@@ -617,7 +617,7 @@ export function createSessionExtension(config: Record<string, unknown> = {}): Cl
         return result;
       }
 
-      case "session.get-info": {
+      case "session.get_info": {
         const sessionId = params.sessionId as string | undefined;
         const activeSessions = manager.list();
 
@@ -629,7 +629,7 @@ export function createSessionExtension(config: Record<string, unknown> = {}): Cl
         return { activeSessions };
       }
 
-      case "session.set-permission-mode": {
+      case "session.set_permission_mode": {
         log.info("Setting permission mode", {
           sessionId: sid(params.sessionId as string),
           mode: params.mode,
@@ -638,7 +638,7 @@ export function createSessionExtension(config: Record<string, unknown> = {}): Cl
         return { ok };
       }
 
-      case "session.send-tool-result": {
+      case "session.send_tool_result": {
         log.info("Sending tool result", {
           sessionId: sid(params.sessionId as string),
           toolUseId: params.toolUseId,
@@ -653,16 +653,16 @@ export function createSessionExtension(config: Record<string, unknown> = {}): Cl
         return { ok };
       }
 
-      case "session.list-workspaces": {
+      case "session.list_workspaces": {
         return { workspaces: listWorkspaces() };
       }
 
-      case "session.get-workspace": {
+      case "session.get_workspace": {
         const workspace = getWorkspace(params.id as string);
         return { workspace };
       }
 
-      case "session.get-or-create-workspace": {
+      case "session.get_or_create_workspace": {
         const cwd = params.cwd as string;
         const result = getOrCreateWorkspace(cwd, params.name as string | undefined);
         log.info("Get/create workspace", {
@@ -672,7 +672,7 @@ export function createSessionExtension(config: Record<string, unknown> = {}): Cl
         return result;
       }
 
-      case "session.health-check": {
+      case "session.health_check": {
         return health();
       }
 
@@ -692,7 +692,7 @@ export function createSessionExtension(config: Record<string, unknown> = {}): Cl
       metrics: [{ label: "Active Sessions", value: sessions.length }],
       actions: [
         {
-          method: "session.close-session",
+          method: "session.close_session",
           label: "Close",
           confirm: "Close this session?",
           params: [{ name: "sessionId", source: "item.id" }],

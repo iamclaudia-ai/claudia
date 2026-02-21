@@ -1,9 +1,9 @@
 /**
- * Mission Control Extension — Server-Side
+ * Control Extension — Server-Side
  *
  * Provides health dashboards and log viewer for monitoring Claudia.
- * Discovery-based: other extensions expose health-check methods,
- * Mission Control renders them generically.
+ * Discovery-based: other extensions expose health_check methods,
+ * Control renders them generically.
  */
 
 import { z } from "zod";
@@ -14,25 +14,25 @@ import type { ClaudiaExtension, ExtensionContext, HealthCheckResponse } from "@c
 
 const LOGS_DIR = join(homedir(), ".claudia", "logs");
 
-export function createMissionControlExtension(): ClaudiaExtension {
+export function createControlExtension(): ClaudiaExtension {
   let ctx: ExtensionContext | null = null;
 
   return {
-    id: "mission-control",
-    name: "Mission Control",
+    id: "control",
+    name: "Control",
     methods: [
       {
-        name: "mission-control.health-check",
-        description: "Return standardized health-check payload for Mission Control extension",
+        name: "control.health_check",
+        description: "Return standardized health-check payload for Control extension",
         inputSchema: z.object({}),
       },
       {
-        name: "mission-control.log-list",
+        name: "control.log_list",
         description: "List available log files in ~/.claudia/logs/",
         inputSchema: z.object({}),
       },
       {
-        name: "mission-control.log-tail",
+        name: "control.log_tail",
         description: "Read the last N lines of a log file",
         inputSchema: z.object({
           file: z.string().min(1),
@@ -45,7 +45,7 @@ export function createMissionControlExtension(): ClaudiaExtension {
 
     async start(context: ExtensionContext) {
       ctx = context;
-      ctx.log.info("Mission Control extension started");
+      ctx.log.info("Control extension started");
     },
 
     async stop() {
@@ -54,20 +54,20 @@ export function createMissionControlExtension(): ClaudiaExtension {
 
     async handleMethod(method: string, params: Record<string, unknown>) {
       switch (method) {
-        case "mission-control.health-check": {
+        case "control.health_check": {
           const response: HealthCheckResponse = {
             ok: true,
             status: "healthy",
-            label: "Mission Control",
+            label: "Control",
             metrics: [
               { label: "Server Extension", value: "loaded" },
-              { label: "UI Route", value: "/mission-control" },
+              { label: "UI Route", value: "/control" },
             ],
           };
           return response;
         }
 
-        case "mission-control.log-list": {
+        case "control.log_list": {
           try {
             const files = readdirSync(LOGS_DIR)
               .filter((f) => f.endsWith(".log"))
@@ -87,7 +87,7 @@ export function createMissionControlExtension(): ClaudiaExtension {
           }
         }
 
-        case "mission-control.log-tail": {
+        case "control.log_tail": {
           const fileName = params.file as string;
           const maxLines = (params.lines as number) || 100;
           const byteOffset = (params.offset as number) || 0;
@@ -137,8 +137,8 @@ export function createMissionControlExtension(): ClaudiaExtension {
   };
 }
 
-export default createMissionControlExtension;
+export default createControlExtension;
 
 // ── Direct execution with HMR ────────────────────────────────
 import { runExtensionHost } from "@claudia/extension-host";
-if (import.meta.main) runExtensionHost(createMissionControlExtension);
+if (import.meta.main) runExtensionHost(createControlExtension);

@@ -542,8 +542,8 @@ export function createVoiceExtension(config: VoiceConfig = {}): ClaudiaExtension
         }),
       },
       {
-        name: "voice.health-check",
-        description: "Return standardized health-check payload for Mission Control",
+        name: "voice.health_check",
+        description: "Return standardized health_check payload for Voice extension",
         inputSchema: z.object({}),
       },
     ],
@@ -724,7 +724,7 @@ export function createVoiceExtension(config: VoiceConfig = {}): ClaudiaExtension
           return { ok: true };
         }
 
-        case "voice.health-check": {
+        case "voice.health_check": {
           const response: HealthCheckResponse = {
             ok: !!cfg.apiKey,
             status: cfg.apiKey ? "healthy" : "disconnected",

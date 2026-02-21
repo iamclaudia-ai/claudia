@@ -1,12 +1,12 @@
 /**
- * Mission Control Extension — Route declarations.
+ * Control Extension — Route declarations.
  */
 
 import type { Route } from "@claudia/ui";
 import { MissionControlPage } from "./pages/MissionControlPage";
 import { LogViewerPage } from "./pages/LogViewerPage";
 
-export const missionControlRoutes: Route[] = [
-  { path: "/mission-control", component: MissionControlPage, label: "Mission Control" },
+export const controlRoutes: Route[] = [
+  { path: "/control", component: MissionControlPage, label: "Control" },
   { path: "/logs", component: LogViewerPage, label: "Logs" },
 ];

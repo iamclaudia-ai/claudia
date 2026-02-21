@@ -299,7 +299,7 @@ claudia memory.ingest --dir ~/.claude/projects-backup
 claudia memory.ingest --dir ~/.claude/projects-backup --reimport
 
 # Check system stats
-claudia memory.health-check
+claudia memory.health_check
 
 # List conversations
 claudia memory.conversations
@@ -321,7 +321,7 @@ bun scripts/pi-to-cc.ts
 bun scripts/test-ingest.ts --dir ~/.claude/projects-backup
 
 # 3. Verify
-claudia memory.health-check
+claudia memory.health_check
 
 # 4. Enable extension in claudia.json
 #    On next startup, scan of ~/.claude/projects picks up any

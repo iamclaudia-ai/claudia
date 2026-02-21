@@ -40,7 +40,7 @@ Deep-dive into the gateway's startup, message routing, and extension communicati
        │                        │
        │  Repeat for: session,  │
        │  chat, voice, imessage,│
-       │  mission-control,      │
+       │  control,      │
        │  hooks, memory         │
        │                        │
        │  /health 200 OK        │
@@ -123,7 +123,7 @@ All communication uses a uniform envelope:
 
 ```typescript
 // Client -> Gateway (request)
-{ type: "req", id: "req-123", method: "session.send-prompt", params: {...} }
+{ type: "req", id: "req-123", method: "session.send_prompt", params: {...} }
 
 // Gateway -> Client (response)
 { type: "res", id: "req-123", ok: true, payload: {...} }
@@ -139,14 +139,14 @@ All communication uses a uniform envelope:
 ```
 method.split(".") -> [namespace, action]
 
-  gateway.*    -> built-in methods (list-methods, list-extensions, subscribe, unsubscribe)
+  gateway.*    -> built-in methods (list_methods, list_extensions, subscribe, unsubscribe)
   *.*          -> ExtensionManager routes to remote host by prefix
 
 Examples:
-  session.send-prompt      -> look up "session" in remoteHosts -> session extension
+  session.send_prompt      -> look up "session" in remoteHosts -> session extension
   voice.speak              -> look up "voice" in remoteHosts -> voice extension
   imessage.send            -> look up "imessage" in remoteHosts -> imessage extension
-  mission-control.health   -> look up "mission-control" in remoteHosts -> mission-control extension
+  control.health   -> look up "control" in remoteHosts -> control extension
 ```
 
 All built-in `gateway.*` methods have Zod schemas. Extension methods have schemas declared by the extension and validated at the gateway boundary -- handlers can assume valid input.
@@ -300,15 +300,15 @@ Extensions call each other through the gateway using `ctx.call()`:
 
 ```typescript
 // Inside voice extension:
-const history = await ctx.call("session.get-history", { sessionId });
+const history = await ctx.call("session.get_history", { sessionId });
 
 // Inside imessage extension:
-const result = await ctx.call("session.send-prompt", { sessionId, content, source });
+const result = await ctx.call("session.send_prompt", { sessionId, content, source });
 ```
 
 The gateway acts as the RPC hub. When an extension calls `ctx.call()`:
 
-1. Extension sends `{"type":"req", "method":"session.get-history", ...}` on stdout
+1. Extension sends `{"type":"req", "method":"session.get_history", ...}` on stdout
 2. Gateway receives it, routes to the target extension by prefix lookup
 3. Target extension handles the method, returns response
 4. Gateway relays response back to the calling extension on stdin
@@ -350,7 +350,7 @@ This traces a complete round trip from web client through to voice output.
  Web Client          Gateway             Session Extension        Claude SDK          Voice Extension
     |                   |                      |                    |                    |
     |  req: session.    |                      |                    |                    |
-    |  send-prompt      |                      |                    |                    |
+    |  send_prompt      |                      |                    |                    |
     |  {sessionId,      |                      |                    |                    |
     |   content,        |                      |                    |                    |
     |   speakResponse:  |                      |                    |                    |

@@ -1,10 +1,10 @@
 import { describe, expect, it } from "bun:test";
-import { createMissionControlExtension } from "./index";
+import { createControlExtension } from "./index";
 
-describe("mission-control extension", () => {
-  it("exposes standardized health-check", async () => {
-    const ext = createMissionControlExtension();
-    expect(ext.methods.some((m) => m.name === "mission-control.health-check")).toBe(true);
+describe("control extension", () => {
+  it("exposes standardized health_check", async () => {
+    const ext = createControlExtension();
+    expect(ext.methods.some((m) => m.name === "control.health_check")).toBe(true);
 
     await ext.start({
       on: () => () => {},
@@ -17,7 +17,7 @@ describe("mission-control extension", () => {
       log: { info: () => {}, warn: () => {}, error: () => {} },
     });
 
-    const res = (await ext.handleMethod("mission-control.health-check", {})) as {
+    const res = (await ext.handleMethod("control.health_check", {})) as {
       ok: boolean;
       status: string;
       label: string;
@@ -26,7 +26,7 @@ describe("mission-control extension", () => {
 
     expect(res.ok).toBe(true);
     expect(res.status).toBe("healthy");
-    expect(res.label).toBe("Mission Control");
+    expect(res.label).toBe("Control");
     expect(Array.isArray(res.metrics)).toBe(true);
   });
 });

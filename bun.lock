@@ -78,6 +78,16 @@
         "zod": "^3.25.76",
       },
     },
+    "extensions/control": {
+      "name": "@claudia/ext-control",
+      "version": "0.1.0",
+      "dependencies": {
+        "@claudia/extension-host": "workspace:*",
+        "@claudia/shared": "workspace:*",
+        "@claudia/ui": "workspace:*",
+        "zod": "^3.25.76",
+      },
+    },
     "extensions/dominatrix": {
       "name": "@claudia/ext-dominatrix",
       "version": "0.1.0",
@@ -114,16 +124,6 @@
         "@claudia/extension-host": "workspace:*",
         "@claudia/shared": "workspace:*",
         "chokidar": "^4.0.3",
-      },
-    },
-    "extensions/mission-control": {
-      "name": "@claudia/ext-mission-control",
-      "version": "0.1.0",
-      "dependencies": {
-        "@claudia/extension-host": "workspace:*",
-        "@claudia/shared": "workspace:*",
-        "@claudia/ui": "workspace:*",
-        "zod": "^3.25.76",
       },
     },
     "extensions/session": {
@@ -170,8 +170,8 @@
       "version": "0.1.0",
       "dependencies": {
         "@claudia/ext-chat": "workspace:*",
+        "@claudia/ext-control": "workspace:*",
         "@claudia/ext-imessage": "workspace:*",
-        "@claudia/ext-mission-control": "workspace:*",
         "@claudia/shared": "workspace:*",
         "@claudia/ui": "workspace:*",
         "@claudia/voice": "workspace:*",
@@ -261,13 +261,13 @@
 
     "@claudia/ext-chat": ["@claudia/ext-chat@workspace:extensions/chat"],
 
+    "@claudia/ext-control": ["@claudia/ext-control@workspace:extensions/control"],
+
     "@claudia/ext-dominatrix": ["@claudia/ext-dominatrix@workspace:extensions/dominatrix"],
 
     "@claudia/ext-hooks": ["@claudia/ext-hooks@workspace:extensions/hooks"],
 
     "@claudia/ext-imessage": ["@claudia/ext-imessage@workspace:extensions/imessage"],
-
-    "@claudia/ext-mission-control": ["@claudia/ext-mission-control@workspace:extensions/mission-control"],
 
     "@claudia/extension-host": ["@claudia/extension-host@workspace:packages/extension-host"],
 

@@ -122,7 +122,7 @@ export function createMemoryExtension(config: MemoryConfig = {}): ClaudiaExtensi
     name: "Memory (Ingestion + Libby)",
     methods: [
       {
-        name: "memory.health-check",
+        name: "memory.health_check",
         description: "Return memory system stats: file count, entry count, conversation breakdown",
         inputSchema: z.object({}),
       },
@@ -165,7 +165,7 @@ export function createMemoryExtension(config: MemoryConfig = {}): ClaudiaExtensi
         }),
       },
       {
-        name: "memory.process-conversation",
+        name: "memory.process_conversation",
         description:
           "Process a specific conversation by ID through Libby. Temporarily marks it as ready if needed.",
         inputSchema: z.object({
@@ -329,7 +329,7 @@ export function createMemoryExtension(config: MemoryConfig = {}): ClaudiaExtensi
 
     async handleMethod(method: string, params: Record<string, unknown>) {
       switch (method) {
-        case "memory.health-check": {
+        case "memory.health_check": {
           const stats = getStats();
           const s = stats.conversationsByStatus;
           const workItems = getActiveWorkItems();
@@ -503,7 +503,7 @@ export function createMemoryExtension(config: MemoryConfig = {}): ClaudiaExtensi
           };
         }
 
-        case "memory.process-conversation": {
+        case "memory.process_conversation": {
           const id = params.id as number;
           const dryRun = (params.dryRun as boolean) || false;
 

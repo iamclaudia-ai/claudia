@@ -195,7 +195,7 @@ export function Header({
         <div className="flex items-center gap-2 mt-2 text-xs">
           <button
             onClick={() =>
-              sendRequest("session.permission-mode", {
+              sendRequest("session.set_permission_mode", {
                 sessionId,
                 mode: "bypassPermissions",
               })

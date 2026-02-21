@@ -284,18 +284,18 @@ export function MissionControlPage() {
     try {
       // Step 1: Discover extensions
       const { extensions } = await request<{ extensions: ExtensionInfo[] }>(
-        "gateway.list-extensions",
+        "gateway.list_extensions",
       );
 
       // Step 2: Filter for health-check capable extensions
       const healthExtensions = extensions.filter((ext: ExtensionInfo) =>
-        ext.methods.some((m: string) => m.endsWith(".health-check")),
+        ext.methods.some((m: string) => m.endsWith(".health_check")),
       );
 
       // Step 3: Call each health-check in parallel
       const results = await Promise.allSettled(
         healthExtensions.map(async (ext: ExtensionInfo) => {
-          const healthMethod = ext.methods.find((m: string) => m.endsWith(".health-check"))!;
+          const healthMethod = ext.methods.find((m: string) => m.endsWith(".health_check"))!;
           const health = await request<HealthCheckResponse>(healthMethod);
           return { extension: ext, health } as ExtensionHealth;
         }),

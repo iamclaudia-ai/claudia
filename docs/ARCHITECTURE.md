@@ -33,7 +33,7 @@ Claudia is a single-tier system: a **Gateway** that routes messages between clie
     │SDK     │  │Cartesia│  │Web     │  │hooks,  │
     │engine, │  │TTS,    │  │pages,  │  │imsg,   │
     │CRUD,   │  │stream  │  │routes  │  │memory, │
-    │history │  │audio   │  │        │  │m-ctrl  │
+    │history │  │audio   │  │        │  │ctrl   │
     └────────┘  └────────┘  └────────┘  └────────┘
 ```
 
@@ -61,8 +61,8 @@ The gateway itself only owns discovery and subscription methods:
 
 | Method                    | Purpose                     |
 | ------------------------- | --------------------------- |
-| `gateway.list-methods`    | All methods with schemas    |
-| `gateway.list-extensions` | All loaded extensions       |
+| `gateway.list_methods`    | All methods with schemas    |
+| `gateway.list_extensions` | All loaded extensions       |
 | `gateway.subscribe`       | Subscribe to event patterns |
 | `gateway.unsubscribe`     | Remove subscriptions        |
 
@@ -73,10 +73,10 @@ Everything else is handled by extensions.
 All methods are namespaced by extension ID. The gateway routes by prefix to the owning extension:
 
 ```
-session.send-prompt    → session extension
+session.send_prompt    → session extension
 voice.speak            → voice extension
-chat.health-check      → chat extension
-gateway.list-methods   → gateway itself
+chat.health_check      → chat extension
+gateway.list_methods   → gateway itself
 ```
 
 ### Event Fanout
@@ -195,7 +195,7 @@ The context provided to each extension at startup:
 Extensions call each other through the gateway as a hub:
 
 ```
-Extension A → ctx.call("session.send-prompt", {...})
+Extension A → ctx.call("session.send_prompt", {...})
   → gateway hub
   → Extension B handles method
   → response returns to Extension A
@@ -205,15 +205,15 @@ RPC metadata: `traceId`, `depth` (max 8), `deadlineMs`. Per-extension rate limit
 
 ### Extensions
 
-| Extension       | ID                | What It Does                                             |
-| --------------- | ----------------- | -------------------------------------------------------- |
-| Session         | `session`         | SDK engine (Agent SDK query()), workspace CRUD, history  |
-| Chat            | `chat`            | Web pages: /, /workspace/:id, /workspace/:id/session/:id |
-| Voice           | `voice`           | Cartesia Sonic 3.0 TTS, streaming audio                  |
-| iMessage        | `imessage`        | iMessage bridge, auto-reply                              |
-| Mission Control | `mission-control` | System dashboard, health checks                          |
-| Hooks           | `hooks`           | Lightweight event-driven scripts                         |
-| Memory          | `memory`          | Transcript ingestion + Libby processing                  |
+| Extension       | ID         | What It Does                                             |
+| --------------- | ---------- | -------------------------------------------------------- |
+| Session         | `session`  | SDK engine (Agent SDK query()), workspace CRUD, history  |
+| Chat            | `chat`     | Web pages: /, /workspace/:id, /workspace/:id/session/:id |
+| Voice           | `voice`    | Cartesia Sonic 3.0 TTS, streaming audio                  |
+| iMessage        | `imessage` | iMessage bridge, auto-reply                              |
+| Mission Control | `control`  | System dashboard, health checks                          |
+| Hooks           | `hooks`    | Lightweight event-driven scripts                         |
+| Memory          | `memory`   | Transcript ingestion + Libby processing                  |
 
 ### Client-Side Extensions (Routes)
 
@@ -226,11 +226,11 @@ extensions/<name>/src/
   pages/         # React page components
 ```
 
-Routes use feature paths (e.g., `/mission-control`); chat owns `/`. The web shell (`packages/gateway/src/web/index.tsx`) imports routes from all extensions and feeds them to the `Router` component.
+Routes use feature paths (e.g., `/control`); chat owns `/`. The web shell (`packages/gateway/src/web/index.tsx`) imports routes from all extensions and feeds them to the `Router` component.
 
 ### Health Checks
 
-Every extension exposes a `{id}.health-check` method returning structured status:
+Every extension exposes a `{id}.health_check` method returning structured status:
 
 ```typescript
 interface HealthCheckResponse {
@@ -292,8 +292,8 @@ Response: { messages: [...50], total: 4077, hasMore: true, offset: 0 }
 
 ### Session Lifecycle
 
-1. **Create**: client calls `session.create-session` with `cwd`
-2. **First prompt**: `session.send-prompt` starts SDK `query()` with `sessionId`
+1. **Create**: client calls `session.create_session` with `cwd`
+2. **First prompt**: `session.send_prompt` starts SDK `query()` with `sessionId`
 3. **Resume**: auto-resume with `cwd` when session not in memory
 4. **History**: parsed from JSONL files on disk
 5. **Interrupt**: `query.interrupt()` + synthetic stop events for immediate UI update
@@ -340,7 +340,7 @@ session events → voice extension (via event bus) → Cartesia TTS → audio ch
 For extensions bridging external systems (e.g., iMessage):
 
 ```
-iMessage from +1234 → imessage extension → ctx.call("session.send-prompt", ...)
+iMessage from +1234 → imessage extension → ctx.call("session.send_prompt", ...)
   → Claude responds → message_stop event
   → imessage extension receives event → sends reply to chat
 ```
@@ -443,7 +443,7 @@ extensions/
   chat/src/             # Web pages: /, /workspace/:id, /workspace/:id/session/:id
   voice/src/            # Cartesia Sonic 3.0 TTS, streaming audio
   imessage/src/         # iMessage bridge, auto-reply
-  mission-control/src/  # System dashboard, health checks
+  control/src/          # System dashboard, health checks
   hooks/src/            # Event-driven scripts
   memory/src/           # Transcript ingestion + Libby processing
 

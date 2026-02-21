@@ -261,12 +261,12 @@ export default function createDominatrixExtension(): ClaudiaExtension {
   const methods: Record<string, (params: Record<string, unknown>) => Promise<unknown>> = {
     // --- Snapshot & page info ---
     "dominatrix.snapshot": (p) => sendCommand("snapshot", p),
-    "dominatrix.get-text": (p) => sendCommand("get-text", p),
-    "dominatrix.get-markdown": (p) => sendCommand("get-markdown", p),
-    "dominatrix.get-url": (p) => sendCommand("get-url", p),
-    "dominatrix.get-title": (p) => sendCommand("get-title", p),
-    "dominatrix.get-html": (p) => sendCommand("get-html", p),
-    "dominatrix.get-source": (p) => sendCommand("get-source", p),
+    "dominatrix.get_text": (p) => sendCommand("get-text", p),
+    "dominatrix.get_markdown": (p) => sendCommand("get-markdown", p),
+    "dominatrix.get_url": (p) => sendCommand("get-url", p),
+    "dominatrix.get_title": (p) => sendCommand("get-title", p),
+    "dominatrix.get_html": (p) => sendCommand("get-html", p),
+    "dominatrix.get_source": (p) => sendCommand("get-source", p),
 
     // --- Interaction ---
     "dominatrix.click": (p) => sendCommand("click", p),
@@ -276,31 +276,31 @@ export default function createDominatrixExtension(): ClaudiaExtension {
     "dominatrix.select": (p) => sendCommand("select", p),
 
     // --- Semantic find ---
-    "dominatrix.find-text": (p) => sendCommand("find-text", p),
-    "dominatrix.find-label": (p) => sendCommand("find-label", p),
-    "dominatrix.find-role": (p) => sendCommand("find-role", p),
-    "dominatrix.find-placeholder": (p) => sendCommand("find-placeholder", p),
+    "dominatrix.find_text": (p) => sendCommand("find-text", p),
+    "dominatrix.find_label": (p) => sendCommand("find-label", p),
+    "dominatrix.find_role": (p) => sendCommand("find-role", p),
+    "dominatrix.find_placeholder": (p) => sendCommand("find-placeholder", p),
 
     // --- Navigation & scrolling ---
     "dominatrix.navigate": (p) => sendCommand("navigate", p),
-    "dominatrix.scroll-down": (p) => sendCommand("scroll-down", p),
-    "dominatrix.scroll-up": (p) => sendCommand("scroll-up", p),
-    "dominatrix.scroll-to": (p) => sendCommand("scroll-to", p),
+    "dominatrix.scroll_down": (p) => sendCommand("scroll-down", p),
+    "dominatrix.scroll_up": (p) => sendCommand("scroll-up", p),
+    "dominatrix.scroll_to": (p) => sendCommand("scroll-to", p),
 
     // --- Wait ---
-    "dominatrix.wait-for-element": (p) => sendCommand("wait-for-element", p),
-    "dominatrix.wait-for-text": (p) => sendCommand("wait-for-text", p),
-    "dominatrix.wait-for-url": (p) => sendCommand("wait-for-url", p),
+    "dominatrix.wait_for_element": (p) => sendCommand("wait-for-element", p),
+    "dominatrix.wait_for_text": (p) => sendCommand("wait-for-text", p),
+    "dominatrix.wait_for_url": (p) => sendCommand("wait-for-url", p),
     "dominatrix.wait": (p) => sendCommand("wait", p),
 
     // --- Debugging ---
     "dominatrix.screenshot": (p) => sendCommand("screenshot", p),
     "dominatrix.exec": (p) => sendCommand("executeScript", p),
     "dominatrix.eval": (p) => sendCommand("evaluateExpression", p),
-    "dominatrix.get-console": (p) => sendCommand("get-console", p),
-    "dominatrix.get-network": (p) => sendCommand("get-network", p),
-    "dominatrix.get-storage": (p) => sendCommand("get-storage", p),
-    "dominatrix.get-cookies": (p) => sendCommand("get-cookies", p),
+    "dominatrix.get_console": (p) => sendCommand("get-console", p),
+    "dominatrix.get_network": (p) => sendCommand("get-network", p),
+    "dominatrix.get_storage": (p) => sendCommand("get-storage", p),
+    "dominatrix.get_cookies": (p) => sendCommand("get-cookies", p),
 
     // --- Internal ---
     "dominatrix.register": async (p) => {
@@ -352,7 +352,7 @@ export default function createDominatrixExtension(): ClaudiaExtension {
       return { ok: true };
     },
 
-    "dominatrix.health-check": async (): Promise<HealthCheckResponse> => {
+    "dominatrix.health_check": async (): Promise<HealthCheckResponse> => {
       const clientList = Array.from(clients.values());
       return {
         ok: clientList.length > 0,
@@ -390,28 +390,28 @@ export default function createDominatrixExtension(): ClaudiaExtension {
         inputSchema: snapshotParam,
       },
       {
-        name: "dominatrix.get-text",
+        name: "dominatrix.get_text",
         description: "Get plain text of page or element by ref",
         inputSchema: getTextParam,
       },
       {
-        name: "dominatrix.get-markdown",
+        name: "dominatrix.get_markdown",
         description: "Get page or element content as Markdown",
         inputSchema: getMarkdownParam,
       },
-      { name: "dominatrix.get-url", description: "Get current page URL", inputSchema: tabIdParam },
+      { name: "dominatrix.get_url", description: "Get current page URL", inputSchema: tabIdParam },
       {
-        name: "dominatrix.get-title",
+        name: "dominatrix.get_title",
         description: "Get current page title",
         inputSchema: tabIdParam,
       },
       {
-        name: "dominatrix.get-html",
+        name: "dominatrix.get_html",
         description: "Get HTML of page or element",
         inputSchema: getHtmlParam,
       },
       {
-        name: "dominatrix.get-source",
+        name: "dominatrix.get_source",
         description: "Get React component ancestry and source file path for an element",
         inputSchema: getSourceParam,
       },
@@ -445,22 +445,22 @@ export default function createDominatrixExtension(): ClaudiaExtension {
 
       // --- Semantic find ---
       {
-        name: "dominatrix.find-text",
+        name: "dominatrix.find_text",
         description: "Find element by visible text and act",
         inputSchema: findTextParam,
       },
       {
-        name: "dominatrix.find-label",
+        name: "dominatrix.find_label",
         description: "Find element by label/aria-label and act",
         inputSchema: findLabelParam,
       },
       {
-        name: "dominatrix.find-role",
+        name: "dominatrix.find_role",
         description: "Find element by ARIA role and act",
         inputSchema: findRoleParam,
       },
       {
-        name: "dominatrix.find-placeholder",
+        name: "dominatrix.find_placeholder",
         description: "Find element by placeholder and act",
         inputSchema: findPlaceholderParam,
       },
@@ -472,34 +472,34 @@ export default function createDominatrixExtension(): ClaudiaExtension {
         inputSchema: navigateParam,
       },
       {
-        name: "dominatrix.scroll-down",
+        name: "dominatrix.scroll_down",
         description: "Scroll down by pixels",
         inputSchema: scrollValueParam,
       },
       {
-        name: "dominatrix.scroll-up",
+        name: "dominatrix.scroll_up",
         description: "Scroll up by pixels",
         inputSchema: scrollValueParam,
       },
       {
-        name: "dominatrix.scroll-to",
+        name: "dominatrix.scroll_to",
         description: "Scroll to element or position",
         inputSchema: scrollToParam,
       },
 
       // --- Wait ---
       {
-        name: "dominatrix.wait-for-element",
+        name: "dominatrix.wait_for_element",
         description: "Wait for element to appear",
         inputSchema: waitForElementParam,
       },
       {
-        name: "dominatrix.wait-for-text",
+        name: "dominatrix.wait_for_text",
         description: "Wait for text to appear",
         inputSchema: waitForTextParam,
       },
       {
-        name: "dominatrix.wait-for-url",
+        name: "dominatrix.wait_for_url",
         description: "Wait for URL to match pattern",
         inputSchema: waitForUrlParam,
       },
@@ -522,22 +522,22 @@ export default function createDominatrixExtension(): ClaudiaExtension {
         inputSchema: evalParam,
       },
       {
-        name: "dominatrix.get-console",
+        name: "dominatrix.get_console",
         description: "Get console logs from page",
         inputSchema: tabIdParam,
       },
       {
-        name: "dominatrix.get-network",
+        name: "dominatrix.get_network",
         description: "Get network requests from page",
         inputSchema: tabIdParam,
       },
       {
-        name: "dominatrix.get-storage",
+        name: "dominatrix.get_storage",
         description: "Get localStorage and sessionStorage",
         inputSchema: tabIdParam,
       },
       {
-        name: "dominatrix.get-cookies",
+        name: "dominatrix.get_cookies",
         description: "Get cookies for page domain",
         inputSchema: tabIdParam,
       },
@@ -553,7 +553,7 @@ export default function createDominatrixExtension(): ClaudiaExtension {
         description: "Handle command response from Chrome extension",
         inputSchema: responseParam,
       },
-      { name: "dominatrix.health-check", description: "Health check", inputSchema: z.object({}) },
+      { name: "dominatrix.health_check", description: "Health check", inputSchema: z.object({}) },
     ],
 
     async start(extensionCtx) {

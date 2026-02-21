@@ -13,8 +13,8 @@
   },
   "dependencies": {
     "@claudia/ext-chat": "workspace:*",
+    "@claudia/ext-control": "workspace:*",
     "@claudia/ext-imessage": "workspace:*",
-    "@claudia/ext-mission-control": "workspace:*",
     "@claudia/shared": "workspace:*",
     "@claudia/ui": "workspace:*",
     "@claudia/voice": "workspace:*",

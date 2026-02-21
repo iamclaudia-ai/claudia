@@ -24,8 +24,8 @@
       "config": {}
     },
 
-    // Mission Control — health dashboard + log viewer
-    "mission-control": {
+    // Control — health dashboard + log viewer
+    "control": {
       "enabled": true,
       "config": {}
     },

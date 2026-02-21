@@ -38,23 +38,23 @@ The gateway is a pure hub — it routes messages between clients and extensions,
 
 ### Schema-First API Design
 
-All API methods declare Zod schemas for input validation. The gateway validates at the boundary before dispatching — handlers can assume valid input. Use `gateway.list-methods` for runtime introspection of all available methods and their schemas.
+All API methods declare Zod schemas for input validation. The gateway validates at the boundary before dispatching — handlers can assume valid input. Use `gateway.list_methods` for runtime introspection of all available methods and their schemas.
 
 ### Everything is an Extension
 
 Every feature — including the web chat UI — is an extension with routes and pages.
 
-Server extension loading is config-driven from `~/.claudia/claudia.json` and out-of-process by default (one extension-host child process per enabled extension). Each extension entrypoint must be `extensions/<id>/src/index.ts`.
+Server extension loading is config-driven from `~/.claudia/claudia.json` and always out-of-process (one child process per enabled extension). Each extension calls `runExtensionHost(factory)` from `@claudia/extension-host` — making it directly executable with `bun --hot` for native HMR.
 
-| Extension         | Location                      | Server methods                                        | Web pages                                         |
-| ----------------- | ----------------------------- | ----------------------------------------------------- | ------------------------------------------------- |
-| `session`         | `extensions/session/`         | `session.create-session`, `session.send-prompt`, etc. | —                                                 |
-| `chat`            | `extensions/chat/`            | —                                                     | `/`, `/workspace/:workspaceId/session/:sessionId` |
-| `voice`           | `extensions/voice/`           | `voice.speak`, `voice.stop`                           | —                                                 |
-| `imessage`        | `extensions/imessage/`        | `imessage.send`, `imessage.chats`                     | —                                                 |
-| `hooks`           | `extensions/hooks/`           | `hooks.health-check`                                  | —                                                 |
-| `memory`          | `extensions/memory/`          | `memory.health-check`                                 | —                                                 |
-| `mission-control` | `extensions/mission-control/` | `mission-control.health-check`                        | `/mission-control`                                |
+| Extension  | Location               | Server methods                                        | Web pages                                         |
+| ---------- | ---------------------- | ----------------------------------------------------- | ------------------------------------------------- |
+| `session`  | `extensions/session/`  | `session.create_session`, `session.send_prompt`, etc. | —                                                 |
+| `chat`     | `extensions/chat/`     | —                                                     | `/`, `/workspace/:workspaceId/session/:sessionId` |
+| `voice`    | `extensions/voice/`    | `voice.speak`, `voice.stop`                           | —                                                 |
+| `imessage` | `extensions/imessage/` | `imessage.send`, `imessage.chats`                     | —                                                 |
+| `hooks`    | `extensions/hooks/`    | `hooks.health_check`                                  | —                                                 |
+| `memory`   | `extensions/memory/`   | `memory.health_check`                                 | —                                                 |
+| `control`  | `extensions/control/`  | `control.health_check`                                | `/control`                                        |
 
 ## Tech Stack
 
@@ -93,7 +93,7 @@ claudia/
 │   ├── imessage/         # iMessage bridge + auto-reply
 │   ├── hooks/            # Lifecycle hooks (post-response processing)
 │   ├── memory/           # Memory ingestion and processing (Libby pipeline)
-│   └── mission-control/  # System dashboard + health checks
+│   └── control/          # System dashboard + health checks
 ├── skills/               # Claude Code skills (meditation, stories, TTS tools)
 ├── scripts/              # Smoke tests, E2E tests
 └── docs/                 # Architecture, API reference, testing guides
@@ -126,15 +126,15 @@ Manages all Claude session lifecycle via the Agent SDK:
 - **Workspace CRUD**: SQLite (WAL mode) for workspace registry
 - **Session Discovery**: Filesystem — reads `~/.claude/projects/{encoded-cwd}/sessions-index.json`, resolves paths via `resolveSessionPath(cwd)`
 - **History**: Parses JSONL session files from Claude Code
-- **Inter-extension RPC**: Other extensions call `ctx.call("session.send-prompt", ...)` etc.
+- **Inter-extension RPC**: Other extensions call `ctx.call("session.send_prompt", ...)` etc.
 
-Key methods: `session.create-session`, `session.send-prompt`, `session.get-history`, `session.list-sessions`, `session.close-session`, `session.health-check`, etc.
+Key methods: `session.create_session`, `session.send_prompt`, `session.get_history`, `session.list_sessions`, `session.close_session`, `session.health_check`, etc.
 
 ### CLI (`packages/cli`)
 
 Schema-driven command-line client:
 
-- Discovers methods via `gateway.list-methods` — auto-generates help and examples
+- Discovers methods via `gateway.list_methods` — auto-generates help and examples
 - Validates params against Zod schemas before sending
 - Type coercion for CLI args (strings → booleans, numbers, objects)
 - Supports `--help` and `--examples` for any method
@@ -186,7 +186,7 @@ extensions/<name>/src/
 
 ```typescript
 // Client → Gateway
-{ type: "req", id: "abc123", method: "session.send-prompt", params: { sessionId, content, model, thinking, effort } }
+{ type: "req", id: "abc123", method: "session.send_prompt", params: { sessionId, content, model, thinking, effort } }
 
 // Gateway → Client (response)
 { type: "res", id: "abc123", ok: true, payload: { sessionId: "..." } }
@@ -195,15 +195,15 @@ extensions/<name>/src/
 { type: "event", event: "session.content_block_delta", payload: { ... } }
 ```
 
-**Gateway methods**: `gateway.list-methods`, `gateway.list-extensions`, `gateway.subscribe`, `gateway.unsubscribe`
+**Gateway methods**: `gateway.list_methods`, `gateway.list_extensions`, `gateway.subscribe`, `gateway.unsubscribe`
 
-**Session methods**: `session.create-session`, `session.send-prompt`, `session.get-history`, `session.switch-session`, `session.list-sessions`, `session.interrupt-session`, `session.close-session`, `session.reset-session`, `session.get-info`, `session.set-permission-mode`, `session.send-tool-result`
+**Session methods**: `session.create_session`, `session.send_prompt`, `session.get_history`, `session.switch_session`, `session.list_sessions`, `session.interrupt_session`, `session.close_session`, `session.reset_session`, `session.get_info`, `session.set_permission_mode`, `session.send_tool_result`
 
-**Workspace methods**: `session.list-workspaces`, `session.get-workspace`, `session.get-or-create-workspace`
+**Workspace methods**: `session.list_workspaces`, `session.get_workspace`, `session.get_or_create_workspace`
 
-**Discovery**: `gateway.list-methods` — returns all methods with schemas
+**Discovery**: `gateway.list_methods` — returns all methods with schemas
 
-**Extension methods**: `voice.speak`, `voice.stop`, `voice.health-check`, `imessage.send`, `imessage.chats`, `imessage.health-check`, `hooks.health-check`, `memory.health-check`, `mission-control.health-check`
+**Extension methods**: `voice.speak`, `voice.stop`, `voice.health_check`, `imessage.send`, `imessage.chats`, `imessage.health_check`, `hooks.health_check`, `memory.health_check`, `control.health_check`
 
 ## Development
 

@@ -284,14 +284,14 @@ export function createIMessageExtension(config: IMessageConfig = {}): ClaudiaExt
       // Ensure we have a session
       if (!currentSessionId) {
         const cwd = cfg.workspaceCwd || process.cwd();
-        await ctx!.call("session.get-or-create-workspace", { cwd });
-        const created = (await ctx!.call("session.create-session", { cwd })) as {
+        await ctx!.call("session.get_or_create_workspace", { cwd });
+        const created = (await ctx!.call("session.create_session", { cwd })) as {
           sessionId: string;
         };
         currentSessionId = created.sessionId;
       }
 
-      const result = (await ctx!.call("session.send-prompt", {
+      const result = (await ctx!.call("session.send_prompt", {
         sessionId: currentSessionId,
         content,
         streaming: false,
@@ -342,8 +342,8 @@ export function createIMessageExtension(config: IMessageConfig = {}): ClaudiaExt
         }),
       },
       {
-        name: "imessage.health-check",
-        description: "Return standardized health-check payload for Mission Control",
+        name: "imessage.health_check",
+        description: "Return standardized health_check payload for iMessage extension",
         inputSchema: z.object({}),
       },
     ],
@@ -442,7 +442,7 @@ export function createIMessageExtension(config: IMessageConfig = {}): ClaudiaExt
           return { chats };
         }
 
-        case "imessage.health-check": {
+        case "imessage.health_check": {
           const response: HealthCheckResponse = {
             ok: !!client,
             status: client ? "healthy" : "disconnected",

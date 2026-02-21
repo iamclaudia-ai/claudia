@@ -4,7 +4,7 @@ Last updated: 2026-02-12
 
 ## Contract
 
-Every extension should expose a `{extensionId}.health-check` method with:
+Every extension should expose a `{extensionId}.health_check` method with:
 
 - `inputSchema`: `z.object({})`
 - Output shape: `HealthCheckResponse` from `@claudia/shared`
@@ -29,12 +29,12 @@ Notes:
 
 ## Current Extension Coverage
 
-| Extension         | Method                         | Status      |
-| ----------------- | ------------------------------ | ----------- |
-| `chat`            | `chat.health-check`            | implemented |
-| `voice`           | `voice.health-check`           | implemented |
-| `imessage`        | `imessage.health-check`        | implemented |
-| `mission-control` | `mission-control.health-check` | implemented |
+| Extension  | Method                  | Status      |
+| ---------- | ----------------------- | ----------- |
+| `chat`     | `chat.health_check`     | implemented |
+| `voice`    | `voice.health_check`    | implemented |
+| `imessage` | `imessage.health_check` | implemented |
+| `control`  | `control.health_check`  | implemented |
 
 ## Recommended Status Meanings
 
@@ -45,4 +45,4 @@ Notes:
 
 ## Mission Control Consumption
 
-Mission Control should prefer calling `{id}.health-check` for display data, and use `extension.health()` only as a lightweight fallback for server diagnostics.
+Mission Control should prefer calling `{id}.health_check` for display data, and use `extension.health()` only as a lightweight fallback for server diagnostics.

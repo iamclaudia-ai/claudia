@@ -54,19 +54,19 @@ export function createMyFeatureExtension(config: MyFeatureConfig = {}): ClaudiaE
     name: "My Feature",
     methods: [
       {
-        name: "my-feature.do-thing",
+        name: "my-feature.do_thing",
         description: "Does the thing",
         inputSchema: z.object({
           input: z.string().min(1),
         }),
       },
       {
-        name: "my-feature.health-check",
+        name: "my-feature.health_check",
         description: "Health status for Mission Control",
         inputSchema: z.object({}),
       },
     ],
-    events: ["my-feature.thing-done"],
+    events: ["my-feature.thing_done"],
 
     async start(context) {
       ctx = context;
@@ -84,12 +84,12 @@ export function createMyFeatureExtension(config: MyFeatureConfig = {}): ClaudiaE
 
     async handleMethod(method, params) {
       switch (method) {
-        case "my-feature.do-thing": {
+        case "my-feature.do_thing": {
           const result = doTheThing(params.input as string);
-          ctx.emit("my-feature.thing-done", { result });
+          ctx.emit("my-feature.thing_done", { result });
           return { status: "ok", result };
         }
-        case "my-feature.health-check": {
+        case "my-feature.health_check": {
           const response: HealthCheckResponse = {
             ok: true,
             status: "healthy",
@@ -143,10 +143,10 @@ Your extension ID in config must match the folder name under `extensions/`.
 bun run packages/cli/src/index.ts method.list | grep my-feature
 
 # Call a method
-bun run packages/cli/src/index.ts my-feature.do-thing --input "hello"
+bun run packages/cli/src/index.ts my-feature.do_thing --input "hello"
 
 # Health check
-bun run packages/cli/src/index.ts my-feature.health-check
+bun run packages/cli/src/index.ts my-feature.health_check
 ```
 
 ---
@@ -218,7 +218,7 @@ Extensions can call methods on other extensions through the gateway hub:
 ```typescript
 async start(ctx) {
   // Call the session extension to send a prompt
-  const result = await ctx.call("session.send-prompt", {
+  const result = await ctx.call("session.send_prompt", {
     sessionId: "abc",
     content: "Hello from my extension",
   });
@@ -254,7 +254,7 @@ Every method declares a Zod input schema. The gateway validates at the boundary 
 
 Methods are discoverable via `method.list` and auto-generate CLI help.
 
-Naming rule: Multi-word method segments must use kebab-case (for example `workspace.get-or-create`, `session.tool-result`).
+Naming rule: Multi-word method segments must use snake_case (for example `workspace.get_or_create`, `session.tool_result`).
 
 ### Events
 
@@ -286,7 +286,7 @@ async stop() {
 
 ### Health Check
 
-Every extension should expose a `{id}.health-check` method returning `HealthCheckResponse`. Mission Control discovers and renders these generically:
+Every extension should expose a `{id}.health_check` method returning `HealthCheckResponse`. Mission Control discovers and renders these generically:
 
 ```typescript
 interface HealthCheckResponse {
@@ -431,7 +431,7 @@ Host -> Gateway (event from extension)
 {"type":"event","event":"voice.audio_chunk","payload":{...}}
 
 Host -> Gateway (cross-extension call via ctx.call)
-{"type":"call","id":"def","method":"session.send-prompt","params":{...},"depth":1,"traceId":"..."}
+{"type":"call","id":"def","method":"session.send_prompt","params":{...},"depth":1,"traceId":"..."}
 
 Gateway -> Host (call response)
 {"type":"call_res","id":"def","ok":true,"payload":{...}}
@@ -595,7 +595,7 @@ Add to `packages/gateway/src/web/index.tsx`:
 ```typescript
 import { myFeatureRoutes } from "@claudia/ext-my-feature/routes";
 
-const allRoutes = [...missionControlRoutes, ...chatRoutes, ...myFeatureRoutes];
+const allRoutes = [...controlRoutes, ...chatRoutes, ...myFeatureRoutes];
 ```
 
 ### Convention
@@ -608,14 +608,14 @@ const allRoutes = [...missionControlRoutes, ...chatRoutes, ...myFeatureRoutes];
 
 ## Existing Extensions
 
-| Extension       | ID                | Package                        | Web Pages                             | Source Routes |
-| --------------- | ----------------- | ------------------------------ | ------------------------------------- | ------------- |
-| Chat            | `chat`            | `@claudia/ext-chat`            | `/`, `/workspace/:id`, `/session/:id` | --            |
-| Voice           | `voice`           | `@claudia/voice`               | --                                    | --            |
-| iMessage        | `imessage`        | `@claudia/ext-imessage`        | --                                    | `imessage`    |
-| Mission Control | `mission-control` | `@claudia/ext-mission-control` | `/mission-control`, `/logs`           | --            |
-| Hooks           | `hooks`           | `@claudia/ext-hooks`           | --                                    | --            |
-| DOMINATRIX      | `dominatrix`      | `@claudia/ext-dominatrix`      | --                                    | --            |
+| Extension       | ID           | Package                   | Web Pages                             | Source Routes |
+| --------------- | ------------ | ------------------------- | ------------------------------------- | ------------- |
+| Chat            | `chat`       | `@claudia/ext-chat`       | `/`, `/workspace/:id`, `/session/:id` | --            |
+| Voice           | `voice`      | `@claudia/voice`          | --                                    | --            |
+| iMessage        | `imessage`   | `@claudia/ext-imessage`   | --                                    | `imessage`    |
+| Mission Control | `control`    | `@claudia/ext-control`    | `/control`, `/logs`                   | --            |
+| Hooks           | `hooks`      | `@claudia/ext-hooks`      | --                                    | --            |
+| DOMINATRIX      | `dominatrix` | `@claudia/ext-dominatrix` | --                                    | --            |
 
 All extensions run out-of-process. There is no in-process mode.
 
@@ -801,7 +801,7 @@ packages/
 
 ## Testing
 
-Extensions can be tested in isolation. See `extensions/mission-control/src/index.test.ts` for an example:
+Extensions can be tested in isolation. See `extensions/control/src/index.test.ts` for an example:
 
 ```typescript
 import { describe, expect, test } from "bun:test";
@@ -814,7 +814,7 @@ describe("my-feature", () => {
     });
     await ext.start(mockContext);
 
-    const result = await ext.handleMethod("my-feature.do-thing", { input: "hello" });
+    const result = await ext.handleMethod("my-feature.do_thing", { input: "hello" });
     expect(result).toEqual({ status: "ok", result: "..." });
   });
 });
@@ -823,6 +823,6 @@ describe("my-feature", () => {
 Use the CLI for integration testing against a running gateway:
 
 ```bash
-bun run packages/cli/src/index.ts my-feature.health-check
-bun run packages/cli/src/index.ts my-feature.do-thing --input "test"
+bun run packages/cli/src/index.ts my-feature.health_check
+bun run packages/cli/src/index.ts my-feature.do_thing --input "test"
 ```
