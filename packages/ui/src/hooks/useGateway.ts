@@ -812,6 +812,7 @@ export function useGateway(gatewayUrl: string, options: UseGatewayOptions = {}):
       const params: Record<string, unknown> = {
         content,
         sessionId: sid,
+        cwd: workspaceRef.current?.cwd,
       };
       sendRequest("session.send-prompt", params);
     },
