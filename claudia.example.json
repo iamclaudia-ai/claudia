@@ -1,58 +1,57 @@
 {
   // Claudia Gateway Configuration
-  // Copy to claudia.json and customize
+  // Copy to ~/.claudia/claudia.json and customize
 
   "gateway": {
     "port": 30086,
     "host": "localhost"
   },
 
-  "session": {
-    // Default session settings (can be overridden per-request)
-    "thinking": false,
-    // Adaptive thinking effort: "low" | "medium" | "high" | "max"
-    "effort": "medium",
-    "systemPrompt": null // Or path to file: "./prompts/system.md"
-  },
-
   "extensions": {
-    // Core Chat extension (workspace/session UI + health)
+    // Session Extension — SDK engine, workspace CRUD, session lifecycle
+    "session": {
+      "enabled": true,
+      "config": {
+        "model": "claude-sonnet-4-6",
+        "thinking": true,
+        "effort": "medium"
+      }
+    },
+
+    // Chat Extension — web pages (workspaces, sessions, chat UI)
     "chat": {
       "enabled": true,
-      "outOfProcess": true,
       "config": {}
     },
 
-    // Mission Control extension (health dashboard + logs)
+    // Mission Control — health dashboard + log viewer
     "mission-control": {
       "enabled": true,
-      "outOfProcess": true,
       "config": {}
     },
 
-    // Voice Extension - ElevenLabs TTS
+    // Voice Extension — Cartesia Sonic 3.0 TTS
     "voice": {
       "enabled": true,
       "config": {
-        "apiKey": "${ELEVENLABS_API_KEY}",
-        "dictionaryId": "${CARTESIA_DICTIONARY_ID}",
-        "voiceId": "${ELEVENLABS_VOICE_ID}",
-        "model": "eleven_turbo_v2_5",
+        "apiKey": "${CARTESIA_API_KEY}",
+        "voiceId": "${CARTESIA_VOICE_ID}",
+        "model": "sonic-3",
         "autoSpeak": false,
-        "summarizeThreshold": 150
+        "streaming": true,
+        "emotions": ["positivity:high", "curiosity"],
+        "speed": 1.0
       }
     },
 
     // Hooks Extension — lightweight event handlers (git-status, cost-tracker, etc.)
-    // Loads hooks from ~/.claudia/hooks/ and ./hooks/
+    // Loads hooks from ~/.claudia/hooks/ and <workspace>/.claudia/hooks/
     "hooks": {
       "enabled": true,
       "config": {}
     },
 
-    // Memory Extension — transcript ingestion + conversation grouping
-    // Phase 1: Watches JSONL session logs, ingests into SQLite, detects conversation gaps
-    // Phase 2: Libby processes completed conversations into durable memories
+    // Memory Extension — transcript ingestion + Libby processing
     "memory": {
       "enabled": false,
       "config": {
@@ -69,30 +68,28 @@
     },
 
     // DOMINATRIX — Browser control via Chrome extension
-    // Chrome extension connects to gateway WS and bridges commands to content scripts
-    // Install: load clients/dominatrix/dist/ as unpacked extension in Chrome
     "dominatrix": {
       "enabled": true,
       "config": {}
     },
 
-    // iMessage Extension - requires macOS with Messages signed in
+    // iMessage Extension — requires macOS with Messages signed in
     // Uses `imsg` CLI: brew install steipete/tap/imsg
     "imessage": {
       "enabled": false,
       "config": {
-        "cliPath": "imsg", // Path to imsg CLI (default: "imsg")
-        "dbPath": null, // Messages DB path (default: ~/Library/Messages/chat.db)
-        "allowedSenders": ["claudia@iamclaudia.ai"], // ONLY process messages from these senders
+        "cliPath": "imsg",
+        "dbPath": null,
+        "allowedSenders": ["claudia@iamclaudia.ai"],
         "includeAttachments": false,
-        "historyLimit": 0 // Include N recent messages as context (0 = disabled)
+        "historyLimit": 0
       }
     },
 
     // Slack Extension (example)
     "slack": {
       "enabled": false,
-      "sourceRoutes": ["slack"], // Handles "slack/*" sources
+      "sourceRoutes": ["slack"],
       "config": {
         "botToken": "${SLACK_BOT_TOKEN}",
         "appToken": "${SLACK_APP_TOKEN}"

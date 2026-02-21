@@ -4,7 +4,7 @@
  * Manages a single out-of-process extension via stdio NDJSON.
  * Mirrors the RuntimeSession pattern for spawning + communicating with child processes.
  *
- * The gateway spawns one of these per extension that has `outOfProcess: true`.
+ * The gateway spawns one of these per enabled extension.
  */
 
 import { spawn, type Subprocess } from "bun";

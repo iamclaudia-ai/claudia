@@ -147,10 +147,6 @@ async function loadExtensions(): Promise<void> {
 
   for (const [id, ext] of enabledExtensions) {
     try {
-      if (ext.outOfProcess === false) {
-        log.warn("Ignoring in-process request: extensions run out-of-process", { id });
-      }
-
       await spawnOutOfProcessExtension(id, ext.config, ext.sourceRoutes);
     } catch (error) {
       log.error("Failed to load extension", { id, error: String(error) });
