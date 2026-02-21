@@ -72,6 +72,7 @@
       "name": "@claudia/ext-chat",
       "version": "0.1.0",
       "dependencies": {
+        "@claudia/extension-host": "workspace:*",
         "@claudia/shared": "workspace:*",
         "@claudia/ui": "workspace:*",
         "zod": "^3.25.76",
@@ -89,6 +90,7 @@
       "name": "@claudia/ext-hooks",
       "version": "0.1.0",
       "dependencies": {
+        "@claudia/extension-host": "workspace:*",
         "@claudia/shared": "workspace:*",
         "zod": "^3.25.76",
       },
@@ -97,6 +99,7 @@
       "name": "@claudia/ext-imessage",
       "version": "0.1.0",
       "dependencies": {
+        "@claudia/extension-host": "workspace:*",
         "@claudia/shared": "workspace:*",
         "zod": "^3.25.76",
       },
@@ -108,6 +111,7 @@
       "name": "@claudia/memory",
       "version": "0.1.0",
       "dependencies": {
+        "@claudia/extension-host": "workspace:*",
         "@claudia/shared": "workspace:*",
         "chokidar": "^4.0.3",
       },
@@ -116,6 +120,7 @@
       "name": "@claudia/ext-mission-control",
       "version": "0.1.0",
       "dependencies": {
+        "@claudia/extension-host": "workspace:*",
         "@claudia/shared": "workspace:*",
         "@claudia/ui": "workspace:*",
         "zod": "^3.25.76",
@@ -126,6 +131,7 @@
       "version": "0.1.0",
       "dependencies": {
         "@anthropic-ai/claude-agent-sdk": "^0.2.39",
+        "@claudia/extension-host": "workspace:*",
         "@claudia/shared": "workspace:*",
       },
       "devDependencies": {
@@ -137,6 +143,7 @@
       "name": "@claudia/voice",
       "version": "0.1.0",
       "dependencies": {
+        "@claudia/extension-host": "workspace:*",
         "@claudia/shared": "workspace:*",
         "zod": "^3.25.76",
       },
@@ -189,17 +196,6 @@
       },
       "devDependencies": {
         "typescript": "^5.3.3",
-      },
-    },
-    "packages/runtime": {
-      "name": "@claudia/runtime",
-      "version": "0.1.0",
-      "dependencies": {
-        "@anthropic-ai/claude-agent-sdk": "^0.2.39",
-        "@claudia/shared": "workspace:*",
-      },
-      "devDependencies": {
-        "@anthropic-ai/sdk": "^0.74.0",
       },
     },
     "packages/shared": {
@@ -286,8 +282,6 @@
     "@claudia/memory-mcp": ["@claudia/memory-mcp@workspace:packages/memory-mcp"],
 
     "@claudia/menubar": ["@claudia/menubar@workspace:clients/menubar"],
-
-    "@claudia/runtime": ["@claudia/runtime@workspace:packages/runtime"],
 
     "@claudia/shared": ["@claudia/shared@workspace:packages/shared"],
 

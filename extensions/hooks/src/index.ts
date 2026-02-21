@@ -360,3 +360,7 @@ export function createHooksExtension(config: HooksConfig = {}): ClaudiaExtension
 }
 
 export default createHooksExtension;
+
+// ── Direct execution with HMR ────────────────────────────────
+import { runExtensionHost } from "@claudia/extension-host";
+if (import.meta.main) runExtensionHost(createHooksExtension);

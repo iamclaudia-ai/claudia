@@ -36,3 +36,7 @@ export function createChatExtension(): ClaudiaExtension {
 }
 
 export default createChatExtension;
+
+// ── Direct execution with HMR ────────────────────────────────
+import { runExtensionHost } from "@claudia/extension-host";
+if (import.meta.main) runExtensionHost(createChatExtension);

@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit -p ../../tsconfig.json"
   },
   "dependencies": {
+    "@claudia/extension-host": "workspace:*",
     "@claudia/shared": "workspace:*",
     "zod": "^3.25.76"
   },

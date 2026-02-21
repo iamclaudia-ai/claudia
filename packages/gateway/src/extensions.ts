@@ -94,6 +94,12 @@ export class ExtensionManager {
    * Called when an ExtensionHostProcess sends its registration message.
    */
   registerRemote(registration: ExtensionRegistration, host: ExtensionHostProcess): void {
+    // Clean up old routes if re-registering (HMR reload)
+    if (this.remoteRegistrations.has(registration.id)) {
+      log.info("Re-registering extension (HMR)", { id: registration.id });
+      this.unregisterRemote(registration.id);
+    }
+
     log.info("Registering remote extension", {
       id: registration.id,
       methods: registration.methods.map((m) => m.name),

@@ -10,7 +10,7 @@ import { extensions, broadcastEvent } from "./index";
 import { getEnabledExtensions, createLogger } from "@claudia/shared";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
+
 import { homedir } from "node:os";
 import {
   ExtensionHostProcess,
@@ -28,7 +28,7 @@ const ROOT_DIR = join(import.meta.dir, "..", "..", "..");
  */
 async function killOrphanExtensionHosts(): Promise<void> {
   try {
-    const proc = Bun.spawn(["pgrep", "-f", "extension-host/src/index.ts"], {
+    const proc = Bun.spawn(["pgrep", "-f", "extensions/.*/src/index.ts"], {
       stdout: "pipe",
       stderr: "pipe",
     });
@@ -66,7 +66,7 @@ function resolveExtensionEntrypoint(extensionId: string): string | null {
   if (!existsSync(entryPath)) {
     return null;
   }
-  return pathToFileURL(entryPath).href;
+  return entryPath;
 }
 
 async function spawnOutOfProcessExtension(

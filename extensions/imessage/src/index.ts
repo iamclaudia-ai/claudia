@@ -479,3 +479,7 @@ export default createIMessageExtension;
 
 // Re-export client types
 export type { ImsgMessage, ImsgChat } from "./imsg-client";
+
+// ── Direct execution with HMR ────────────────────────────────
+import { runExtensionHost } from "@claudia/extension-host";
+if (import.meta.main) runExtensionHost(createIMessageExtension);

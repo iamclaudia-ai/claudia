@@ -138,3 +138,7 @@ export function createMissionControlExtension(): ClaudiaExtension {
 }
 
 export default createMissionControlExtension;
+
+// ── Direct execution with HMR ────────────────────────────────
+import { runExtensionHost } from "@claudia/extension-host";
+if (import.meta.main) runExtensionHost(createMissionControlExtension);

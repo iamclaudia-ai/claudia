@@ -5,6 +5,7 @@
   "type": "module",
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.39",
+    "@claudia/extension-host": "workspace:*",
     "@claudia/shared": "workspace:*"
   },
   "devDependencies": {

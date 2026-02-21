@@ -37,7 +37,6 @@ interface PendingRequest {
   timer: ReturnType<typeof setTimeout>;
 }
 
-const HOST_SCRIPT = join(import.meta.dir, "..", "..", "extension-host", "src", "index.ts");
 const REQUEST_TIMEOUT = 300_000; // 5 min — extensions like memory.process do serial LLM calls
 const RESTART_DELAY = 2_000;
 const MAX_RESTARTS = 5;
@@ -83,7 +82,7 @@ export class ExtensionHostProcess {
     });
 
     this.proc = spawn({
-      cmd: ["bun", "--hot", HOST_SCRIPT, this.moduleSpec, configJson],
+      cmd: ["bun", "--hot", this.moduleSpec, configJson],
       stdin: "pipe",
       stdout: "pipe",
       stderr: "pipe",

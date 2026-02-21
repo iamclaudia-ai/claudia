@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit -p ../../tsconfig.json"
   },
   "dependencies": {
+    "@claudia/extension-host": "workspace:*",
     "@claudia/shared": "workspace:*",
     "chokidar": "^4.0.3"
   }

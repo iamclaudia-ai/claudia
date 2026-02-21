@@ -612,3 +612,7 @@ function findBasePath(filePath: string, configuredBasePath: string): string {
 }
 
 export default createMemoryExtension;
+
+// ── Direct execution with HMR ────────────────────────────────
+import { runExtensionHost } from "@claudia/extension-host";
+if (import.meta.main) runExtensionHost(createMemoryExtension);
