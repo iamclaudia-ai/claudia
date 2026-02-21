@@ -151,8 +151,8 @@ export function LogViewerPage() {
       setFiles(files);
       // Auto-select first file (usually most recent)
       if (files.length > 0 && !selectedFile) {
-        // Prefer gateway.log or runtime.log
-        const preferred = files.find((f) => f.name === "gateway.log" || f.name === "runtime.log");
+        // Prefer gateway.log or session.log
+        const preferred = files.find((f) => f.name === "gateway.log" || f.name === "session.log");
         setSelectedFile(preferred?.name || files[0].name);
       }
     });

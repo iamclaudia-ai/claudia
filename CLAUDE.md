@@ -16,7 +16,7 @@ Claudia is a personal AI assistant platform built around Claude Code CLI. A sing
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│              Gateway (port 30086)                         │
+│              Gateway (port 30086) — Pure Hub              │
 │                                                          │
 │  Bun.serve:                                              │
 │    /ws     → WebSocket (all client communication)        │
@@ -24,20 +24,20 @@ Claudia is a personal AI assistant platform built around Claude Code CLI. A sing
 │    /*      → SPA (web UI with extension pages)           │
 │                                                          │
 │  ┌──────────────┐  ┌──────────────┐  ┌────────────────┐  │
-│  │   Session    │  │   Event      │  │   Extension    │  │
-│  │   Manager    │  │   Bus        │  │   System       │  │
-│  │  (SQLite)    │  │  (WS pub/sub)│  │  (pluggable)   │  │
+│  │   Extension  │  │   Event      │  │   ctx.call()   │  │
+│  │   Host       │  │   Bus        │  │   RPC Hub      │  │
+│  │  (per ext)   │  │  (WS pub/sub)│  │  (inter-ext)   │  │
 │  └──────────────┘  └──────────────┘  └────────────────┘  │
 └──────────────────────────────────────────────────────────┘
 ```
 
-### Core Principle: Gateway-Centric
+### Core Principle: Gateway as Pure Hub
 
-The gateway IS the control plane. Sessions can be created from ANY client — web, mobile, CLI, iMessage. You don't need to start locally first.
+The gateway is a pure hub — it routes messages between clients and extensions, handles event fanout, but has NO business logic. All domain logic (sessions, workspaces, voice, iMessage) lives in extensions. Sessions can be created from ANY client — web, mobile, CLI, iMessage.
 
 ### Schema-First API Design
 
-All API methods declare Zod schemas for input validation. The gateway validates at the boundary before dispatching — handlers can assume valid input. Use `method.list` for runtime introspection of all available methods and their schemas.
+All API methods declare Zod schemas for input validation. The gateway validates at the boundary before dispatching — handlers can assume valid input. Use `gateway.list-methods` for runtime introspection of all available methods and their schemas.
 
 ### Everything is an Extension
 
@@ -45,12 +45,13 @@ Every feature — including the web chat UI — is an extension with routes and 
 
 Server extension loading is config-driven from `~/.claudia/claudia.json` and out-of-process by default (one extension-host child process per enabled extension). Each extension entrypoint must be `extensions/<id>/src/index.ts`.
 
-| Extension         | Location                      | Server methods                    | Web pages                             |
-| ----------------- | ----------------------------- | --------------------------------- | ------------------------------------- |
-| `chat`            | `extensions/chat/`            | `chat.health-check`               | `/`, `/workspace/:id`, `/session/:id` |
-| `voice`           | `extensions/voice/`           | `voice.speak`, `voice.stop`       | —                                     |
-| `imessage`        | `extensions/imessage/`        | `imessage.send`, `imessage.chats` | —                                     |
-| `mission-control` | `extensions/mission-control/` | `mission-control.health-check`    | `/mission-control`                    |
+| Extension         | Location                      | Server methods                                        | Web pages                             |
+| ----------------- | ----------------------------- | ----------------------------------------------------- | ------------------------------------- |
+| `session`         | `extensions/session/`         | `session.create-session`, `session.send-prompt`, etc. | —                                     |
+| `chat`            | `extensions/chat/`            | `chat.health-check`                                   | `/`, `/workspace/:id`, `/session/:id` |
+| `voice`           | `extensions/voice/`           | `voice.speak`, `voice.stop`                           | —                                     |
+| `imessage`        | `extensions/imessage/`        | `imessage.send`, `imessage.chats`                     | —                                     |
+| `mission-control` | `extensions/mission-control/` | `mission-control.health-check`                        | `/mission-control`                    |
 
 ## Tech Stack
 
@@ -58,8 +59,8 @@ Server extension loading is config-driven from `~/.claudia/claudia.json` and out
 - **Package Manager**: Bun (`bun install`, `bun add`) — **NEVER use npm, pnpm, or yarn** in this project. All dependencies are managed via `bun.lock`.
 - **Language**: TypeScript (strict)
 - **Server**: Bun.serve (HTTP + WebSocket on single port)
-- **Database**: SQLite (workspaces + sessions)
-- **Session Management**: Dual-engine — CLI subprocess (stdio pipes) or Agent SDK `query()` function, configurable via `runtime.engine` in config
+- **Database**: SQLite (workspaces)
+- **Session Management**: Agent SDK via session extension (`extensions/session/`)
 - **Client-side Router**: Hand-rolled pushState router (~75 lines, zero deps)
 - **TTS**: Cartesia Sonic 3.0 (real-time streaming) + ElevenLabs v3 (pre-generated content via text-to-dialogue API)
 - **Network**: Tailscale for secure remote access
@@ -71,9 +72,8 @@ Server extension loading is config-driven from `~/.claudia/claudia.json` and out
 ```
 claudia/
 ├── packages/
-│   ├── gateway/          # Core server — single port serves everything
-│   ├── runtime/          # Session runtime — dual-engine (CLI subprocess or Agent SDK)
-│   ├── watchdog/         # Process supervisor — spawns gateway + runtime, health checks
+│   ├── gateway/          # Pure hub — routes messages, event fanout, no business logic
+│   ├── watchdog/         # Process supervisor — spawns gateway, health checks
 │   ├── extension-host/   # Generic shim for out-of-process extensions (NDJSON stdio)
 │   ├── cli/              # Schema-driven CLI with method discovery
 │   ├── shared/           # Shared types, config, and protocol definitions
@@ -84,6 +84,7 @@ claudia/
 │   ├── menubar/          # macOS menubar app (SwiftUI) 💋
 │   └── vscode/           # VS Code extension with sidebar chat
 ├── extensions/
+│   ├── session/          # Session lifecycle — SDK engine, workspace CRUD, history
 │   ├── chat/             # Web chat pages (workspaces, sessions, chat)
 │   ├── voice/            # Cartesia TTS + auto-speak + audio store
 │   ├── imessage/         # iMessage bridge + auto-reply
@@ -97,51 +98,38 @@ claudia/
 
 ### Gateway (`packages/gateway`)
 
-The heart of Claudia. Single Bun.serve instance on port 30086:
+Pure hub. Single Bun.serve instance on port 30086:
 
 - `/ws` — WebSocket upgrade for all client communication
-- `/health` — JSON status with session info, extensions, connections
+- `/health` — JSON status with extensions, connections
 - `/*` — SPA fallback serves `index.html` for client-side routing
 
 Key files:
 
-- `src/index.ts` — Server setup, WebSocket handlers, request routing, schema validation
-- `src/session-manager.ts` — Workspace/session lifecycle, history pagination
-- `src/extensions.ts` — Extension registration, method/event routing, param validation
-- `src/parse-session.ts` — JSONL parser with paginated history (load-all-then-slice)
-- `src/db/` — SQLite schema and models for workspaces + sessions
+- `src/index.ts` — Pure hub: WebSocket handlers, event routing, `gateway.*` methods only
+- `src/extensions.ts` — Extension registration, method/event routing, `ctx.call()` hub
+- `src/extension-host.ts` — Out-of-process extension host with RPC support
+- `src/start.ts` — Extension loading and `onCall` wiring
+- `src/db/` — SQLite schema (migrations only, workspace data owned by session extension)
 - `src/web/` — SPA shell (index.html + route collector)
 
-### Runtime (`packages/runtime`)
+### Session Extension (`extensions/session`)
 
-Persistent service (port 30087) with two interchangeable session engines:
+Manages all Claude session lifecycle via the Agent SDK:
 
-**CLI Engine** (`runtime.engine: "cli"` — default):
+- **SDK Engine**: Uses `@anthropic-ai/claude-agent-sdk` `query()` function
+- **Workspace CRUD**: SQLite (WAL mode) for workspace registry
+- **Session Source-of-Truth**: Filesystem — reads `~/.claude/projects/{encoded-cwd}/sessions-index.json`
+- **History**: Parses JSONL session files from Claude Code
+- **Inter-extension RPC**: Other extensions call `ctx.call("session.send-prompt", ...)` etc.
 
-- Spawns CLI with `--input-format stream-json --output-format stream-json --include-partial-messages`
-- Communicates via stdin/stdout NDJSON pipes — no WebSocket or HTTP proxy
-- Thinking via `control_request` with `set_max_thinking_tokens` on stdin
-- Graceful interrupt via `control_request` with `subtype: "interrupt"` — process stays alive
-
-**SDK Engine** (`runtime.engine: "sdk"`):
-
-- Uses `@anthropic-ai/claude-agent-sdk` `query()` function — async generator of `SDKMessage` types
-- Push-based `MessageChannel` (async iterable) enables multi-turn conversations over a single query
-- Same event emission as CLI engine — gateway sees identical events, no changes needed
-- `query.interrupt()`, `query.setPermissionMode()` for runtime control
-
-Both engines:
-
-- Use official Agent SDK types for type-safe message routing
-- Emit identical `StreamEvent`s through EventEmitter (gateway-compatible)
-- Survive gateway restarts — sessions can be lazily resumed
-- `SYSTEM_PROMPT.md` — headless mode addendum appended to every session's system prompt
+Key methods: `session.create-session`, `session.send-prompt`, `session.get-history`, `session.list-sessions`, `session.close-session`, `session.health-check`, etc.
 
 ### CLI (`packages/cli`)
 
 Schema-driven command-line client:
 
-- Discovers methods via `method.list` — auto-generates help and examples
+- Discovers methods via `gateway.list-methods` — auto-generates help and examples
 - Validates params against Zod schemas before sending
 - Type coercion for CLI args (strings → booleans, numbers, objects)
 - Supports `--help` and `--examples` for any method
@@ -193,7 +181,7 @@ extensions/<name>/src/
 
 ```typescript
 // Client → Gateway
-{ type: "req", id: "abc123", method: "session.prompt", params: { sessionId, content, model, thinking, effort } }
+{ type: "req", id: "abc123", method: "session.send-prompt", params: { sessionId, content, model, thinking, effort } }
 
 // Gateway → Client (response)
 { type: "res", id: "abc123", ok: true, payload: { sessionId: "..." } }
@@ -202,18 +190,20 @@ extensions/<name>/src/
 { type: "event", event: "session.content_block_delta", payload: { ... } }
 ```
 
-**Session methods**: `session.prompt`, `session.history`, `session.switch`, `session.list`, `session.info`, `session.interrupt`, `session.reset`
+**Gateway methods**: `gateway.list-methods`, `gateway.list-extensions`, `gateway.subscribe`, `gateway.unsubscribe`
 
-**Workspace methods**: `workspace.list`, `workspace.get`, `workspace.get-or-create`, `workspace.create-session`, `workspace.list-sessions`
+**Session methods**: `session.create-session`, `session.send-prompt`, `session.get-history`, `session.switch-session`, `session.list-sessions`, `session.interrupt-session`, `session.close-session`, `session.reset-session`, `session.get-info`, `session.set-permission-mode`, `session.send-tool-result`
 
-**Discovery**: `method.list` — returns all methods with schemas
+**Workspace methods**: `session.list-workspaces`, `session.get-workspace`, `session.get-or-create-workspace`
+
+**Discovery**: `gateway.list-methods` — returns all methods with schemas
 
 **Extension methods**: `voice.speak`, `voice.stop`, `voice.health-check`, `imessage.send`, `imessage.chats`, `imessage.health-check`, `chat.health-check`, `mission-control.health-check`
 
 ## Development
 
 ```bash
-# Start everything via watchdog (spawns gateway + runtime as child processes)
+# Start everything via watchdog (spawns gateway as child process)
 bun run watchdog
 
 # Or start gateway directly (serves web UI + WebSocket + extensions on port 30086)
