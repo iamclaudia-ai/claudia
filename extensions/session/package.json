@@ -1,0 +1,14 @@
+{
+  "name": "@claudia/extension-session",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.39",
+    "@claudia/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@anthropic-ai/sdk": "^0.74.0",
+    "@types/bun": "latest"
+  }
+}
