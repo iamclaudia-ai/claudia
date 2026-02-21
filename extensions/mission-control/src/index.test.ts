@@ -9,6 +9,10 @@ describe("mission-control extension", () => {
     await ext.start({
       on: () => () => {},
       emit: () => {},
+      async call() {
+        throw new Error("Not implemented in test");
+      },
+      connectionId: null,
       config: {},
       log: { info: () => {}, warn: () => {}, error: () => {} },
     });

@@ -16,6 +16,7 @@ import type { ClaudiaExtension, ExtensionContext, GatewayEvent } from "@claudia/
 import { createLogger } from "@claudia/shared";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { randomUUID } from "node:crypto";
 
 // ── Redirect console to stderr ────────────────────────────────
 // stdout is reserved for NDJSON protocol. The shared logger writes to
@@ -63,9 +64,26 @@ function write(msg: unknown): void {
   process.stdout.write(line + "\n");
 }
 
-function writeEvent(type: string, payload: unknown): void {
-  write({ type: "event", event: type, payload });
+function writeEvent(type: string, payload: unknown, options?: { source?: string }): void {
+  write({ type: "event", event: type, payload, source: options?.source });
 }
+
+// ── Pending Calls (ctx.call → gateway hub) ──────────────────
+
+interface PendingCall {
+  resolve: (value: unknown) => void;
+  reject: (error: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
+
+const pendingCalls = new Map<string, PendingCall>();
+const CALL_TIMEOUT = 300_000; // 5 min (matches extension host request timeout)
+
+// Current call context — set per inbound request from gateway
+let currentConnectionId: string | null = null;
+let currentTraceId: string | null = null;
+let currentDepth = 0;
+let currentDeadlineMs: number | null = null;
 
 function writeResponse(id: string, ok: boolean, payload: unknown): void {
   if (ok) {
@@ -152,8 +170,53 @@ async function loadAndStart(): Promise<ClaudiaExtension> {
       };
     },
 
-    emit(type: string, payload: unknown): void {
-      writeEvent(type, payload);
+    emit(type: string, payload: unknown, options?: { source?: string }): void {
+      writeEvent(type, payload, options);
+    },
+
+    async call(method: string, params?: Record<string, unknown>): Promise<unknown> {
+      const id = randomUUID();
+      // Calculate remaining deadline budget
+      const now = Date.now();
+      let deadlineMs = currentDeadlineMs;
+      if (!deadlineMs) {
+        deadlineMs = now + CALL_TIMEOUT;
+      }
+      const remaining = deadlineMs - now;
+      if (remaining <= 0) {
+        throw new Error(`Call deadline exceeded before sending ${method}`);
+      }
+
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(
+          () => {
+            pendingCalls.delete(id);
+            reject(
+              new Error(
+                `ctx.call(${method}) timed out after ${Math.min(remaining, CALL_TIMEOUT)}ms`,
+              ),
+            );
+          },
+          Math.min(remaining, CALL_TIMEOUT),
+        );
+
+        pendingCalls.set(id, { resolve, reject, timer });
+
+        write({
+          type: "call",
+          id,
+          method,
+          params: params ?? {},
+          connectionId: currentConnectionId,
+          traceId: currentTraceId || randomUUID(),
+          depth: currentDepth + 1,
+          deadlineMs,
+        });
+      });
+    },
+
+    get connectionId(): string | null {
+      return currentConnectionId;
     },
 
     config,
@@ -253,16 +316,34 @@ async function handleMessage(line: string): Promise<void> {
     const id = msg.id as string;
     const method = msg.method as string;
     const params = (msg.params as Record<string, unknown>) || {};
-    const connectionId = msg.connectionId as string | undefined;
+
+    // Set per-request context from envelope
+    const prevConnectionId = currentConnectionId;
+    const prevTraceId = currentTraceId;
+    const prevDepth = currentDepth;
+    const prevDeadlineMs = currentDeadlineMs;
+    currentConnectionId = (msg.connectionId as string) || null;
+    currentTraceId = (msg.traceId as string) || null;
+    currentDepth = (msg.depth as number) || 0;
+    currentDeadlineMs = (msg.deadlineMs as number) || null;
 
     if (!extension) {
       writeResponse(id, false, "Extension not loaded");
+      // Restore context
+      currentConnectionId = prevConnectionId;
+      currentTraceId = prevTraceId;
+      currentDepth = prevDepth;
+      currentDeadlineMs = prevDeadlineMs;
       return;
     }
 
     // Special internal methods
     if (method === "__health") {
       writeResponse(id, true, extension.health());
+      currentConnectionId = prevConnectionId;
+      currentTraceId = prevTraceId;
+      currentDepth = prevDepth;
+      currentDeadlineMs = prevDeadlineMs;
       return;
     }
 
@@ -279,16 +360,38 @@ async function handleMessage(line: string): Promise<void> {
       } else {
         writeResponse(id, false, "Extension does not handle source responses");
       }
+      currentConnectionId = prevConnectionId;
+      currentTraceId = prevTraceId;
+      currentDepth = prevDepth;
+      currentDeadlineMs = prevDeadlineMs;
       return;
     }
 
-    // Regular method call — pass connectionId as part of params context
+    // Regular method call — connectionId is in ctx, not params
     try {
-      const paramsWithContext = connectionId ? { ...params, _connectionId: connectionId } : params;
-      const result = await extension.handleMethod(method, paramsWithContext);
+      const result = await extension.handleMethod(method, params);
       writeResponse(id, true, result);
     } catch (error) {
       writeResponse(id, false, String(error));
+    }
+
+    // Restore context after handling
+    currentConnectionId = prevConnectionId;
+    currentTraceId = prevTraceId;
+    currentDepth = prevDepth;
+    currentDeadlineMs = prevDeadlineMs;
+  } else if (msg.type === "call_res") {
+    // Response to a ctx.call() we made
+    const id = msg.id as string;
+    const pending = pendingCalls.get(id);
+    if (pending) {
+      clearTimeout(pending.timer);
+      pendingCalls.delete(id);
+      if (msg.ok) {
+        pending.resolve(msg.payload);
+      } else {
+        pending.reject(new Error(msg.error as string));
+      }
     }
   } else if (msg.type === "event") {
     // Gateway is forwarding an event — broadcast to extension's handlers
@@ -327,6 +430,12 @@ if (import.meta.hot) {
     }
     // Clear event handlers so re-registration starts fresh
     eventHandlers.clear();
+    // Reject pending calls
+    for (const [id, pending] of pendingCalls) {
+      clearTimeout(pending.timer);
+      pending.reject(new Error("Extension host reloading (HMR)"));
+      pendingCalls.delete(id);
+    }
     // Stop parent liveness check — a new one will be created on reload
     clearInterval(parentCheckInterval);
     // NOTE: stdinBound stays true in import.meta.hot.data so listeners

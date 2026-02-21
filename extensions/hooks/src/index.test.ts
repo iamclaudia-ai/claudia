@@ -34,6 +34,10 @@ function createMockContext() {
     emit(type, payload) {
       emitted.push({ type, payload });
     },
+    async call() {
+      throw new Error("Not implemented in test");
+    },
+    connectionId: null,
     config: {},
     log: {
       info() {},

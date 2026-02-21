@@ -138,7 +138,11 @@ export interface ExtensionContext {
   /** Subscribe to gateway events */
   on(pattern: string, handler: (event: GatewayEvent) => void | Promise<void>): () => void;
   /** Emit an event to the gateway */
-  emit(type: string, payload: unknown): void;
+  emit(type: string, payload: unknown, options?: { source?: string }): void;
+  /** Call another extension's method through the gateway hub */
+  call(method: string, params?: Record<string, unknown>): Promise<unknown>;
+  /** The originating WebSocket connection ID (set per-request by gateway envelope) */
+  connectionId: string | null;
   /** Extension configuration */
   config: Record<string, unknown>;
   /** Logger — writes to console + file at ~/.claudia/logs/{extensionId}.log */

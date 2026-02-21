@@ -12,7 +12,11 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { homedir } from "node:os";
-import { ExtensionHostProcess, type ExtensionRegistration } from "./extension-host";
+import {
+  ExtensionHostProcess,
+  type ExtensionRegistration,
+  type OnCallCallback,
+} from "./extension-host";
 
 const log = createLogger("Startup", join(homedir(), ".claudia", "logs", "gateway.log"));
 const ROOT_DIR = join(import.meta.dir, "..", "..", "..");
@@ -85,11 +89,25 @@ async function spawnOutOfProcessExtension(
 
   log.info("Spawning out-of-process extension", { id, module: moduleSpec });
 
+  // ctx.call handler: route calls from this extension through the gateway hub
+  const onCall: OnCallCallback = async (callerExtensionId, method, params, meta) => {
+    try {
+      const result = await extensions.handleMethod(method, params, meta.connectionId, {
+        traceId: meta.traceId,
+        depth: meta.depth,
+        deadlineMs: meta.deadlineMs,
+      });
+      return { ok: true as const, payload: result };
+    } catch (error) {
+      return { ok: false as const, error: String(error) };
+    }
+  };
+
   const host = new ExtensionHostProcess(
     id,
     moduleSpec,
     config,
-    (type, payload) => broadcastEvent(type, payload, `extension:${id}`),
+    (type, payload, source) => broadcastEvent(type, payload, source || `extension:${id}`),
     (registration: ExtensionRegistration) => {
       // Allow config-level sourceRoutes to augment extension-declared routes.
       if (sourceRoutes?.length) {
@@ -99,6 +117,7 @@ async function spawnOutOfProcessExtension(
       }
       extensions.registerRemote(registration, host);
     },
+    onCall,
   );
 
   const registration = await host.spawn();

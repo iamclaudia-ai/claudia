@@ -126,12 +126,14 @@ export class ExtensionManager {
   }
 
   /**
-   * Route a method call to the appropriate extension (local or remote)
+   * Route a method call to the appropriate extension (local or remote).
+   * Supports RPC metadata for ctx.call() routing through the hub.
    */
   async handleMethod(
     method: string,
     params: Record<string, unknown>,
     connectionId?: string,
+    meta?: { traceId?: string; depth?: number; deadlineMs?: number },
   ): Promise<unknown> {
     // Extract extension ID from method (e.g., "voice.speak" -> "voice")
     const [extensionId] = method.split(".");
@@ -139,7 +141,7 @@ export class ExtensionManager {
     // Check remote extensions first
     const remoteHost = this.remoteHosts.get(extensionId);
     if (remoteHost) {
-      return remoteHost.callMethod(method, params ?? {}, connectionId);
+      return remoteHost.callMethod(method, params ?? {}, connectionId, meta);
     }
 
     // Local extension
@@ -387,11 +389,21 @@ export class ExtensionManager {
         };
       },
 
-      emit: (type: string, payload: unknown) => {
+      emit: (type: string, payload: unknown, options?: { source?: string }) => {
         if (this.emitCallback) {
-          this.emitCallback(type, payload, `extension:${extensionId}`);
+          this.emitCallback(type, payload, options?.source || `extension:${extensionId}`);
         }
       },
+
+      async call(method: string, params?: Record<string, unknown>): Promise<unknown> {
+        // In-process extensions go through handleMethod too — hub pattern
+        // Note: no RPC meta needed for in-process calls (no depth/trace needed)
+        throw new Error(
+          "ctx.call() not yet supported for in-process extensions. Use out-of-process extensions.",
+        );
+      },
+
+      connectionId: null, // In-process extensions don't get per-request connectionId
 
       config: {}, // TODO: Load from config file
 

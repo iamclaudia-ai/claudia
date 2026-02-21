@@ -42,6 +42,14 @@ const REQUEST_TIMEOUT = 300_000; // 5 min — extensions like memory.process do 
 const RESTART_DELAY = 2_000;
 const MAX_RESTARTS = 5;
 
+/** Callback for handling ctx.call() from extensions */
+export type OnCallCallback = (
+  callerExtensionId: string,
+  method: string,
+  params: Record<string, unknown>,
+  meta: { connectionId?: string; traceId?: string; depth?: number; deadlineMs?: number },
+) => Promise<{ ok: true; payload: unknown } | { ok: false; error: string }>;
+
 export class ExtensionHostProcess {
   private proc: Subprocess | null = null;
   private stdoutBuffer = "";
@@ -50,13 +58,17 @@ export class ExtensionHostProcess {
   private registrationResolve: ((reg: ExtensionRegistration) => void) | null = null;
   private restartCount = 0;
   private killed = false;
+  /** In-flight ctx.call() count for rate limiting */
+  private inFlightCalls = 0;
+  private static readonly MAX_IN_FLIGHT = 50;
 
   constructor(
     private extensionId: string,
     private moduleSpec: string,
     private config: Record<string, unknown>,
-    private onEvent: (type: string, payload: unknown) => void,
+    private onEvent: (type: string, payload: unknown, source?: string) => void,
     private onRegister: (registration: ExtensionRegistration) => void,
+    private onCall?: OnCallCallback,
   ) {}
 
   /**
@@ -109,8 +121,9 @@ export class ExtensionHostProcess {
     method: string,
     params: Record<string, unknown>,
     connectionId?: string,
+    meta?: { traceId?: string; depth?: number; deadlineMs?: number },
   ): Promise<unknown> {
-    return this.sendRequest(method, params, connectionId);
+    return this.sendRequest(method, params, connectionId, meta);
   }
 
   /**
@@ -214,6 +227,7 @@ export class ExtensionHostProcess {
     method: string,
     params: Record<string, unknown>,
     connectionId?: string,
+    meta?: { traceId?: string; depth?: number; deadlineMs?: number },
   ): Promise<unknown> {
     if (!this.proc) {
       throw new Error(`Extension host ${this.extensionId} is not running`);
@@ -229,7 +243,16 @@ export class ExtensionHostProcess {
 
       this.pendingRequests.set(id, { resolve, reject, timer });
 
-      this.writeToStdin({ type: "req", id, method, params, connectionId });
+      this.writeToStdin({
+        type: "req",
+        id,
+        method,
+        params,
+        connectionId,
+        traceId: meta?.traceId,
+        depth: meta?.depth,
+        deadlineMs: meta?.deadlineMs,
+      });
     });
   }
 
@@ -334,15 +357,101 @@ export class ExtensionHostProcess {
           pending.reject(new Error(msg.error as string));
         }
       }
+    } else if (msgType === "call") {
+      // Extension wants to call another extension via gateway hub
+      this.handleCall(msg);
     } else if (msgType === "event") {
-      // Extension emitted an event — forward to gateway
-      this.onEvent(msg.event as string, msg.payload);
+      // Extension emitted an event — forward to gateway (with optional source)
+      this.onEvent(msg.event as string, msg.payload, msg.source as string | undefined);
     } else if (msgType === "error") {
       // Fatal error from host
       log.error("Extension host error", {
         extensionId: this.extensionId,
         error: msg.error,
       });
+    }
+  }
+
+  /**
+   * Handle a ctx.call() from the extension → route through gateway hub → send call_res back.
+   */
+  private async handleCall(msg: Record<string, unknown>): Promise<void> {
+    const callId = msg.id as string;
+    const method = msg.method as string;
+    const params = (msg.params as Record<string, unknown>) || {};
+    const depth = (msg.depth as number) || 0;
+    const traceId = (msg.traceId as string) || randomUUID();
+    const deadlineMs = msg.deadlineMs as number | undefined;
+
+    // Guardrail: max depth
+    if (depth > 8) {
+      this.sendCallResponse(callId, false, `Call depth ${depth} exceeds max (8) — possible cycle`);
+      return;
+    }
+
+    // Guardrail: deadline exceeded
+    if (deadlineMs && Date.now() > deadlineMs) {
+      this.sendCallResponse(callId, false, `Call deadline exceeded for ${method}`);
+      return;
+    }
+
+    // Guardrail: per-extension in-flight cap
+    if (this.inFlightCalls >= ExtensionHostProcess.MAX_IN_FLIGHT) {
+      this.sendCallResponse(
+        callId,
+        false,
+        `Extension ${this.extensionId} busy — ${this.inFlightCalls} calls in flight`,
+      );
+      return;
+    }
+
+    if (!this.onCall) {
+      this.sendCallResponse(
+        callId,
+        false,
+        "ctx.call not supported — no onCall callback registered",
+      );
+      return;
+    }
+
+    this.inFlightCalls++;
+    const startTime = Date.now();
+
+    try {
+      const result = await this.onCall(this.extensionId, method, params, {
+        connectionId: msg.connectionId as string | undefined,
+        traceId,
+        depth,
+        deadlineMs,
+      });
+      if (result.ok) {
+        this.sendCallResponse(callId, true, result.payload);
+      } else {
+        this.sendCallResponse(callId, false, result.error);
+      }
+    } catch (error) {
+      this.sendCallResponse(callId, false, String(error));
+    } finally {
+      this.inFlightCalls--;
+      const duration = Date.now() - startTime;
+      log.info("ctx.call completed", {
+        traceId,
+        caller: this.extensionId,
+        method,
+        depth,
+        durationMs: duration,
+      });
+    }
+  }
+
+  /**
+   * Send a call_res back to the extension host process.
+   */
+  private sendCallResponse(callId: string, ok: boolean, payloadOrError: unknown): void {
+    if (ok) {
+      this.writeToStdin({ type: "call_res", id: callId, ok: true, payload: payloadOrError });
+    } else {
+      this.writeToStdin({ type: "call_res", id: callId, ok: false, error: String(payloadOrError) });
     }
   }
 
