@@ -20,7 +20,15 @@ import type {
 import { createLogger } from "@claudia/shared";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import {
+  existsSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+  openSync,
+  readSync,
+  closeSync,
+} from "node:fs";
 import { SessionManager } from "./session-manager";
 import {
   parseSessionFile,
@@ -40,7 +48,7 @@ interface SessionConfig {
   effort?: string;
 }
 
-// ── sessions-index.json ──────────────────────────────────────
+// ── Session Discovery ────────────────────────────────────────
 
 interface SessionIndexEntry {
   sessionId: string;
@@ -52,60 +60,139 @@ interface SessionIndexEntry {
 }
 
 /**
- * Read sessions from Claude Code's filesystem index.
- * Sessions live at ~/.claude/projects/{encoded-cwd}/sessions-index.json
+ * Resolve the Claude Code project directory for a given CWD.
+ * Claude Code encodes paths by replacing / with - (dash).
  */
-function readSessionsIndex(cwd: string): SessionIndexEntry[] {
+function resolveProjectDir(cwd: string): string | null {
   const projectsDir = join(homedir(), ".claude", "projects");
-  if (!existsSync(projectsDir)) return [];
+  if (!existsSync(projectsDir)) return null;
 
-  // Encode cwd the same way Claude Code does (replace / with %)
-  const encodedCwd = cwd.replace(/\//g, "%");
-  const indexPath = join(projectsDir, encodedCwd, "sessions-index.json");
+  // Primary: Claude Code encodes cwd by replacing / with - (dash)
+  const encodedCwd = cwd.replace(/\//g, "-");
+  const primaryDir = join(projectsDir, encodedCwd);
+  if (existsSync(primaryDir)) return primaryDir;
 
-  if (!existsSync(indexPath)) {
-    // Try alternative encoding: base64
-    const entries = readdirSync(projectsDir);
-    for (const entry of entries) {
-      const sessionsIndexPath = join(projectsDir, entry, "sessions-index.json");
-      if (existsSync(sessionsIndexPath)) {
-        try {
-          const data = JSON.parse(readFileSync(sessionsIndexPath, "utf-8"));
-          // Check if this directory matches our cwd
-          if (Array.isArray(data)) {
-            // Look for any JSONL file to check cwd match
-            const dirPath = join(projectsDir, entry);
-            const jsonlFiles = readdirSync(dirPath).filter((f) => f.endsWith(".jsonl"));
-            if (jsonlFiles.length > 0) {
-              // Read first line of first jsonl to check cwd
-              const firstJsonl = join(dirPath, jsonlFiles[0]!);
-              const firstLine = readFileSync(firstJsonl, "utf-8").split("\n")[0];
-              if (firstLine) {
-                try {
-                  const parsed = JSON.parse(firstLine);
-                  if (parsed.cwd === cwd) {
-                    return data;
-                  }
-                } catch {
-                  // skip
-                }
-              }
-            }
-          }
-        } catch {
-          // skip
-        }
-      }
+  // Fallback: scan for matching originalPath in sessions-index.json
+  const dirs = readdirSync(projectsDir);
+  for (const dir of dirs) {
+    const indexPath = join(projectsDir, dir, "sessions-index.json");
+    if (!existsSync(indexPath)) continue;
+    try {
+      const data = JSON.parse(readFileSync(indexPath, "utf-8"));
+      if (data.originalPath === cwd) return join(projectsDir, dir);
+    } catch {
+      // skip
     }
-    return [];
   }
+
+  return null;
+}
+
+/**
+ * Read the sessions-index.json if it exists, returning a map of sessionId → entry.
+ */
+function readSessionsIndexMap(projectDir: string): Map<string, SessionIndexEntry> {
+  const map = new Map<string, SessionIndexEntry>();
+  const indexPath = join(projectDir, "sessions-index.json");
+  if (!existsSync(indexPath)) return map;
 
   try {
     const data = JSON.parse(readFileSync(indexPath, "utf-8"));
-    return Array.isArray(data) ? data : [];
+    const entries: SessionIndexEntry[] =
+      data.entries && Array.isArray(data.entries) ? data.entries : Array.isArray(data) ? data : [];
+    for (const entry of entries) {
+      if (entry.sessionId) map.set(entry.sessionId, entry);
+    }
   } catch {
-    return [];
+    // skip
   }
+  return map;
+}
+
+/**
+ * Extract first user prompt from a JSONL session file.
+ * Reads only the first ~20 lines (user message is typically line 1-2).
+ *
+ * Claude Code JSONL user message structure:
+ *   { type: "user", message: { role: "user", content: "..." | [{type:"text",text:"..."}] } }
+ */
+function extractFirstPrompt(filepath: string): string | undefined {
+  try {
+    // Read only first 8KB — enough for the first few messages
+    const buf = new Uint8Array(8192);
+    const fd = openSync(filepath, "r");
+    const bytesRead = readSync(fd, buf, 0, 8192, 0);
+    closeSync(fd);
+    const text = new TextDecoder().decode(buf.subarray(0, bytesRead));
+    const lines = text.split("\n");
+
+    for (let i = 0; i < Math.min(lines.length, 10); i++) {
+      const line = lines[i]?.trim();
+      if (!line) continue;
+      try {
+        const msg = JSON.parse(line);
+        if (msg.type !== "user") continue;
+
+        // message.content can be string or array of content blocks
+        const content = msg.message?.content;
+        if (typeof content === "string") return content.slice(0, 200);
+        if (Array.isArray(content)) {
+          const textBlock = content.find(
+            (b: { type: string; text?: string }) => b.type === "text" && b.text,
+          );
+          if (textBlock?.text) return textBlock.text.slice(0, 200);
+        }
+      } catch {
+        // skip — line might be truncated at buffer boundary
+      }
+    }
+  } catch {
+    // skip
+  }
+  return undefined;
+}
+
+/**
+ * Discover sessions by scanning JSONL files on disk, enriched with index data.
+ * This is the primary source of truth — the index file may be stale or incomplete.
+ */
+function discoverSessions(cwd: string): SessionIndexEntry[] {
+  const projectDir = resolveProjectDir(cwd);
+  if (!projectDir) return [];
+
+  // Load index data for enrichment
+  const indexMap = readSessionsIndexMap(projectDir);
+
+  // Scan all .jsonl files in the project directory
+  const files = readdirSync(projectDir).filter((f) => f.endsWith(".jsonl"));
+  const sessions: SessionIndexEntry[] = [];
+
+  for (const file of files) {
+    const sessionId = file.replace(".jsonl", "");
+    const filepath = join(projectDir, file);
+
+    // Get file stats for timestamps
+    let stats;
+    try {
+      stats = statSync(filepath);
+    } catch {
+      continue;
+    }
+
+    // Merge with index data if available
+    const indexed = indexMap.get(sessionId);
+
+    sessions.push({
+      sessionId,
+      created: indexed?.created || stats.birthtime.toISOString(),
+      modified: indexed?.modified || stats.mtime.toISOString(),
+      messageCount: indexed?.messageCount,
+      firstPrompt: indexed?.firstPrompt || extractFirstPrompt(filepath),
+      gitBranch: indexed?.gitBranch,
+    });
+  }
+
+  return sessions;
 }
 
 // ── Request context tracking ─────────────────────────────────
@@ -361,7 +448,7 @@ export function createSessionExtension(config: Record<string, unknown> = {}): Cl
       }
 
       case "session.list-sessions": {
-        const sessions = readSessionsIndex(params.cwd as string);
+        const sessions = discoverSessions(params.cwd as string);
         return {
           sessions: sessions.sort((a, b) => {
             const aTime = a.modified || a.created || "";
