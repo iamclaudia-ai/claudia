@@ -345,21 +345,145 @@ packages/gateway/
     └── 002-memory.sql     # Schema (file_states, entries, conversations)
 ```
 
-## Phase 2: Libby Memory Processing (TBD)
+## Phase 2: Libby — Conversation Processing
 
-Strategy pattern for processing `ready` conversations into durable memories:
+Libby (the Librarian) processes `queued` conversations through a background worker. Each conversation is formatted into a human-readable transcript, sent to Claude for structured extraction, and the results are written to `~/memory/` as categorized markdown files.
 
-```typescript
-interface MemoryStrategy {
-  id: string;
-  shouldProcess(conversation, entries): boolean;
-  process(conversation, entries): Promise<MemoryResult>;
-}
+### Processing Pipeline
+
+```
+memory_conversations (status = 'queued')
+        │
+        ▼
+┌─────────────────────┐
+│ transcript-formatter │  UTC → local time (EST)
+│ Format entries into  │  Readable chat transcript
+│ human-readable text  │  with [HH:MM PM] timestamps
+└──────────┬──────────┘
+           ▼
+┌─────────────────────┐
+│ libby.ts (worker)   │  Gateway WebSocket → Claude
+│ Send transcript +   │  Returns structured JSON:
+│ system prompt       │  episodic, projects, people,
+│                     │  milestones, explicit, questions
+└──────────┬──────────┘
+           ▼
+┌─────────────────────┐
+│ memory-writer.ts    │  Write/update ~/memory/ files
+│ Categorized output  │  with YAML frontmatter
+└──────────┬──────────┘
+           ▼
+memory_conversations.status = 'archived'
 ```
 
-- `SimpleSummaryStrategy` — Send conversation to Claude for summary + fact extraction
-- Future: semantic dedup, hybrid search, temporal decay
-- Processing respects `last_message_at` as watermark — new entries with newer timestamps are untouched
+### Memory Categories
+
+| Category      | Path                                | Description                                                           |
+| ------------- | ----------------------------------- | --------------------------------------------------------------------- |
+| Episodes      | `episodes/YYYY-MM/YYYY-MM-DD.md`    | Daily journal — one section per conversation, chronologically ordered |
+| Projects      | `projects/<name>/overview.md`       | Project tracking with activity log                                    |
+| Relationships | `relationships/<name>/overview.md`  | People mentioned — facts, context, relationship                       |
+| Milestones    | `milestones/YYYY-MM/<date-slug>.md` | Rare significant moments                                              |
+| Insights      | `insights/<date-slug>.md`           | Genuine learnings                                                     |
+| Core          | `core/facts.md`                     | Durable facts and preferences                                         |
+| Questions     | `libby-questions.md`                | Uncertainties Libby can't resolve                                     |
+
+### Queue-Based Worker
+
+- `memory.process` marks conversations as `queued` (survives crashes)
+- Background `LibbyWorker` processes one at a time: `queued → processing → archived`
+- Worker sleeps when idle, wakes via `AbortController` when new items are queued
+- Session reuse across sequential processing, auto-cycles every ~15 prompts
+- On crash: `processing` conversations reset to `queued` on startup
+
+### Memory Types and Mutability
+
+See [Research Background](#research-background) for the theoretical foundation. Our memory types map to the academic taxonomy:
+
+| Our Category  | Memory Type     | Mutability                    | Strategy                                                      |
+| ------------- | --------------- | ----------------------------- | ------------------------------------------------------------- |
+| Episodes      | Episodic        | Append-only                   | One section per conversation, chronologically inserted        |
+| Projects      | Fact + Episodic | Append activity, update facts | Activity log appended; tech details/overview updated in-place |
+| Relationships | Fact            | **Mutable — read + rewrite**  | Libby reads existing file, updates facts, consolidates notes  |
+| Milestones    | Episodic        | Immutable                     | One file per milestone, never overwritten                     |
+| Core/Insights | Fact            | Mutable                       | Updated as understanding evolves                              |
+
+## Research Background
+
+Research and industry practice on memory systems for AI agents. These inform our design decisions for how Libby processes, stores, and evolves memories.
+
+### Three-Tier Memory Model
+
+Both academic literature and production systems converge on a three-tier model:
+
+| Tier           | Scope                        | Content                                           | Retention               |
+| -------------- | ---------------------------- | ------------------------------------------------- | ----------------------- |
+| **Scratchpad** | Temporary, task-bounded      | Working notes, intermediate reasoning             | Discarded or promoted   |
+| **Episodic**   | Medium-term, session-bounded | Session summaries, "what happened"                | Append-only, may decay  |
+| **Fact**       | Long-term, fine-grained      | Atomic factual statements, preferences, decisions | Persistent, **mutable** |
+
+Key insight: **Fact memory should be updated, not just appended to.** A person's role changing from "coworker" to "manager" should replace the old fact, not sit alongside it. This is the fundamental difference from episodic memory.
+
+> "MEMORY.md conflates atomic facts like 'user prefers dark mode' with episodic context like what happened in last week's project. Separating them gives each tier its own retention policy and promotion path."
+> — [@koylanai](https://x.com/koylanai/status/2023405681080938932) on OpenClaw memory
+
+### Fact Memory: Mutable and Consolidated
+
+From the academic paper "Everything is Context: Agentic File System Abstraction for Context Engineering" (Xu et al., Dec 2025, arXiv:2512.05470):
+
+- Fact memory stores **"atomic factual statements"** as **"key-value pairs or triples"**
+- Long-term memory entries **"may be appended, revised, or summarized"** — explicitly supports revision
+- Memory deduplication and consolidation strategies maintain **"minimal redundancy"**
+- Each update should be **versioned with timestamps and lineage metadata** for reversibility
+- The Context Evaluator writes verified information back as structured memory, updating or extending the persistent store
+
+**Taxonomy of Memory Types** (from Table I in the paper):
+
+| Memory Type | Temporal Scope               | Structural Unit                   | Representation             |
+| ----------- | ---------------------------- | --------------------------------- | -------------------------- |
+| Scratchpad  | Temporary, task-bounded      | Dialogue turns, temporary states  | Plain text or embeddings   |
+| Episodic    | Medium-term, session-bounded | Session summaries, case histories | Summaries in plain text    |
+| Fact        | Long-term, fine-grained      | Atomic factual statements         | Key-value pairs or triples |
+| User        | Long-term, personalized      | User attributes, preferences      | User profiles              |
+| Procedural  | Long-term, system-wide       | Functions, tools, definitions     | API or code references     |
+| Historical  | Immutable, full-trace        | Raw logs of all interactions      | Plain text with metadata   |
+
+### Promotion and Lifecycle
+
+Memory has a promotion path: scratchpad → episodic → fact.
+
+- **Scratchpad notes** (in-conversation observations) graduate to **episodic summaries** (what happened in this session)
+- **Episodic summaries** over time harden into **durable facts** (this person is Michael's coworker, this project uses Bun)
+- Each transition should be a logged, versioned event
+- Not everything promotes — most episodic entries stay episodic
+
+### Context Rot and Temporal Decay
+
+From Chroma Research ("Context Rot: How Long-Term AI Memory Goes Stale"):
+
+- Memory that was true can become false over time (role changes, preferences shift, tech stack evolves)
+- Temporal decay in search: recent memories should rank higher (OpenClaw uses exponential decay with 30-day half-life)
+- **Evergreen files** (durable facts, reference docs) should never be decayed — only dated entries
+- MMR (Maximal Marginal Relevance) re-ranking reduces near-duplicate results in search
+
+### Implications for Claudia's Memory
+
+1. **Relationship files are fact memory** — they should be living documents that Libby reads and updates directly, not append-only logs. When Libby learns someone's role changed, the file should reflect the current state with a revision history, not a growing list of dated observations.
+
+2. **Episode files are episodic memory** — append-only (with chronological ordering), one section per conversation. These are the "what happened" log and don't need consolidation.
+
+3. **Project files are hybrid** — the activity log is episodic (append-only), but the overview/tech details section is fact memory that should be updated in-place.
+
+4. **Transcripts are the immutable historical record** — the raw JSONL session logs are never modified. Everything Libby writes to `~/memory/` is derived and can be regenerated.
+
+5. **Future: vector search + temporal decay** — the memory-mcp already plans semantic search. Temporal decay and MMR would improve retrieval quality as the memory corpus grows.
+
+### Sources
+
+- [@koylanai on X](https://x.com/koylanai/status/2023405681080938932) — "The problem is how memory gets into the context window" (Feb 2026)
+- [Xu et al., "Everything is Context: Agentic File System Abstraction for Context Engineering"](https://arxiv.org/abs/2512.05470) (Dec 2025)
+- [OpenClaw memory docs](https://github.com/openclaw/openclaw) — Production memory system with hybrid search, temporal decay, MMR
+- [Chroma Research, "Context Rot"](https://research.trychroma.com/context-rot) — How long-term AI memory goes stale
 
 ## Design Decisions
 

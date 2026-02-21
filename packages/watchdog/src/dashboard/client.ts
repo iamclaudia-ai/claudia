@@ -64,6 +64,7 @@ let filter = "ALL";
 let paused = false;
 let autoScroll = true;
 let diagnosePollTimer: ReturnType<typeof setTimeout> | null = null;
+let tailPending = false;
 let serverStartedAt = 0;
 let serverPort = 0;
 
@@ -101,7 +102,7 @@ async function init(): Promise<void> {
   refreshStatus();
   checkDiagnose();
 
-  setInterval(tailLog, 2000);
+  setInterval(tailLog, 5000);
   setInterval(refreshStatus, 5000);
   setInterval(loadLogFiles, 30000);
   setInterval(updateUptime, 1000);
@@ -172,7 +173,8 @@ function togglePause(): void {
 }
 
 async function tailLog(): Promise<void> {
-  if (!currentFile || paused) return;
+  if (!currentFile || paused || tailPending) return;
+  tailPending = true;
   try {
     const res = await fetch(
       `/api/logs/${encodeURIComponent(currentFile)}?lines=200&offset=${offset}`,
@@ -188,6 +190,8 @@ async function tailLog(): Promise<void> {
     if (offsetEl) offsetEl.textContent = `offset: ${offset.toLocaleString()} bytes`;
   } catch {
     // Silently retry next cycle
+  } finally {
+    tailPending = false;
   }
 }
 

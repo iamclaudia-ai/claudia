@@ -21,13 +21,19 @@ interface ConversationSegment {
   entryCount: number;
 }
 
+/** Max entries per conversation segment */
+const MAX_ENTRIES_PER_SEGMENT = 200;
+/** Max transcript size per segment (bytes) — ~80KB leaves room for system prompt + tools */
+const MAX_SEGMENT_BYTES = 80 * 1024;
+
 /**
- * Split entries into conversation segments based on time gaps.
+ * Split entries into conversation segments based on time gaps,
+ * entry count, and cumulative message size.
  */
 function segmentByGaps(
   sessionId: string,
   sourceFile: string,
-  entries: Array<{ timestamp: string }>,
+  entries: Array<{ timestamp: string; messageSize: number }>,
   gapMinutes: number,
 ): ConversationSegment[] {
   if (entries.length === 0) return [];
@@ -38,38 +44,40 @@ function segmentByGaps(
   let segStart = entries[0].timestamp;
   let segEnd = entries[0].timestamp;
   let segCount = 1;
+  let segBytes = entries[0].messageSize;
+
+  function closeSegment() {
+    segments.push({
+      sessionId,
+      sourceFile,
+      firstMessageAt: segStart,
+      lastMessageAt: segEnd,
+      entryCount: segCount,
+    });
+  }
 
   for (let i = 1; i < entries.length; i++) {
     const prev = new Date(entries[i - 1].timestamp).getTime();
     const curr = new Date(entries[i].timestamp).getTime();
     const gap = curr - prev;
+    const nextBytes = segBytes + entries[i].messageSize;
 
-    if (gap > gapMs) {
-      // Gap detected — close current segment, start new one
-      segments.push({
-        sessionId,
-        sourceFile,
-        firstMessageAt: segStart,
-        lastMessageAt: segEnd,
-        entryCount: segCount,
-      });
+    if (gap > gapMs || segCount >= MAX_ENTRIES_PER_SEGMENT || nextBytes > MAX_SEGMENT_BYTES) {
+      // Split — close current segment, start new one
+      closeSegment();
       segStart = entries[i].timestamp;
       segEnd = entries[i].timestamp;
       segCount = 1;
+      segBytes = entries[i].messageSize;
     } else {
       segEnd = entries[i].timestamp;
       segCount++;
+      segBytes = nextBytes;
     }
   }
 
   // Close final segment
-  segments.push({
-    sessionId,
-    sourceFile,
-    firstMessageAt: segStart,
-    lastMessageAt: segEnd,
-    entryCount: segCount,
-  });
+  closeSegment();
 
   return segments;
 }
@@ -86,14 +94,14 @@ export function rebuildConversationsForFile(
   sessionId: string,
   gapMinutes: number,
 ): number {
-  // Get all entries for this file, ordered by timestamp
+  // Get all entries for this file, ordered by timestamp (with size for chunking)
   const entries = getDb()
     .query(
-      `SELECT timestamp FROM memory_transcript_entries
+      `SELECT timestamp, length(content) as messageSize FROM memory_transcript_entries
       WHERE source_file = ?
       ORDER BY timestamp ASC, id ASC`,
     )
-    .all(sourceFile) as Array<{ timestamp: string }>;
+    .all(sourceFile) as Array<{ timestamp: string; messageSize: number }>;
 
   if (entries.length === 0) return 0;
 

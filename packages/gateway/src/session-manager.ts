@@ -74,6 +74,8 @@ export class SessionManager {
       source: string | null;
       connectionId: string | null;
       responseText: string;
+      /** When streaming=false, resolves the prompt() promise with accumulated text */
+      completeResolver: ((text: string) => void) | null;
     }
   >();
 
@@ -106,6 +108,7 @@ export class SessionManager {
     source: string | null;
     connectionId: string | null;
     responseText: string;
+    completeResolver: ((text: string) => void) | null;
   } {
     const existing = this.requestContextByCcSessionId.get(ccSessionId);
     if (existing) return existing;
@@ -115,6 +118,7 @@ export class SessionManager {
       source: null,
       connectionId: null,
       responseText: "",
+      completeResolver: null,
     };
     this.requestContextByCcSessionId.set(ccSessionId, fallback);
     return fallback;
@@ -285,6 +289,10 @@ export class SessionManager {
       log.warn(
         `[Stream] ⚠ API RETRY attempt ${eventPayload.attempt}/${eventPayload.maxRetries}: ${eventPayload.message}`,
       );
+    } else if (eventType === "turn_stop") {
+      const stopReason = eventPayload.stop_reason as string | undefined;
+      const numTurns = eventPayload.num_turns as number | undefined;
+      log.info(`[Stream] ⏹ turn_stop (reason: ${stopReason}, turns: ${numTurns})`);
     } else if (eventType === "compaction_start") {
       log.info(`[Stream] ⚡ compaction_start (session: ${sessionId?.slice(0, 8)}…)`);
     } else if (eventType === "compaction_end") {
@@ -340,6 +348,14 @@ export class SessionManager {
     // On message complete, route to source if applicable
     if (eventType === "message_stop" && requestContext.source) {
       this.routeToSource(requestContext.source, gatewayEvent);
+      requestContext.responseText = "";
+    }
+
+    // Non-streaming mode: resolve on turn_stop (after all tool calls complete),
+    // not message_stop (which fires after each individual assistant message).
+    if (eventType === "turn_stop" && requestContext.completeResolver) {
+      requestContext.completeResolver(requestContext.responseText);
+      requestContext.completeResolver = null;
       requestContext.responseText = "";
     }
   }
@@ -428,14 +444,10 @@ export class SessionManager {
       return record.ccSessionId;
     }
 
-    // Close existing runtime session if different
-    if (this.activeRuntimeSessionId && this.activeRuntimeSessionId !== record.ccSessionId) {
-      try {
-        await this.runtimeRequest("session.close", { sessionId: this.activeRuntimeSessionId });
-      } catch {
-        // Ignore close errors
-      }
-    }
+    // Track the foreground session (don't close the previous one — it may still
+    // be processing in the background, e.g. Libby's memory pipeline).
+    // The runtime supports multiple concurrent CLI sessions; stream routing is
+    // already session-scoped via stream.{sessionId}.{eventType}.
 
     // Set workspace context
     this.currentWorkspace = workspaceModel.getWorkspace(this.db, record.workspaceId);
@@ -475,15 +487,9 @@ export class SessionManager {
   }> {
     const wsId = workspaceId;
 
-    // Close current runtime session
-    if (this.activeRuntimeSessionId) {
-      try {
-        await this.runtimeRequest("session.close", { sessionId: this.activeRuntimeSessionId });
-      } catch {
-        // Ignore close errors
-      }
-      this.activeRuntimeSessionId = null;
-    }
+    // Don't close the previous runtime session — it may still be processing
+    // in the background (e.g. Libby). The runtime supports concurrent sessions.
+    this.activeRuntimeSessionId = null;
 
     // Archive current active session
     let previousSessionId: string | undefined;
@@ -540,14 +546,8 @@ export class SessionManager {
     const record = sessionModel.getSession(this.db, sessionId);
     if (!record) throw new Error(`Session not found: ${sessionId}`);
 
-    // Close current runtime session
-    if (this.activeRuntimeSessionId) {
-      try {
-        await this.runtimeRequest("session.close", { sessionId: this.activeRuntimeSessionId });
-      } catch {
-        // Ignore
-      }
-    }
+    // Don't close the previous runtime session — it may still be processing
+    // in the background. Just switch the foreground tracking.
 
     // Get workspace for CWD
     const workspace = workspaceModel.getWorkspace(this.db, record.workspaceId);
@@ -623,14 +623,34 @@ export class SessionManager {
 
   /**
    * Send a prompt to a session via the runtime.
+   *
+   * When streaming=true (default): returns immediately with ccSessionId.
+   * Events stream to clients via broadcastEvent.
+   *
+   * When streaming=false: returns a Promise that resolves with the
+   * accumulated response text when message_stop fires.
    */
   async prompt(
     content: string | unknown[],
     sessionRecordId: string,
     runtimeConfig: { model: string; thinking: boolean; effort: string },
-    requestContext?: { wantsVoice: boolean; source: string | null; connectionId: string | null },
-  ): Promise<string> {
+    requestContext?: {
+      wantsVoice: boolean;
+      source: string | null;
+      connectionId: string | null;
+      streaming?: boolean;
+    },
+  ): Promise<{ ccSessionId: string; text?: string }> {
+    const streaming = requestContext?.streaming ?? true;
     const ccSessionId = await this.initSession(sessionRecordId, runtimeConfig);
+
+    // Create a promise that resolves when message_stop fires (non-streaming mode)
+    let completeResolver: ((text: string) => void) | null = null;
+    const completionPromise = streaming
+      ? null
+      : new Promise<string>((resolve) => {
+          completeResolver = resolve;
+        });
 
     const existingContext = this.getRequestContext(ccSessionId);
     this.requestContextByCcSessionId.set(ccSessionId, {
@@ -638,6 +658,7 @@ export class SessionManager {
       source: requestContext?.source ?? existingContext.source,
       connectionId: requestContext?.connectionId ?? existingContext.connectionId,
       responseText: "",
+      completeResolver,
     });
 
     // Update activity timestamp
@@ -651,7 +672,14 @@ export class SessionManager {
       cwd: this.currentWorkspace?.cwd,
     });
 
-    return ccSessionId;
+    // Streaming mode: return immediately
+    if (streaming) {
+      return { ccSessionId };
+    }
+
+    // Non-streaming: wait for message_stop to resolve with accumulated text
+    const text = await completionPromise!;
+    return { ccSessionId, text };
   }
 
   /**

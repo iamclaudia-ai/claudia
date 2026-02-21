@@ -285,6 +285,8 @@ export interface ConversationRow {
   strategy: string | null;
   summary: string | null;
   processedAt: string | null;
+  statusAt: string | null;
+  metadata: string | null;
   createdAt: string;
 }
 
@@ -296,6 +298,7 @@ export function getConversationsForSourceFile(sourceFile: string): ConversationR
         first_message_at AS firstMessageAt,
         last_message_at AS lastMessageAt, entry_count AS entryCount,
         status, strategy, summary, processed_at AS processedAt,
+        status_at AS statusAt, metadata,
         created_at AS createdAt
       FROM memory_conversations
       WHERE source_file = ?
@@ -365,6 +368,7 @@ export function getReadyConversations(): ConversationRow[] {
         first_message_at AS firstMessageAt,
         last_message_at AS lastMessageAt, entry_count AS entryCount,
         status, strategy, summary, processed_at AS processedAt,
+        status_at AS statusAt, metadata,
         created_at AS createdAt
       FROM memory_conversations
       WHERE status = 'ready'
@@ -373,8 +377,22 @@ export function getReadyConversations(): ConversationRow[] {
     .all() as ConversationRow[];
 }
 
-export function updateConversationStatus(id: number, status: string): void {
-  getDb().query("UPDATE memory_conversations SET status = ? WHERE id = ?").run(status, id);
+export function updateConversationStatus(
+  id: number,
+  status: string,
+  metadata?: Record<string, unknown>,
+): void {
+  if (metadata) {
+    getDb()
+      .query(
+        "UPDATE memory_conversations SET status = ?, status_at = datetime('now'), metadata = ? WHERE id = ?",
+      )
+      .run(status, JSON.stringify(metadata), id);
+  } else {
+    getDb()
+      .query("UPDATE memory_conversations SET status = ?, status_at = datetime('now') WHERE id = ?")
+      .run(status, id);
+  }
 }
 
 /**
@@ -388,6 +406,217 @@ export function deleteActiveConversationsForFile(sourceFile: string): number {
     )
     .run(sourceFile);
   return result.changes;
+}
+
+// ============================================================================
+// Libby Processing (Phase 2)
+// ============================================================================
+
+/**
+ * Get all transcript entries belonging to a specific conversation.
+ * Uses the conversation's source_file + timestamp range to scope entries.
+ */
+export function getEntriesForConversation(conversationId: number): TranscriptEntryRow[] {
+  const d = getDb();
+  const conv = d
+    .query(
+      `SELECT source_file, first_message_at, last_message_at
+       FROM memory_conversations WHERE id = ?`,
+    )
+    .get(conversationId) as {
+    source_file: string;
+    first_message_at: string;
+    last_message_at: string;
+  } | null;
+
+  if (!conv) return [];
+
+  return d
+    .query(
+      `SELECT
+        id, session_id AS sessionId, source_file AS sourceFile,
+        role, content, tool_names AS toolNames, timestamp,
+        cwd, ingested_at AS ingestedAt
+      FROM memory_transcript_entries
+      WHERE source_file = ?
+        AND timestamp >= ?
+        AND timestamp <= ?
+      ORDER BY timestamp ASC, id ASC`,
+    )
+    .all(conv.source_file, conv.first_message_at, conv.last_message_at) as TranscriptEntryRow[];
+}
+
+/**
+ * Mark a conversation as processed by Libby.
+ * Sets status, summary, and processed_at timestamp.
+ */
+export function updateConversationProcessed(
+  id: number,
+  status: "archived" | "skipped",
+  summary: string | null,
+  filesWritten?: string[],
+): void {
+  getDb()
+    .query(
+      `UPDATE memory_conversations
+       SET status = ?, summary = ?, files_written = ?, processed_at = datetime('now')
+       WHERE id = ?`,
+    )
+    .run(status, summary, filesWritten ? JSON.stringify(filesWritten) : null, id);
+}
+
+/**
+ * Get recent archived conversations from the same source file, for context.
+ * Returns the most recent N conversations processed before this one.
+ */
+export function getPreviousConversationContext(
+  sourceFile: string,
+  beforeTimestamp: string,
+  limit = 2,
+): Array<{ id: number; summary: string | null; filesWritten: string[]; date: string }> {
+  const rows = getDb()
+    .query(
+      `SELECT id, summary, files_written AS filesWritten, first_message_at AS date
+       FROM memory_conversations
+       WHERE source_file = ? AND status = 'archived' AND last_message_at < ?
+       ORDER BY last_message_at DESC
+       LIMIT ?`,
+    )
+    .all(sourceFile, beforeTimestamp, limit) as Array<{
+    id: number;
+    summary: string | null;
+    filesWritten: string | null;
+    date: string;
+  }>;
+
+  return rows.map((r) => ({
+    id: r.id,
+    summary: r.summary,
+    filesWritten: r.filesWritten ? (JSON.parse(r.filesWritten) as string[]) : [],
+    date: r.date.slice(0, 10),
+  }));
+}
+
+/**
+ * Get conversations currently in "processing" state with their metadata.
+ * Used on startup to check if their runtime sessions are still alive.
+ */
+export function getProcessingConversations(): Array<{
+  id: number;
+  ccSessionId: string | null;
+}> {
+  const rows = getDb()
+    .query("SELECT id, metadata FROM memory_conversations WHERE status = 'processing'")
+    .all() as Array<{ id: number; metadata: string | null }>;
+
+  return rows.map((r) => {
+    let ccSessionId: string | null = null;
+    if (r.metadata) {
+      try {
+        const meta = JSON.parse(r.metadata);
+        ccSessionId = meta.ccSessionId ?? null;
+      } catch {
+        /* ignore parse errors */
+      }
+    }
+    return { id: r.id, ccSessionId };
+  });
+}
+
+/**
+ * Reset a specific conversation from "processing" back to "queued".
+ */
+export function resetConversationToQueued(id: number): void {
+  getDb()
+    .query(
+      "UPDATE memory_conversations SET status = 'queued' WHERE id = ? AND status = 'processing'",
+    )
+    .run(id);
+}
+
+/**
+ * Queue up to `limit` ready conversations for Libby to process.
+ * Returns the number of conversations queued.
+ */
+export function queueConversations(limit: number): number {
+  const d = getDb();
+
+  // Select IDs first, then update — bun:sqlite doesn't reliably bind
+  // LIMIT params inside subqueries of UPDATE statements.
+  const ids = d
+    .query(
+      `SELECT id FROM memory_conversations
+       WHERE status = 'ready'
+       ORDER BY first_message_at ASC
+       LIMIT ?`,
+    )
+    .all(limit) as Array<{ id: number }>;
+
+  if (ids.length === 0) return 0;
+
+  const placeholders = ids.map(() => "?").join(",");
+  const result = d
+    .query(
+      `UPDATE memory_conversations
+       SET status = 'queued', status_at = datetime('now')
+       WHERE id IN (${placeholders})`,
+    )
+    .run(...ids.map((r) => r.id));
+  return result.changes;
+}
+
+/**
+ * Get the next queued conversation (oldest first).
+ */
+export function getNextQueued(): ConversationRow | null {
+  return getDb()
+    .query(
+      `SELECT
+        id, session_id AS sessionId, source_file AS sourceFile,
+        first_message_at AS firstMessageAt,
+        last_message_at AS lastMessageAt, entry_count AS entryCount,
+        status, strategy, summary, processed_at AS processedAt,
+        status_at AS statusAt, metadata,
+        created_at AS createdAt
+      FROM memory_conversations
+      WHERE status = 'queued'
+      ORDER BY first_message_at ASC
+      LIMIT 1`,
+    )
+    .get() as ConversationRow | null;
+}
+
+/**
+ * Get queued and processing conversations (for health check display).
+ */
+export function getActiveWorkItems(): ConversationRow[] {
+  return getDb()
+    .query(
+      `SELECT
+        id, session_id AS sessionId, source_file AS sourceFile,
+        first_message_at AS firstMessageAt,
+        last_message_at AS lastMessageAt, entry_count AS entryCount,
+        status, strategy, summary, processed_at AS processedAt,
+        status_at AS statusAt, metadata,
+        created_at AS createdAt
+      FROM memory_conversations
+      WHERE status IN ('queued', 'processing')
+      ORDER BY
+        CASE status WHEN 'processing' THEN 0 ELSE 1 END,
+        first_message_at ASC`,
+    )
+    .all() as ConversationRow[];
+}
+
+/**
+ * Get the count of queued conversations.
+ */
+export function getQueuedCount(): number {
+  return (
+    getDb()
+      .query("SELECT count(*) AS n FROM memory_conversations WHERE status = 'queued'")
+      .get() as { n: number }
+  ).n;
 }
 
 // ============================================================================

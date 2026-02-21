@@ -1,7 +1,7 @@
 -- Up
 
 -- Track JSONL files and byte offsets for incremental ingestion
-CREATE TABLE memory_file_states (
+CREATE TABLE IF NOT EXISTS memory_file_states (
   file_path             TEXT PRIMARY KEY,
   source                TEXT NOT NULL,
   status                TEXT NOT NULL DEFAULT 'idle' CHECK(status IN ('idle','ingesting')),
@@ -14,7 +14,7 @@ CREATE TABLE memory_file_states (
 );
 
 -- Raw transcript entries extracted from JSONL session logs
-CREATE TABLE memory_transcript_entries (
+CREATE TABLE IF NOT EXISTS memory_transcript_entries (
   id                  INTEGER PRIMARY KEY AUTOINCREMENT,
   session_id          TEXT NOT NULL,
   source_file         TEXT NOT NULL,
@@ -26,12 +26,12 @@ CREATE TABLE memory_transcript_entries (
   ingested_at         TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
-CREATE INDEX idx_transcript_session ON memory_transcript_entries(session_id);
-CREATE INDEX idx_transcript_timestamp ON memory_transcript_entries(timestamp);
-CREATE INDEX idx_transcript_source ON memory_transcript_entries(source_file);
+CREATE INDEX IF NOT EXISTS idx_transcript_session ON memory_transcript_entries(session_id);
+CREATE INDEX IF NOT EXISTS idx_transcript_timestamp ON memory_transcript_entries(timestamp);
+CREATE INDEX IF NOT EXISTS idx_transcript_source ON memory_transcript_entries(source_file);
 
 -- Conversations: groups of entries separated by time gaps, scoped to source file
-CREATE TABLE memory_conversations (
+CREATE TABLE IF NOT EXISTS memory_conversations (
   id                  INTEGER PRIMARY KEY AUTOINCREMENT,
   session_id          TEXT NOT NULL,
   source_file         TEXT NOT NULL,
@@ -46,9 +46,9 @@ CREATE TABLE memory_conversations (
   created_at          TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
-CREATE INDEX idx_conversations_status ON memory_conversations(status);
-CREATE INDEX idx_conversations_session ON memory_conversations(session_id);
-CREATE INDEX idx_conversations_source ON memory_conversations(source_file);
+CREATE INDEX IF NOT EXISTS idx_conversations_status ON memory_conversations(status);
+CREATE INDEX IF NOT EXISTS idx_conversations_session ON memory_conversations(session_id);
+CREATE INDEX IF NOT EXISTS idx_conversations_source ON memory_conversations(source_file);
 
 -- Down
 DROP TABLE IF EXISTS memory_conversations;

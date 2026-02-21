@@ -10,7 +10,6 @@
   },
   "dependencies": {
     "@claudia/shared": "workspace:*",
-    "chokidar": "^4.0.3",
-    "zod": "^3.25.76"
+    "chokidar": "^4.0.3"
   }
 }

@@ -297,6 +297,12 @@ const BUILTIN_METHODS: GatewayMethodDefinition[] = [
       model: z.string().min(1),
       thinking: z.boolean(),
       effort: z.string().min(1),
+      streaming: z
+        .boolean()
+        .optional()
+        .describe(
+          "Stream events (default: true). When false, awaits completion and returns accumulated text.",
+        ),
       speakResponse: z.boolean().optional(),
       source: z.string().optional(),
     }),
@@ -828,9 +834,10 @@ async function handleSessionMethod(
         }
 
         const source = (req.params?.source as string) || null;
+        const streaming = req.params?.streaming !== false; // default true
 
         // Send prompt through session manager with per-session routing context
-        const ccSessionId = await sessionManager.prompt(
+        const promptResult = await sessionManager.prompt(
           content,
           targetSessionId,
           {
@@ -842,20 +849,32 @@ async function handleSessionMethod(
             wantsVoice: req.params?.speakResponse === true,
             source,
             connectionId: ws.data.id,
+            streaming,
           },
         );
 
         // Broadcast the user message to all other connections viewing this session
-        broadcastEvent(`stream.${ccSessionId}.user_message`, {
+        broadcastEvent(`stream.${promptResult.ccSessionId}.user_message`, {
           content: req.params?.content,
           connectionId: ws.data.id,
         });
 
-        sendResponse(ws, req.id, {
-          status: "ok",
-          sessionId: ccSessionId,
-          source,
-        });
+        if (streaming) {
+          // Streaming mode: respond immediately, events follow
+          sendResponse(ws, req.id, {
+            status: "ok",
+            sessionId: promptResult.ccSessionId,
+            source,
+          });
+        } else {
+          // Non-streaming mode: prompt() already awaited completion
+          sendResponse(ws, req.id, {
+            status: "ok",
+            sessionId: promptResult.ccSessionId,
+            text: promptResult.text,
+            source,
+          });
+        }
         break;
       }
 

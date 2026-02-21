@@ -38,7 +38,7 @@ interface PendingRequest {
 }
 
 const HOST_SCRIPT = join(import.meta.dir, "..", "..", "extension-host", "src", "index.ts");
-const REQUEST_TIMEOUT = 30_000;
+const REQUEST_TIMEOUT = 300_000; // 5 min — extensions like memory.process do serial LLM calls
 const RESTART_DELAY = 2_000;
 const MAX_RESTARTS = 5;
 

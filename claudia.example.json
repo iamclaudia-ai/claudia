@@ -64,9 +64,15 @@
       "enabled": false,
       "config": {
         "watchPath": "~/.claude/projects",
+        "watch": true,
         "conversationGapMinutes": 60,
         "pollIntervalMs": 30000,
-        "minConversationMessages": 5
+        "minConversationMessages": 5,
+        "timezone": "America/New_York",
+        "gatewayUrl": "ws://localhost:30086/ws",
+        "model": "claude-sonnet-4-6",
+        "processBatchSize": 10,
+        "autoProcess": false
       }
     },
 
