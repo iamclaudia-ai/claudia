@@ -11,8 +11,16 @@
  */
 
 import { z } from "zod";
+import { homedir } from "node:os";
 import { runExtensionHost } from "@claudia/extension-host";
 import type { ClaudiaExtension, ExtensionContext, HealthCheckResponse } from "@claudia/shared";
+
+/** Expand leading ~ to home directory */
+function expandHome(p: string): string {
+  if (p.startsWith("~/")) return homedir() + p.slice(1);
+  if (p === "~") return homedir();
+  return p;
+}
 import {
   Codex,
   type Thread,
@@ -167,11 +175,11 @@ export function createCodexExtension(config: CodexConfig = {}): ClaudiaExtension
   // ── Stream Bridge — Codex ThreadEvents → Claudia Events ──
 
   async function runStreamedTask(thread: Thread, task: ActiveTask, prompt: string): Promise<void> {
-    abortController = new AbortController();
+    // abortController is created in startTask before this is called (fix #1: race)
 
     try {
       const { events } = await thread.runStreamed(prompt, {
-        signal: abortController.signal,
+        signal: abortController?.signal,
       });
 
       for await (const event of events) {
@@ -194,9 +202,14 @@ export function createCodexExtension(config: CodexConfig = {}): ClaudiaExtension
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
+      const name = err instanceof Error ? err.name : "";
 
-      // AbortError means we interrupted intentionally
-      if (message.includes("abort") || message.includes("cancel")) {
+      // AbortError means we interrupted intentionally (fix #3: robust abort detection)
+      const isAbort =
+        name === "AbortError" ||
+        message.toLowerCase().includes("abort") ||
+        message.toLowerCase().includes("cancel");
+      if (isAbort) {
         task.status = "interrupted";
         emit(`codex.${task.id}.turn_stop`, {
           taskId: task.id,
@@ -299,6 +312,9 @@ export function createCodexExtension(config: CodexConfig = {}): ClaudiaExtension
         break;
 
       case "error":
+        // Fix #2: mark task as failed on stream error
+        task.status = "failed";
+        task.error = event.message;
         ctx?.log.error(`Codex stream error: ${event.message}`);
         emit(`codex.${taskId}.error`, {
           taskId,
@@ -429,7 +445,7 @@ export function createCodexExtension(config: CodexConfig = {}): ClaudiaExtension
 
     // Build thread options
     const threadOptions: ThreadOptions = {
-      workingDirectory: options.cwd || cfg.cwd,
+      workingDirectory: expandHome(options.cwd || cfg.cwd || process.cwd()),
       skipGitRepoCheck: true,
       model: options.model || cfg.model,
       sandboxMode: options.sandbox || cfg.sandboxMode || "workspace-write",
