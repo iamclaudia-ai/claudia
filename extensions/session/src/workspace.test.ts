@@ -73,4 +73,9 @@ describe("workspace db", () => {
     const listed = listWorkspaces();
     expect(listed.some((w) => w.id === created.id)).toBe(true);
   });
+
+  it("returns null for missing workspace id/cwd lookups", () => {
+    expect(getWorkspace("ws_missing")).toBeNull();
+    expect(getWorkspaceByCwd("/repo/missing")).toBeNull();
+  });
 });
