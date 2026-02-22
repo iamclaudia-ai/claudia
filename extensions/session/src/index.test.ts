@@ -3,6 +3,9 @@ import type { ExtensionContext } from "@claudia/shared";
 import { createSessionExtension } from "./index";
 import { SessionManager } from "./session-manager";
 import * as workspace from "./workspace";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { homedir } from "node:os";
 
 const sessionId = "session-test-123";
 
@@ -447,5 +450,122 @@ describe("session extension", () => {
     });
 
     await ext.stop();
+  });
+
+  it("lists sessions from ~/.claude/projects sorted by recency", async () => {
+    const ext = createSessionExtension();
+    await ext.start(createTestContext());
+    const cwd = `/tmp/claudia-test-${Date.now()}-sessions`;
+    const encodedCwd = cwd.replace(/\//g, "-");
+    const projectDir = join(homedir(), ".claude", "projects", encodedCwd);
+    try {
+      mkdirSync(projectDir, { recursive: true });
+
+      writeFileSync(
+        join(projectDir, "sessions-index.json"),
+        JSON.stringify({
+          originalPath: cwd,
+          entries: [
+            {
+              sessionId: "old-session",
+              created: "2026-01-01T00:00:00.000Z",
+              modified: "2026-01-01T00:00:00.000Z",
+              messageCount: 2,
+            },
+            {
+              sessionId: "new-session",
+              created: "2026-02-22T00:00:00.000Z",
+              modified: "2026-02-22T00:00:00.000Z",
+              messageCount: 3,
+              gitBranch: "main",
+            },
+          ],
+        }),
+      );
+
+      writeFileSync(
+        join(projectDir, "old-session.jsonl"),
+        `${JSON.stringify({
+          type: "user",
+          message: { role: "user", content: "older prompt" },
+        })}\n`,
+      );
+      writeFileSync(
+        join(projectDir, "new-session.jsonl"),
+        `${JSON.stringify({
+          type: "user",
+          message: { role: "user", content: "newer prompt" },
+        })}\n`,
+      );
+
+      const result = (await ext.handleMethod("session.list_sessions", { cwd })) as {
+        sessions: Array<{ sessionId: string; firstPrompt?: string; gitBranch?: string }>;
+      };
+
+      expect(result.sessions).toHaveLength(2);
+      expect(result.sessions[0]?.sessionId).toBe("new-session");
+      expect(result.sessions[0]?.gitBranch).toBe("main");
+      expect(result.sessions[0]?.firstPrompt).toBe("newer prompt");
+      expect(result.sessions[1]?.sessionId).toBe("old-session");
+    } finally {
+      rmSync(projectDir, { recursive: true, force: true });
+      await ext.stop();
+    }
+  });
+
+  it("returns paginated history and empty history when session file is missing", async () => {
+    const ext = createSessionExtension();
+    await ext.start(createTestContext());
+    const cwd = `/tmp/claudia-test-${Date.now()}-history`;
+    const encodedCwd = cwd.replace(/\//g, "-");
+    const projectDir = join(homedir(), ".claude", "projects", encodedCwd);
+    try {
+      mkdirSync(projectDir, { recursive: true });
+
+      writeFileSync(
+        join(projectDir, "hist-session.jsonl"),
+        [
+          JSON.stringify({
+            type: "user",
+            timestamp: "2026-02-22T00:00:00.000Z",
+            message: { role: "user", content: "first" },
+          }),
+          JSON.stringify({
+            type: "assistant",
+            timestamp: "2026-02-22T00:00:01.000Z",
+            message: { role: "assistant", content: [{ type: "text", text: "second" }] },
+          }),
+          JSON.stringify({
+            type: "user",
+            timestamp: "2026-02-22T00:00:02.000Z",
+            message: { role: "user", content: "third" },
+          }),
+        ].join("\n") + "\n",
+      );
+
+      const paged = (await ext.handleMethod("session.get_history", {
+        sessionId: "hist-session",
+        cwd,
+        limit: 2,
+        offset: 0,
+      })) as {
+        messages: Array<{ role: string }>;
+        total: number;
+        hasMore: boolean;
+      };
+
+      expect(paged.total).toBe(3);
+      expect(paged.hasMore).toBe(true);
+      expect(paged.messages.map((m) => m.role)).toEqual(["assistant", "user"]);
+
+      const missing = (await ext.handleMethod("session.get_history", {
+        sessionId: "missing-session",
+        cwd,
+      })) as { messages: unknown[]; total: number; hasMore: boolean };
+      expect(missing).toEqual({ messages: [], total: 0, hasMore: false });
+    } finally {
+      rmSync(projectDir, { recursive: true, force: true });
+      await ext.stop();
+    }
   });
 });
