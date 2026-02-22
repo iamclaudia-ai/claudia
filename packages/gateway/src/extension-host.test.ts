@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, spyOn } from "bun:test";
 import type { GatewayEvent } from "@claudia/shared";
 import { ExtensionHostProcess, type ExtensionRegistration } from "./extension-host";
 
@@ -296,5 +296,131 @@ describe("ExtensionHostProcess protocol", () => {
 
     await host.kill();
     await expect(pending).rejects.toThrow("Extension host killed");
+  });
+
+  it("returns health states for not running, success, and failed checks", async () => {
+    const { host, writes } = createHostHarness();
+    (host as unknown as { proc: TestProc | null }).proc = null;
+    await expect(host.health()).resolves.toEqual({
+      ok: false,
+      details: { status: "not_running" },
+    });
+
+    const running = createHostHarness();
+    const okPromise = running.host.health();
+    const okReq = running.writes[0] as { id: string; method: string };
+    expect(okReq.method).toBe("__health");
+    (running.host as unknown as { handleLine: (line: string) => void }).handleLine(
+      JSON.stringify({
+        type: "res",
+        id: okReq.id,
+        ok: true,
+        payload: { ok: true, details: { a: 1 } },
+      }),
+    );
+    await expect(okPromise).resolves.toEqual({ ok: true, details: { a: 1 } });
+
+    const failed = createHostHarness();
+    const failedPromise = failed.host.health();
+    const failReq = failed.writes[0] as { id: string };
+    (failed.host as unknown as { handleLine: (line: string) => void }).handleLine(
+      JSON.stringify({ type: "res", id: failReq.id, ok: false, error: "boom" }),
+    );
+    await expect(failedPromise).resolves.toEqual({
+      ok: false,
+      details: { status: "health_check_failed" },
+    });
+
+    expect(writes).toEqual([]);
+  });
+
+  it("handles stdin edge cases and process state helpers", async () => {
+    const { host } = createHostHarness();
+    expect(host.isRunning()).toBe(true);
+
+    // missing writable stdin should be a no-op path
+    (host as unknown as { proc: { stdin: number } }).proc = { stdin: 1 };
+    host.sendEvent({ type: "x", payload: {}, timestamp: Date.now() });
+
+    // write failure path
+    const throwingHost = createHostHarness().host;
+    (throwingHost as unknown as { proc: TestProc }).proc = {
+      stdin: {
+        write() {
+          throw new Error("write failed");
+        },
+        close() {},
+      },
+      kill() {},
+    };
+    throwingHost.sendEvent({ type: "x", payload: {}, timestamp: Date.now() });
+
+    // forceKill should clear proc without throwing
+    throwingHost.forceKill();
+    expect(throwingHost.isRunning()).toBe(false);
+  });
+
+  it("handles invalid/error host lines and ctx.call busy/error paths", async () => {
+    const { host, writes } = createHostHarness({
+      onCall: async () => {
+        throw new Error("call exploded");
+      },
+    });
+
+    // Invalid JSON / host error message paths should not throw
+    (host as unknown as { handleLine: (line: string) => void }).handleLine("{not-json");
+    (host as unknown as { handleLine: (line: string) => void }).handleLine(
+      JSON.stringify({ type: "error", error: "fatal" }),
+    );
+
+    // in-flight cap path
+    (host as unknown as { inFlightCalls: number }).inFlightCalls = 50;
+    await (
+      host as unknown as { handleCall: (msg: Record<string, unknown>) => Promise<void> }
+    ).handleCall({ id: "busy-1", method: "x.y", depth: 1 });
+    (host as unknown as { inFlightCalls: number }).inFlightCalls = 0;
+
+    // onCall throw path
+    await (
+      host as unknown as { handleCall: (msg: Record<string, unknown>) => Promise<void> }
+    ).handleCall({ id: "err-1", method: "x.y", depth: 1 });
+
+    expect(writes).toContainEqual({
+      type: "call_res",
+      id: "busy-1",
+      ok: false,
+      error: "Extension test-ext busy — 50 calls in flight",
+    });
+    expect(writes).toContainEqual({
+      type: "call_res",
+      id: "err-1",
+      ok: false,
+      error: "Error: call exploded",
+    });
+  });
+
+  it("surfaces restart scheduling and max restart behavior on exit", async () => {
+    const { host } = createHostHarness();
+    const timeoutSpy = spyOn(globalThis, "setTimeout");
+    const spawnSpy = spyOn(host, "spawn").mockResolvedValue({
+      id: "test-ext",
+      name: "Test",
+      methods: [],
+      events: [],
+      sourceRoutes: [],
+    });
+
+    // restart path
+    (host as unknown as { handleExit: (code: number | null) => void }).handleExit(1);
+    expect(timeoutSpy).toHaveBeenCalled();
+
+    // exceeded max restarts path (should not schedule another timeout)
+    (host as unknown as { restartCount: number }).restartCount = 5;
+    const before = timeoutSpy.mock.calls.length;
+    (host as unknown as { handleExit: (code: number | null) => void }).handleExit(1);
+    expect(timeoutSpy.mock.calls.length).toBe(before);
+
+    spawnSpy.mockRestore();
+    timeoutSpy.mockRestore();
   });
 });
