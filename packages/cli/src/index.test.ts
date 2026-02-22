@@ -5,6 +5,7 @@ import {
   formatFlagPlaceholder,
   formatMethodCommand,
   getNamespaces,
+  injectSessionIdFromEnv,
   matchesSchemaType,
   parseCliParams,
   printCliHelp,
@@ -185,6 +186,102 @@ describe("schema resolution and validation", () => {
     expect(exampleValueForSchema({ type: "number" }, sessionPromptSchema)).toBe("1.23");
     expect(exampleValueForSchema({ type: "integer" }, sessionPromptSchema)).toBe("1");
     expect(exampleValueForSchema({ type: "null" }, sessionPromptSchema)).toBe("null");
+  });
+
+  it("resolves $ref with $defs (zodToJsonSchema style)", () => {
+    const zodSchema: JsonSchema = {
+      $ref: "#/$defs/SessionInput",
+      $defs: {
+        SessionInput: {
+          type: "object",
+          required: ["sessionId"],
+          properties: {
+            sessionId: { type: "string" },
+          },
+        },
+      },
+    };
+
+    const resolved = resolveSchema(zodSchema, zodSchema);
+    expect(resolved?.type).toBe("object");
+    expect(resolved?.required).toContain("sessionId");
+    expect(resolved?.properties?.sessionId?.type).toBe("string");
+  });
+});
+
+describe("sessionId auto-inject", () => {
+  const requiredSchema: JsonSchema = {
+    type: "object",
+    required: ["sessionId", "content"],
+    properties: {
+      sessionId: { type: "string" },
+      content: { type: "string" },
+    },
+  };
+
+  const optionalSchema: JsonSchema = {
+    type: "object",
+    properties: {
+      sessionId: { type: "string" },
+    },
+  };
+
+  it("auto-injects sessionId from env when required", () => {
+    const params: Record<string, unknown> = {};
+    const result = injectSessionIdFromEnv(
+      params,
+      { method: "session.send_prompt", source: "gateway", inputSchema: requiredSchema },
+      "session.send_prompt",
+      { CLAUDIA_SESSION_ID: "ses_123" },
+    );
+
+    expect(result.didInject).toBe(true);
+    expect(result.error).toBeUndefined();
+    expect(params.sessionId).toBe("ses_123");
+  });
+
+  it("errors when required sessionId is missing and env not set", () => {
+    const params: Record<string, unknown> = {};
+    const result = injectSessionIdFromEnv(
+      params,
+      { method: "session.send_prompt", source: "gateway", inputSchema: requiredSchema },
+      "session.send_prompt",
+      {},
+    );
+
+    expect(result.didInject).toBe(false);
+    expect(result.error).toBe(
+      "session.send_prompt requires --sessionId but $CLAUDIA_SESSION_ID is not set.",
+    );
+    expect(params.sessionId).toBeUndefined();
+  });
+
+  it("does nothing when sessionId is optional and env not set", () => {
+    const params: Record<string, unknown> = {};
+    const result = injectSessionIdFromEnv(
+      params,
+      { method: "session.send_prompt", source: "gateway", inputSchema: optionalSchema },
+      "session.send_prompt",
+      {},
+    );
+
+    expect(result.didInject).toBe(false);
+    expect(result.error).toBeUndefined();
+    expect(params.sessionId).toBeUndefined();
+  });
+
+  it("does not override explicit sessionId", () => {
+    const params: Record<string, unknown> = { sessionId: "ses_explicit" };
+    const result = injectSessionIdFromEnv(
+      params,
+      { method: "session.send_prompt", source: "gateway", inputSchema: requiredSchema },
+      "session.send_prompt",
+      { CLAUDIA_SESSION_ID: "ses_env" },
+    );
+
+    expect(result.didInject).toBe(false);
+    expect(result.error).toBeUndefined();
+    expect(params.sessionId).toBe("ses_explicit");
   });
 });
 

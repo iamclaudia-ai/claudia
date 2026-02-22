@@ -47,6 +47,11 @@ export interface MethodCatalogEntry {
   inputSchema?: JsonSchema;
 }
 
+export interface InjectSessionIdResult {
+  didInject: boolean;
+  error?: string;
+}
+
 function generateId(): string {
   return Math.random().toString(36).slice(2, 10);
 }
@@ -226,6 +231,36 @@ export function validateParamsAgainstSchema(
       );
     }
   }
+}
+
+export function injectSessionIdFromEnv(
+  params: Record<string, unknown>,
+  methodDef: MethodCatalogEntry,
+  resolvedMethod: string,
+  env: Record<string, string | undefined> = process.env,
+): InjectSessionIdResult {
+  if (params.sessionId || !methodDef.inputSchema) {
+    return { didInject: false };
+  }
+
+  const schema =
+    resolveSchema(methodDef.inputSchema, methodDef.inputSchema) ?? methodDef.inputSchema;
+  const hasSessionId = schema.type === "object" && schema.properties?.sessionId;
+  if (!hasSessionId) return { didInject: false };
+
+  const isRequired = schema.required?.includes("sessionId") ?? false;
+  if (env.CLAUDIA_SESSION_ID) {
+    params.sessionId = env.CLAUDIA_SESSION_ID;
+    return { didInject: true };
+  }
+  if (isRequired) {
+    return {
+      didInject: false,
+      error: `${resolvedMethod} requires --sessionId but $CLAUDIA_SESSION_ID is not set.`,
+    };
+  }
+
+  return { didInject: false };
 }
 
 export function splitMethod(method: string): { namespace: string; action: string } | null {
@@ -1051,23 +1086,12 @@ async function main(): Promise<void> {
   const params = parseCliParams(paramArgs);
 
   // Auto-inject sessionId from $CLAUDIA_SESSION_ID if not explicitly provided
-  if (!params.sessionId && methodDef.inputSchema) {
-    const schema =
-      resolveSchema(methodDef.inputSchema, methodDef.inputSchema) ?? methodDef.inputSchema;
-    const hasSessionId = schema.type === "object" && schema.properties?.sessionId;
-    if (hasSessionId) {
-      const isRequired = schema.required?.includes("sessionId") ?? false;
-      if (process.env.CLAUDIA_SESSION_ID) {
-        params.sessionId = process.env.CLAUDIA_SESSION_ID;
-      } else if (isRequired) {
-        console.error(
-          `Error: ${resolvedMethod} requires --sessionId but $CLAUDIA_SESSION_ID is not set.`,
-        );
-        console.error(`Either pass --sessionId explicitly or run from within a Claudia session.\n`);
-        printMethodHelp(methodDef);
-        process.exit(1);
-      }
-    }
+  const injectionResult = injectSessionIdFromEnv(params, methodDef, resolvedMethod);
+  if (injectionResult.error) {
+    console.error(`Error: ${injectionResult.error}`);
+    console.error(`Either pass --sessionId explicitly or run from within a Claudia session.\n`);
+    printMethodHelp(methodDef);
+    process.exit(1);
   }
 
   validateParamsAgainstSchema(resolvedMethod, params, methodDef.inputSchema);
