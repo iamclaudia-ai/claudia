@@ -250,6 +250,9 @@ export function createHooksExtension(config: HooksConfig = {}): ClaudiaExtension
     if (workspaceCwd) {
       currentWorkspaceCwd = workspaceCwd;
       await loadWorkspaceHooks(currentWorkspaceCwd);
+    } else if (currentWorkspaceHooksDir) {
+      currentWorkspaceCwd = null;
+      await loadWorkspaceHooks(null);
     }
 
     for (const hook of hooks) {

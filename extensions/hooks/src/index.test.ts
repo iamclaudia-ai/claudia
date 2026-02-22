@@ -273,6 +273,47 @@ export default {
     await extension.stop();
   });
 
+  it("clears workspace hooks when later events have no workspace cwd", async () => {
+    const workspace = join(testRoot, "workspace-clear");
+    await writeHookFile(
+      join(workspace, ".claudia", "hooks"),
+      "ephemeral.js",
+      `export default {
+  event: "custom.ephemeral",
+  handler(ctx) {
+    ctx.emit("hit", { cwd: ctx.workspace ? ctx.workspace.cwd : null });
+  },
+};
+`,
+    );
+
+    const extension = createHooksExtension();
+    const mock = createMockContext();
+    await extension.start(mock.ctx);
+
+    await mock.dispatch({
+      type: "custom.ephemeral",
+      payload: { cwd: workspace },
+      timestamp: Date.now(),
+      origin: "test",
+    });
+    await flushAsync();
+
+    await mock.dispatch({
+      type: "custom.ephemeral",
+      payload: {},
+      timestamp: Date.now(),
+      origin: "test",
+    });
+    await flushAsync();
+
+    const events = mock.emitted.filter((e) => e.type === "hook.ephemeral.hit");
+    expect(events).toHaveLength(1);
+    expect(events[0]?.payload).toEqual({ cwd: workspace });
+
+    await extension.stop();
+  });
+
   it("skips invalid hooks that miss handler or event", async () => {
     const hooksDir = join(testRoot, "extra-invalid");
     await writeHookFile(
