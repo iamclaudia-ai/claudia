@@ -76,6 +76,8 @@ describe("ExtensionManager", () => {
 
     await manager.register(ext);
 
+    expect(manager.getExtensions()).toHaveLength(1);
+    expect(manager.getExtensions()[0]?.id).toBe("test");
     expect(manager.hasMethod("test.echo")).toBe(true);
     expect(manager.getExtensionList()).toEqual([
       {
@@ -88,6 +90,7 @@ describe("ExtensionManager", () => {
     const defs = manager.getMethodDefinitions();
     expect(defs).toHaveLength(1);
     expect(defs[0]?.method.name).toBe("test.echo");
+    expect(manager.getSourceRoutes()).toEqual({ testsrc: "test" });
   });
 
   it("validates params before invoking extension", async () => {
@@ -326,6 +329,25 @@ describe("ExtensionManager", () => {
       { id: "voice", name: "Voice", methods: ["voice.speak"] },
     ]);
     expect(manager.getMethodDefinitions()[0]?.method.name).toBe("voice.speak");
+    expect(manager.getSourceRoutes()).toEqual({});
+  });
+
+  it("returns combined source routes for local and remote extensions", async () => {
+    const manager = new ExtensionManager();
+    await manager.register(
+      createTestExtension({
+        sourceRoutes: ["imessage"],
+      }),
+    );
+    manager.registerRemote(
+      createRemoteRegistration({ id: "voice", sourceRoutes: ["voice"] }),
+      createRemoteHostMock(),
+    );
+
+    expect(manager.getSourceRoutes()).toEqual({
+      imessage: "test",
+      voice: "voice",
+    });
   });
 
   it("reports remote host health and kills remote hosts", async () => {
