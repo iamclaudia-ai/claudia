@@ -7,6 +7,24 @@ description: "Use PROACTIVELY when you need to delegate code review, test writin
 
 You have a sub-agent named Cody powered by OpenAI's Codex. He runs as a separate process with his own sandbox and can execute commands, edit files, and run tests autonomously. Use the Claudia CLI to send him work.
 
+## IMPORTANT: Always Pass Your Session ID
+
+When delegating to Cody, **always include `--sessionId` with your current session ID**. This way Cody will send a `<user_notification>` message back to your session when he finishes — no polling needed. You'll receive the notification as a user message that looks like:
+
+```
+<user_notification>
+Cody completed review task ctask_abc123 (15s). Output: /Users/michael/.claudia/codex/ctask_abc123.md
+</user_notification>
+```
+
+When you receive this notification:
+
+1. **Read the output file** to get Cody's full results
+2. **Summarize the findings** for the user
+3. **Act on the results** if appropriate (e.g., apply fixes Cody suggested)
+
+If the task failed or was interrupted, the notification will say so and include any partial output path.
+
 ## When to Use
 
 - You want a **code review** and a second pair of eyes on changes
@@ -111,19 +129,19 @@ const handle = await ctx.call("codex.task", {
 ## Examples
 
 ```bash
-# Quick code review
-claudia codex review --prompt "Check extensions/codex/src/index.ts for error handling gaps"
+# Quick code review (always pass --sessionId so you get notified!)
+claudia codex review --prompt "Check extensions/codex/src/index.ts for error handling gaps" --sessionId "$SESSION_ID"
 
 # Targeted review with file list
-claudia codex review --prompt "Look for race conditions" --files '["src/session-manager.ts", "src/sdk-session.ts"]'
+claudia codex review --prompt "Look for race conditions" --files '["src/session-manager.ts", "src/sdk-session.ts"]' --sessionId "$SESSION_ID"
 
 # Write tests for a specific module
-claudia codex test --prompt "Write bun tests for extensions/voice/src/sentence-chunker.ts with edge cases for emoji and unicode"
+claudia codex test --prompt "Write bun tests for extensions/voice/src/sentence-chunker.ts with edge cases for emoji and unicode" --sessionId "$SESSION_ID"
 
 # General task with high effort
-claudia codex task --prompt "Refactor the workspace.ts database layer to use prepared statements" --effort high
+claudia codex task --prompt "Refactor the workspace.ts database layer to use prepared statements" --effort high --sessionId "$SESSION_ID"
 
-# Check what Cody is doing
+# Check what Cody is doing (no sessionId needed)
 claudia codex status
 
 # Cancel if taking too long
