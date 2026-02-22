@@ -25,7 +25,7 @@ Last updated: 2026-02-12
 - CLI required param/type validation.
 - Extension manager method validation and source routing.
 
-2. Integration tests (in-process components)
+2. Integration tests (gateway + out-of-process extension plumbing)
 
 - Extension event subscription + wildcard routing behavior.
 - Gateway extension manager with multiple extensions.

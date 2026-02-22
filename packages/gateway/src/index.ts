@@ -136,7 +136,7 @@ const extensions = new ExtensionManager();
 getDb();
 
 /**
- * Unified event handler for all extension events (in-process and remote).
+ * Unified event handler for all out-of-process extension events.
  * Handles connection-scoped routing (gateway.caller), cross-extension broadcast, and WS fan-out.
  * connectionId and tags flow on the envelope, NOT in extension payloads.
  */
@@ -196,9 +196,6 @@ function handleExtensionEvent(
     sourceExtId,
   );
 }
-
-// Wire up in-process extension events through the unified handler
-extensions.setEmitCallback(handleExtensionEvent);
 
 // Generate unique IDs
 const generateId = () => crypto.randomUUID();

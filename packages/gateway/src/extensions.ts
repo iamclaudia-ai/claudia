@@ -5,115 +5,22 @@
  * Supports source-based routing for responses (e.g., "imessage/+1555..." -> iMessage extension)
  */
 
-import type {
-  ClaudiaExtension,
-  ExtensionContext,
-  ExtensionMethodDefinition,
-  GatewayEvent,
-} from "@claudia/shared";
-import { createLogger, matchesEventPattern } from "@claudia/shared";
+import type { ExtensionMethodDefinition, GatewayEvent } from "@claudia/shared";
+import { createLogger } from "@claudia/shared";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import type { ExtensionHostProcess, ExtensionRegistration } from "./extension-host";
 
 const log = createLogger("ExtensionManager", join(homedir(), ".claudia", "logs", "gateway.log"));
 
-type EventHandler = (event: GatewayEvent) => void | Promise<void>;
-
 export class ExtensionManager {
-  private extensions = new Map<string, ClaudiaExtension>();
-  private eventHandlers = new Map<string, Set<EventHandler>>();
-  private emitCallback:
-    | ((
-        type: string,
-        payload: unknown,
-        source: string,
-        connectionId?: string,
-        tags?: string[],
-      ) => void)
-    | null = null;
-
-  // Source routing: maps source prefix -> extension ID (or remote host)
+  // Source routing: maps source prefix -> extension ID
   private sourceRoutes = new Map<string, string>();
 
-  // Remote (out-of-process) extensions
+  // Out-of-process extensions
   private remoteHosts = new Map<string, ExtensionHostProcess>();
   private remoteRegistrations = new Map<string, ExtensionRegistration>();
   private remoteSourceRoutes = new Map<string, ExtensionHostProcess>();
-
-  /**
-   * Set the callback for when extensions emit events
-   */
-  setEmitCallback(
-    callback: (
-      type: string,
-      payload: unknown,
-      source: string,
-      connectionId?: string,
-      tags?: string[],
-    ) => void,
-  ): void {
-    this.emitCallback = callback;
-  }
-
-  /**
-   * Register and start an extension
-   */
-  async register(extension: ClaudiaExtension): Promise<void> {
-    if (this.extensions.has(extension.id)) {
-      throw new Error(`Extension ${extension.id} already registered`);
-    }
-
-    log.info("Registering extension", { id: extension.id });
-
-    // Create context for this extension
-    const ctx = this.createContext(extension.id);
-
-    // Start the extension
-    await extension.start(ctx);
-
-    this.extensions.set(extension.id, extension);
-
-    // Register source routes if extension handles any
-    if (extension.sourceRoutes?.length) {
-      for (const prefix of extension.sourceRoutes) {
-        this.sourceRoutes.set(prefix, extension.id);
-        log.info("Registered source route", { prefix, extensionId: extension.id });
-      }
-    }
-
-    log.info("Extension started", { id: extension.id });
-  }
-
-  /**
-   * Unregister and stop an extension
-   */
-  async unregister(extensionId: string): Promise<void> {
-    const extension = this.extensions.get(extensionId);
-    if (!extension) {
-      return;
-    }
-
-    log.info("Stopping extension", { id: extensionId });
-    await extension.stop();
-    this.extensions.delete(extensionId);
-
-    // Remove source routes owned by this local extension.
-    if (extension.sourceRoutes?.length) {
-      for (const prefix of extension.sourceRoutes) {
-        const owner = this.sourceRoutes.get(prefix);
-        if (owner === extensionId) {
-          this.sourceRoutes.delete(prefix);
-        }
-      }
-    }
-
-    // Remove all handlers for this extension
-    for (const [_pattern, _handlers] of this.eventHandlers) {
-      // Note: We'd need to track which handlers belong to which extension
-      // For now, this is a simplified version
-    }
-  }
 
   /**
    * Register a remote (out-of-process) extension.
@@ -158,7 +65,7 @@ export class ExtensionManager {
   }
 
   /**
-   * Route a method call to the appropriate extension (local or remote).
+   * Route a method call to the appropriate out-of-process extension host.
    * Supports RPC metadata for ctx.call() routing through the hub.
    */
   async handleMethod(
@@ -171,51 +78,18 @@ export class ExtensionManager {
     // Extract extension ID from method (e.g., "voice.speak" -> "voice")
     const [extensionId] = method.split(".");
 
-    // Check remote extensions first
     const remoteHost = this.remoteHosts.get(extensionId);
-    if (remoteHost) {
-      return remoteHost.callMethod(method, params ?? {}, connectionId, { ...meta, tags });
-    }
-
-    // Local extension
-    const extension = this.extensions.get(extensionId);
-    if (!extension) {
+    if (!remoteHost) {
       throw new Error(`No extension found for method: ${method}`);
     }
-
-    const methodDef = extension.methods.find((m) => m.name === method);
-    if (!methodDef) {
-      throw new Error(`Extension ${extensionId} does not handle method: ${method}`);
-    }
-
-    const parsed = methodDef.inputSchema.safeParse(params ?? {});
-    if (!parsed.success) {
-      const issues = parsed.error.issues.map(
-        (i) => `${i.path.join(".") || "params"}: ${i.message}`,
-      );
-      throw new Error(`Invalid params for ${method}: ${issues.join("; ")}`);
-    }
-
-    return extension.handleMethod(method, parsed.data as Record<string, unknown>);
+    return remoteHost.callMethod(method, params ?? {}, connectionId, { ...meta, tags });
   }
 
   /**
-   * Broadcast an event to all subscribed extensions (local + remote)
+   * Broadcast an event to all out-of-process extension hosts.
    */
   async broadcast(event: GatewayEvent, skipExtensionId?: string): Promise<void> {
-    // Local handlers
-    const handlers: EventHandler[] = [];
-
-    for (const [pattern, handlerSet] of this.eventHandlers) {
-      if (matchesEventPattern(event.type, pattern)) {
-        handlers.push(...handlerSet);
-      }
-    }
-
-    // Run all local handlers (allow async)
-    await Promise.all(handlers.map((handler) => handler(event)));
-
-    // Forward to all remote extension hosts — skip the emitter
+    // Forward to all remote extension hosts — skip the emitter extension if requested.
     for (const [extId, host] of this.remoteHosts) {
       if (extId !== skipExtensionId) {
         host.sendEvent(event);
@@ -243,25 +117,7 @@ export class ExtensionManager {
       }
     }
 
-    // Local extensions
-    const extensionId = this.sourceRoutes.get(prefix);
-    if (!extensionId) {
-      return false;
-    }
-
-    const extension = this.extensions.get(extensionId);
-    if (!extension?.handleSourceResponse) {
-      log.warn("Extension has no handleSourceResponse", { extensionId });
-      return false;
-    }
-
-    try {
-      await extension.handleSourceResponse(source, event);
-      return true;
-    } catch (error) {
-      log.error("Failed to route to source", { source, error: String(error) });
-      return false;
-    }
+    return false;
   }
 
   /**
@@ -289,34 +145,19 @@ export class ExtensionManager {
     // Check remote
     const reg = this.remoteRegistrations.get(extensionId);
     if (reg?.methods.some((m) => m.name === method)) return true;
-
-    // Check local
-    const extension = this.extensions.get(extensionId);
-    return extension?.methods.some((m) => m.name === method) ?? false;
-  }
-
-  /**
-   * Get all registered extensions
-   */
-  getExtensions(): ClaudiaExtension[] {
-    return Array.from(this.extensions.values());
+    return false;
   }
 
   /**
    * Get extension list for discovery (used by Mission Control)
    */
   getExtensionList(): Array<{ id: string; name: string; methods: string[] }> {
-    const local = Array.from(this.extensions.values()).map((ext) => ({
-      id: ext.id,
-      name: ext.name,
-      methods: ext.methods.map((m) => m.name),
-    }));
     const remote = Array.from(this.remoteRegistrations.values()).map((reg) => ({
       id: reg.id,
       name: reg.name,
       methods: reg.methods.map((m) => m.name),
     }));
-    return [...local, ...remote];
+    return remote;
   }
 
   getMethodDefinitions(): Array<{
@@ -330,19 +171,8 @@ export class ExtensionManager {
       method: ExtensionMethodDefinition;
     }> = [];
 
-    // Local extensions (have full Zod schemas)
-    for (const extension of this.extensions.values()) {
-      for (const method of extension.methods) {
-        methods.push({
-          extensionId: extension.id,
-          extensionName: extension.name,
-          method,
-        });
-      }
-    }
-
     // Remote extensions don't have Zod schemas in the gateway,
-    // but we still include them for method.list discovery.
+    // but we still include them for method discovery.
     // The inputSchema will be a plain object (Zod _def), not a ZodType.
     // Validation for remote methods happens in the host process.
     for (const reg of this.remoteRegistrations.values()) {
@@ -363,10 +193,6 @@ export class ExtensionManager {
    */
   getHealth(): Record<string, { ok: boolean; details?: Record<string, unknown> }> {
     const health: Record<string, { ok: boolean; details?: Record<string, unknown> }> = {};
-    // Local extensions
-    for (const [id, extension] of this.extensions) {
-      health[id] = extension.health();
-    }
     // Remote extensions — report running status (async health check is separate)
     for (const [id, host] of this.remoteHosts) {
       health[id] = { ok: host.isRunning(), details: { remote: true } };
@@ -396,6 +222,7 @@ export class ExtensionManager {
     this.remoteHosts.clear();
     this.remoteRegistrations.clear();
     this.remoteSourceRoutes.clear();
+    this.sourceRoutes.clear();
   }
 
   /**
@@ -405,55 +232,9 @@ export class ExtensionManager {
     for (const [, host] of this.remoteHosts) {
       host.forceKill();
     }
-  }
-
-  /**
-   * Create an extension context
-   */
-  private createContext(extensionId: string): ExtensionContext {
-    return {
-      on: (pattern: string, handler: EventHandler) => {
-        if (!this.eventHandlers.has(pattern)) {
-          this.eventHandlers.set(pattern, new Set());
-        }
-        this.eventHandlers.get(pattern)!.add(handler);
-
-        // Return unsubscribe function
-        return () => {
-          this.eventHandlers.get(pattern)?.delete(handler);
-        };
-      },
-
-      emit: (
-        type: string,
-        payload: unknown,
-        options?: { source?: string; connectionId?: string; tags?: string[] },
-      ) => {
-        if (this.emitCallback) {
-          this.emitCallback(
-            type,
-            payload,
-            options?.source || `extension:${extensionId}`,
-            options?.connectionId,
-            options?.tags,
-          );
-        }
-      },
-
-      async call(method: string, params?: Record<string, unknown>): Promise<unknown> {
-        // In-process extensions go through handleMethod too — hub pattern
-        // Note: no RPC meta needed for in-process calls (no depth/trace needed)
-        throw new Error(
-          "ctx.call() not yet supported for in-process extensions. Use out-of-process extensions.",
-        );
-      },
-
-      connectionId: null, // In-process extensions don't get per-request connectionId
-      tags: null, // In-process extensions don't get per-request tags
-
-      config: {}, // TODO: Load from config file
-
-      log: createLogger(extensionId, join(homedir(), ".claudia", "logs", `${extensionId}.log`)),
-    };
+    this.remoteHosts.clear();
+    this.remoteRegistrations.clear();
+    this.remoteSourceRoutes.clear();
+    this.sourceRoutes.clear();
   }
 }

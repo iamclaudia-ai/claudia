@@ -1,48 +1,63 @@
 import { describe, expect, it } from "bun:test";
-import { z } from "zod";
 import { ExtensionManager } from "./extensions";
-import type { ClaudiaExtension, ExtensionContext, GatewayEvent } from "@claudia/shared";
-
-function createListenerExtension(
-  id: string,
-  pattern: string,
-  sink: GatewayEvent[],
-): ClaudiaExtension {
-  return {
-    id,
-    name: `Listener ${id}`,
-    methods: [
-      {
-        name: `${id}.noop`,
-        description: "No-op",
-        inputSchema: z.object({}),
-      },
-    ],
-    events: [],
-    async start(ctx: ExtensionContext) {
-      ctx.on(pattern, (event) => {
-        sink.push(event);
-      });
-    },
-    async stop() {},
-    async handleMethod() {
-      return { ok: true };
-    },
-    health() {
-      return { ok: true };
-    },
-  };
-}
+import type { ExtensionHostProcess } from "./extension-host";
+import type { GatewayEvent } from "@claudia/shared";
 
 describe("ExtensionManager integration", () => {
-  it("broadcasts events to matching subscriptions", async () => {
+  it("broadcasts events to all registered out-of-process hosts", async () => {
     const manager = new ExtensionManager();
 
     const allEvents: GatewayEvent[] = [];
     const voiceEvents: GatewayEvent[] = [];
 
-    await manager.register(createListenerExtension("all", "*", allEvents));
-    await manager.register(createListenerExtension("voice", "voice.*", voiceEvents));
+    const allHost = {
+      sendEvent(event: GatewayEvent) {
+        allEvents.push(event);
+      },
+      async callMethod() {},
+      async routeToSource() {},
+      isRunning() {
+        return true;
+      },
+      async kill() {},
+      forceKill() {},
+    } as unknown as ExtensionHostProcess;
+
+    const voiceHost = {
+      sendEvent(event: GatewayEvent) {
+        if (event.type.startsWith("voice.")) {
+          voiceEvents.push(event);
+        }
+      },
+      async callMethod() {},
+      async routeToSource() {},
+      isRunning() {
+        return true;
+      },
+      async kill() {},
+      forceKill() {},
+    } as unknown as ExtensionHostProcess;
+
+    manager.registerRemote(
+      {
+        id: "all",
+        name: "All",
+        methods: [{ name: "all.noop", description: "No-op" }],
+        events: [],
+        sourceRoutes: [],
+      },
+      allHost,
+    );
+    manager.registerRemote(
+      {
+        id: "voice",
+        name: "Voice",
+        methods: [{ name: "voice.noop", description: "No-op" }],
+        events: [],
+        sourceRoutes: [],
+      },
+      voiceHost,
+    );
 
     await manager.broadcast({
       type: "voice.audio",
