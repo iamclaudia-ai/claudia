@@ -423,4 +423,95 @@ describe("ExtensionHostProcess protocol", () => {
     spawnSpy.mockRestore();
     timeoutSpy.mockRestore();
   });
+
+  it("rejects requests on timeout and handles not-running callMethod", async () => {
+    const { host, writes } = createHostHarness();
+    const scheduled: Array<() => void> = [];
+    const timeoutSpy = spyOn(globalThis, "setTimeout").mockImplementation(((
+      cb: (...args: unknown[]) => void,
+    ) => {
+      scheduled.push(() => cb());
+      return 1 as unknown as ReturnType<typeof setTimeout>;
+    }) as unknown as typeof setTimeout);
+
+    const pending = host.callMethod("session.send_prompt", { sessionId: "s1" });
+    expect(writes[0]).toMatchObject({ type: "req", method: "session.send_prompt" });
+    expect(scheduled.length).toBeGreaterThan(0);
+    scheduled[0]?.();
+    await expect(pending).rejects.toThrow("Request session.send_prompt timed out");
+
+    (host as unknown as { proc: TestProc | null }).proc = null;
+    await expect(host.callMethod("x.y", {})).rejects.toThrow("is not running");
+
+    timeoutSpy.mockRestore();
+  });
+
+  it("parses stdout/stderr streams and ignores stream reader errors", async () => {
+    const { host } = createHostHarness();
+    const seenLines: string[] = [];
+    const handleLineSpy = spyOn(
+      host as unknown as { handleLine: (line: string) => void },
+      "handleLine",
+    ).mockImplementation((line: string) => {
+      seenLines.push(line);
+    });
+
+    const stdout = new ReadableStream<Uint8Array>({
+      start(controller) {
+        const enc = new TextEncoder();
+        controller.enqueue(enc.encode("one\n"));
+        controller.enqueue(enc.encode("two"));
+        controller.enqueue(enc.encode("\n\n"));
+        controller.close();
+      },
+    });
+    await (
+      host as unknown as { readStdout: (s: ReadableStream<Uint8Array>) => Promise<void> }
+    ).readStdout(stdout);
+    expect(seenLines).toEqual(["one", "two"]);
+
+    const stderr = new ReadableStream<Uint8Array>({
+      start(controller) {
+        const enc = new TextEncoder();
+        controller.enqueue(enc.encode("warning text\n"));
+        controller.close();
+      },
+    });
+    await (
+      host as unknown as { readStderr: (s: ReadableStream<Uint8Array>) => Promise<void> }
+    ).readStderr(stderr);
+
+    const throwing = new ReadableStream<Uint8Array>({
+      pull() {
+        throw new Error("stream broke");
+      },
+    });
+    await (
+      host as unknown as { readStdout: (s: ReadableStream<Uint8Array>) => Promise<void> }
+    ).readStdout(throwing);
+
+    handleLineSpy.mockRestore();
+  });
+
+  it("executes restart callback and handles spawn failure", async () => {
+    const { host } = createHostHarness();
+    const scheduled: Array<() => void> = [];
+    const timeoutSpy = spyOn(globalThis, "setTimeout").mockImplementation(((
+      cb: (...args: unknown[]) => void,
+    ) => {
+      scheduled.push(() => cb());
+      return 1 as unknown as ReturnType<typeof setTimeout>;
+    }) as unknown as typeof setTimeout);
+    const spawnSpy = spyOn(host, "spawn").mockRejectedValue(new Error("restart failed"));
+
+    (host as unknown as { handleExit: (code: number | null) => void }).handleExit(1);
+    expect(scheduled.length).toBe(1);
+    scheduled[0]?.();
+    await Promise.resolve();
+
+    expect(spawnSpy).toHaveBeenCalledTimes(1);
+
+    spawnSpy.mockRestore();
+    timeoutSpy.mockRestore();
+  });
 });

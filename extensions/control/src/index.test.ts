@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { createControlExtension } from "./index";
@@ -93,6 +93,21 @@ describe("control extension", () => {
     await expect(ext.handleMethod("control.nope", {})).rejects.toThrow(
       "Unknown method: control.nope",
     );
+    await ext.stop();
+  });
+
+  it("returns empty list when log_list encounters fs errors", async () => {
+    mkdirSync(logsDir, { recursive: true });
+    const brokenName = `broken-${Date.now()}.log`;
+    const brokenPath = join(logsDir, brokenName);
+    testFiles.push(brokenName);
+    symlinkSync("/definitely/missing/target.log", brokenPath);
+
+    const ext = await startExtension();
+    const listed = (await ext.handleMethod("control.log_list", {})) as {
+      files: Array<{ name: string }>;
+    };
+    expect(listed).toEqual({ files: [] });
     await ext.stop();
   });
 });
