@@ -435,6 +435,7 @@ export function createCodexExtension(config: CodexConfig = {}): ClaudiaExtension
       sandboxMode: options.sandbox || cfg.sandboxMode || "workspace-write",
       modelReasoningEffort: (options.effort || cfg.effort) as ThreadOptions["modelReasoningEffort"],
       approvalPolicy: cfg.autoApprove ? "never" : "on-request",
+      webSearchEnabled: false,
     };
 
     // Start thread and kick off streaming (fire and forget)

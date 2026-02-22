@@ -93,7 +93,7 @@
       "enabled": false,
       "config": {
         "apiKey": "${OPENAI_API_KEY}",
-        "model": "o3-mini",
+        "model": "gpt-5.2-codex",
         "sandboxMode": "workspace-write",
         "cwd": "~/Projects",
         "personality": "You are Cody, a meticulous sub-agent working for Claudia.",
