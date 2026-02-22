@@ -57,8 +57,6 @@ export interface VoiceConfig {
   voiceId?: string;
   /** Model to use (default: sonic-3) */
   model?: string;
-  /** Auto-speak assistant responses */
-  autoSpeak?: boolean;
   /** Word count threshold for summarization */
   summarizeThreshold?: number;
   /** Emotion controls like ["positivity:high", "curiosity"] */
@@ -74,7 +72,6 @@ const DEFAULT_CONFIG: Required<VoiceConfig> = {
   dictionaryId: "",
   voiceId: "a0e99841-438c-4a64-b679-ae501e7d6091", // Barbershop - Man
   model: "sonic-3",
-  autoSpeak: false,
   summarizeThreshold: 150,
   emotions: ["positivity:high", "curiosity"],
   speed: 1.0,
@@ -201,7 +198,6 @@ export function createVoiceExtension(config: VoiceConfig = {}): ClaudiaExtension
   let currentChunker: SentenceChunker | null = null;
   let currentStreamId: string | null = null;
   let currentSessionId: string | null = null;
-  let currentConnectionId: string | null = null;
   let streamEnding = false;
   let streamChunkIndex = 0;
   let sentenceQueue: string[] = [];
@@ -210,20 +206,29 @@ export function createVoiceExtension(config: VoiceConfig = {}): ClaudiaExtension
   let queueDrainResolve: (() => void) | null = null;
   let abortRequested = false;
 
+  // --- Stream routing: streamId → connectionId ---
+  // Voice owns its own connection-scoped routing. When a stream starts,
+  // we capture the connectionId from the event envelope and use it to
+  // emit all audio events with { connectionId, source: "gateway.caller" }.
+  const streamOrigins = new Map<string, string>();
+
   // --- Shared state ---
   let currentBlockType: string | null = null;
   let textBuffer = "";
   let isSpeaking = false;
-  let currentRequestWantsVoice = false;
 
   /** Generate a unique stream ID for this utterance */
   function newStreamId(): string {
     return crypto.randomUUID().slice(0, 8);
   }
 
-  /** Determine if we should speak this response */
-  function shouldSpeak(): boolean {
-    return cfg.autoSpeak || currentRequestWantsVoice;
+  /** Get emit options for connection-scoped routing */
+  function callerEmitOptions(streamId: string): { connectionId?: string; source: string } {
+    const connId = streamOrigins.get(streamId);
+    return {
+      connectionId: connId || undefined,
+      source: "gateway.caller",
+    };
   }
 
   // --- Streaming TTS ---
@@ -270,13 +275,11 @@ export function createVoiceExtension(config: VoiceConfig = {}): ClaudiaExtension
           const pcmChunk = Buffer.from(audio, "base64");
           const wavChunk = pcmToWav(pcmChunk, 24000, 1);
           const index = streamChunkIndex++;
-          ctx?.emit("voice.audio_chunk", {
-            audio: wavChunk.toString("base64"),
-            format: "wav",
-            index,
-            streamId,
-            sessionId,
-          });
+          ctx?.emit(
+            "voice.audio_chunk",
+            { audio: wavChunk.toString("base64"), format: "wav", index, streamId, sessionId },
+            callerEmitOptions(streamId),
+          );
           currentAudioChunks.push(pcmChunk);
         },
         onError: (error) => {
@@ -341,7 +344,7 @@ export function createVoiceExtension(config: VoiceConfig = {}): ClaudiaExtension
     void processSentenceQueue(currentStreamId, currentSessionId);
   }
 
-  async function startStream(sessionId: string): Promise<void> {
+  async function startStream(sessionId: string, connectionId?: string): Promise<void> {
     if (!cfg.apiKey) {
       fileLog("WARN", "startStream called but no apiKey");
       return;
@@ -363,16 +366,22 @@ export function createVoiceExtension(config: VoiceConfig = {}): ClaudiaExtension
     streamEnding = false;
     abortRequested = false;
 
+    // Track which connection originated this stream for routing
+    if (connectionId) {
+      streamOrigins.set(streamId, connectionId);
+    }
+
     fileLog(
       "INFO",
-      `startStream: session=${sessionId}, stream=${streamId} (per-sentence Cartesia connections)`,
+      `startStream: session=${sessionId}, stream=${streamId}, connection=${connectionId || "none"}`,
     );
 
     isSpeaking = true;
-    ctx?.emit("voice.stream_start", {
-      streamId: currentStreamId,
-      sessionId: currentSessionId,
-    });
+    ctx?.emit(
+      "voice.stream_start",
+      { streamId: currentStreamId, sessionId: currentSessionId },
+      callerEmitOptions(streamId),
+    );
     ctx?.log.info(`Streaming TTS started (stream=${currentStreamId})`);
   }
 
@@ -431,7 +440,8 @@ export function createVoiceExtension(config: VoiceConfig = {}): ClaudiaExtension
 
     // Signal stream end to clients
     if (streamId) {
-      ctx?.emit("voice.stream_end", { streamId, sessionId });
+      ctx?.emit("voice.stream_end", { streamId, sessionId }, callerEmitOptions(streamId));
+      streamOrigins.delete(streamId);
     }
 
     // Reset streaming state
@@ -453,13 +463,14 @@ export function createVoiceExtension(config: VoiceConfig = {}): ClaudiaExtension
     fileLog("INFO", `Aborting stream session: ${streamId}`);
 
     // Signal abort to clients
-    ctx?.emit("voice.stream_end", {
-      streamId,
-      sessionId: currentSessionId,
-      aborted: true,
-    });
+    ctx?.emit(
+      "voice.stream_end",
+      { streamId, sessionId: currentSessionId, aborted: true },
+      callerEmitOptions(streamId),
+    );
     ctx?.log.info(`Streaming TTS aborted (stream=${streamId})`);
 
+    streamOrigins.delete(streamId);
     abortRequested = true;
     sentenceQueue = [];
     streamEnding = false;
@@ -559,7 +570,7 @@ export function createVoiceExtension(config: VoiceConfig = {}): ClaudiaExtension
       ctx = context;
       fileLog(
         "INFO",
-        `Voice extension starting (autoSpeak=${cfg.autoSpeak}, streaming=${cfg.streaming}, apiKey=${!!cfg.apiKey}, voice=${cfg.voiceId}, dictionaryId=${cfg.dictionaryId || "none"})`,
+        `Voice extension starting (streaming=${cfg.streaming}, apiKey=${!!cfg.apiKey}, voice=${cfg.voiceId}, dictionaryId=${cfg.dictionaryId || "none"})`,
       );
       ctx.log.info("Starting voice extension...");
 
@@ -572,33 +583,31 @@ export function createVoiceExtension(config: VoiceConfig = {}): ClaudiaExtension
       }
 
       // --- Event Subscriptions ---
+      // Voice activates when events carry the "voice.speak" tag on the envelope.
+      // Tags are set by the client (e.g., web chat sends tags: ["voice.speak"]).
 
-      // Track content block type and per-request voice preference
+      // Track content block type — start streaming if voice.speak tag present
       unsubscribers.push(
         ctx.on("session.*.content_block_start", (event: GatewayEvent) => {
+          const wantsVoice = event.tags?.includes("voice.speak") ?? false;
           const payload = event.payload as {
             content_block?: { type: string };
-            speakResponse?: boolean;
             sessionId?: string;
           };
           currentBlockType = payload.content_block?.type || null;
 
-          if (payload.speakResponse !== undefined) {
-            currentRequestWantsVoice = payload.speakResponse;
-          }
-
           fileLog(
             "INFO",
-            `content_block_start: type=${currentBlockType}, speakResponse=${payload.speakResponse}, shouldSpeak=${shouldSpeak()}, streaming=${cfg.streaming}`,
+            `content_block_start: type=${currentBlockType}, voice.speak=${wantsVoice}, streaming=${cfg.streaming}`,
           );
 
           if (currentBlockType === "text") {
             textBuffer = "";
 
-            // Start streaming if enabled and voice is requested
-            if (cfg.streaming && shouldSpeak() && cfg.apiKey) {
+            // Start streaming if voice.speak tag is present
+            if (cfg.streaming && wantsVoice && cfg.apiKey) {
               const sessionId = payload.sessionId || event.sessionId || "unknown";
-              startStream(sessionId);
+              startStream(sessionId, event.connectionId || undefined);
             }
           }
         }),
@@ -611,12 +620,7 @@ export function createVoiceExtension(config: VoiceConfig = {}): ClaudiaExtension
 
           const payload = event.payload as {
             delta?: { type: string; text?: string };
-            speakResponse?: boolean;
           };
-
-          if (payload.speakResponse !== undefined) {
-            currentRequestWantsVoice = payload.speakResponse;
-          }
 
           if (payload.delta?.type === "text_delta" && payload.delta.text) {
             const deltaText = payload.delta.text;
@@ -634,21 +638,17 @@ export function createVoiceExtension(config: VoiceConfig = {}): ClaudiaExtension
 
       // On message complete
       unsubscribers.push(
-        ctx.on("session.*.message_stop", async (event: GatewayEvent) => {
+        ctx.on("session.*.message_stop", async (_event: GatewayEvent) => {
           fileLog(
             "INFO",
-            `message_stop: streaming=${cfg.streaming}, hasActiveStream=${!!currentStreamId}, textBuffer=${textBuffer.length} chars, shouldSpeak=${shouldSpeak()}`,
+            `message_stop: streaming=${cfg.streaming}, hasActiveStream=${!!currentStreamId}, textBuffer=${textBuffer.length} chars`,
           );
-          const payload = event.payload as { speakResponse?: boolean };
-          if (payload.speakResponse !== undefined) {
-            currentRequestWantsVoice = payload.speakResponse || currentRequestWantsVoice;
-          }
 
           if (cfg.streaming && currentStreamId) {
             // End the streaming session
             await endStream();
-          } else if (!cfg.streaming && textBuffer && shouldSpeak()) {
-            // Batch mode fallback: speak accumulated text
+          } else if (!cfg.streaming && textBuffer && currentStreamId) {
+            // Batch mode fallback: speak accumulated text (only if stream was started)
             const cleaned = cleanForSpeech(textBuffer);
             if (cleaned) {
               await speakBatch(cleaned);
@@ -658,7 +658,6 @@ export function createVoiceExtension(config: VoiceConfig = {}): ClaudiaExtension
           // Reset for next request
           textBuffer = "";
           currentBlockType = null;
-          currentRequestWantsVoice = false;
         }),
       );
 
@@ -699,7 +698,6 @@ export function createVoiceExtension(config: VoiceConfig = {}): ClaudiaExtension
             speaking: isSpeaking,
             streaming: cfg.streaming,
             activeStream: currentStreamId,
-            autoSpeak: cfg.autoSpeak,
             voiceId: cfg.voiceId,
             model: cfg.model,
           };
@@ -728,7 +726,6 @@ export function createVoiceExtension(config: VoiceConfig = {}): ClaudiaExtension
             status: cfg.apiKey ? "healthy" : "disconnected",
             label: "Voice (Cartesia)",
             metrics: [
-              { label: "Auto-Speak", value: cfg.autoSpeak ? "on" : "off" },
               { label: "Streaming", value: cfg.streaming ? "on" : "off" },
               { label: "Voice", value: cfg.voiceId },
               { label: "Model", value: cfg.model },
@@ -751,10 +748,10 @@ export function createVoiceExtension(config: VoiceConfig = {}): ClaudiaExtension
         details: {
           apiKeyConfigured: !!cfg.apiKey,
           streaming: cfg.streaming,
-          autoSpeak: cfg.autoSpeak,
           voiceId: cfg.voiceId,
           speaking: isSpeaking,
           activeStream: currentStreamId,
+          activeStreams: streamOrigins.size,
         },
       };
     },

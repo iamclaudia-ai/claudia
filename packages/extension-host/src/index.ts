@@ -78,13 +78,18 @@ export async function runExtensionHost(factory: ExtensionFactory): Promise<void>
     process.stdout.write(line + "\n");
   }
 
-  function writeEvent(type: string, payload: unknown, options?: { source?: string }): void {
+  function writeEvent(
+    type: string,
+    payload: unknown,
+    options?: { source?: string; connectionId?: string; tags?: string[] },
+  ): void {
     write({
       type: "event",
       event: type,
       payload,
       source: options?.source,
-      connectionId: currentConnectionId,
+      connectionId: options?.connectionId ?? currentConnectionId,
+      tags: options?.tags ?? currentTags,
     });
   }
 
@@ -103,6 +108,7 @@ export async function runExtensionHost(factory: ExtensionFactory): Promise<void>
 
   // Current call context — set per inbound request from gateway
   let currentConnectionId: string | null = null;
+  let currentTags: string[] | null = null;
   let currentTraceId: string | null = null;
   let currentDepth = 0;
   let currentDeadlineMs: number | null = null;
@@ -143,7 +149,11 @@ export async function runExtensionHost(factory: ExtensionFactory): Promise<void>
         };
       },
 
-      emit(type: string, payload: unknown, options?: { source?: string }): void {
+      emit(
+        type: string,
+        payload: unknown,
+        options?: { source?: string; connectionId?: string; tags?: string[] },
+      ): void {
         writeEvent(type, payload, options);
       },
 
@@ -239,30 +249,34 @@ export async function runExtensionHost(factory: ExtensionFactory): Promise<void>
 
       // Set per-request context from envelope
       const prevConnectionId = currentConnectionId;
+      const prevTags = currentTags;
       const prevTraceId = currentTraceId;
       const prevDepth = currentDepth;
       const prevDeadlineMs = currentDeadlineMs;
       currentConnectionId = (msg.connectionId as string) || null;
+      currentTags = (msg.tags as string[]) || null;
       currentTraceId = (msg.traceId as string) || null;
       currentDepth = (msg.depth as number) || 0;
       currentDeadlineMs = (msg.deadlineMs as number) || null;
 
-      if (!extension) {
-        writeResponse(id, false, "Extension not loaded");
+      const restoreContext = () => {
         currentConnectionId = prevConnectionId;
+        currentTags = prevTags;
         currentTraceId = prevTraceId;
         currentDepth = prevDepth;
         currentDeadlineMs = prevDeadlineMs;
+      };
+
+      if (!extension) {
+        writeResponse(id, false, "Extension not loaded");
+        restoreContext();
         return;
       }
 
       // Special internal methods
       if (method === "__health") {
         writeResponse(id, true, extension.health());
-        currentConnectionId = prevConnectionId;
-        currentTraceId = prevTraceId;
-        currentDepth = prevDepth;
-        currentDeadlineMs = prevDeadlineMs;
+        restoreContext();
         return;
       }
 
@@ -279,10 +293,7 @@ export async function runExtensionHost(factory: ExtensionFactory): Promise<void>
         } else {
           writeResponse(id, false, "Extension does not handle source responses");
         }
-        currentConnectionId = prevConnectionId;
-        currentTraceId = prevTraceId;
-        currentDepth = prevDepth;
-        currentDeadlineMs = prevDeadlineMs;
+        restoreContext();
         return;
       }
 
@@ -294,10 +305,7 @@ export async function runExtensionHost(factory: ExtensionFactory): Promise<void>
         writeResponse(id, false, String(error));
       }
 
-      currentConnectionId = prevConnectionId;
-      currentTraceId = prevTraceId;
-      currentDepth = prevDepth;
-      currentDeadlineMs = prevDeadlineMs;
+      restoreContext();
     } else if (msg.type === "call_res") {
       const id = msg.id as string;
       const pending = pendingCalls.get(id);
@@ -319,12 +327,16 @@ export async function runExtensionHost(factory: ExtensionFactory): Promise<void>
         source: msg.source as string | undefined,
         sessionId: msg.sessionId as string | undefined,
         connectionId: msg.connectionId as string | undefined,
+        tags: (msg.tags as string[]) || undefined,
       };
-      // Set context so any ctx.emit() during handler gets the right connectionId
+      // Set context so any ctx.emit() during handler gets the right connectionId + tags
       const prevConnectionId = currentConnectionId;
+      const prevTags = currentTags;
       currentConnectionId = event.connectionId || null;
+      currentTags = event.tags || null;
       await broadcastToHandlers(event);
       currentConnectionId = prevConnectionId;
+      currentTags = prevTags;
     }
   }
 

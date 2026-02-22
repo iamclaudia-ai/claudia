@@ -34,14 +34,14 @@ describe("cli parsing", () => {
       "--thinking=true",
       "--effort",
       "medium",
-      "--speakResponse",
+      "--verbose",
     ]);
 
     expect(params).toEqual({
       sessionId: "ses_123",
       thinking: true,
       effort: "medium",
-      speakResponse: true,
+      verbose: true,
     });
   });
 
@@ -66,7 +66,7 @@ describe("schema resolution and validation", () => {
           model: { type: "string" },
           thinking: { type: "boolean" },
           effort: { type: "string" },
-          speakResponse: { type: "boolean" },
+          verbose: { type: "boolean" },
         },
       },
     },
@@ -153,7 +153,7 @@ describe("help/example output", () => {
           properties: {
             sessionId: { type: "string" },
             content: { type: "string" },
-            speakResponse: { type: "boolean" },
+            verbose: { type: "boolean" },
           },
         },
       },
@@ -184,9 +184,7 @@ describe("help/example output", () => {
     const lines = logSpy.mock.calls.flat().map((v) => String(v));
     expect(lines.some((l) => l.includes("claudia session send_prompt"))).toBe(true);
     expect(lines.some((l) => l.includes("--sessionId <SESSIONID> (string, required)"))).toBe(true);
-    expect(
-      lines.some((l) => l.includes("--speakResponse [SPEAKRESPONSE] (boolean, optional)")),
-    ).toBe(true);
+    expect(lines.some((l) => l.includes("--verbose [VERBOSE] (boolean, optional)"))).toBe(true);
 
     logSpy.mockRestore();
   });
@@ -230,7 +228,7 @@ describe("help/example output", () => {
     expect(
       lines.some((l) =>
         l.includes(
-          "claudia session send_prompt --sessionId <SESSIONID> --content <CONTENT> --speakResponse [SPEAKRESPONSE]",
+          "claudia session send_prompt --sessionId <SESSIONID> --content <CONTENT> --verbose [VERBOSE]",
         ),
       ),
     ).toBe(true);

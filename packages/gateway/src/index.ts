@@ -52,11 +52,6 @@ interface ClientState {
 // Client connections
 const clients = new Map<ServerWebSocket<ClientState>, ClientState>();
 
-// Maps streamId → connectionId for connection-scoped voice routing.
-// When a client sends a prompt with speakResponse=true, we record which
-// connection originated the voice stream so audio events route only to it.
-const voiceStreamOrigins = new Map<string, string>();
-
 // Exclusive subscriptions: pattern → WebSocket. Last subscriber wins.
 // Used by dominatrix Chrome extensions so only the focused profile handles commands.
 const exclusiveSubscribers = new Map<string, ServerWebSocket<ClientState>>();
@@ -142,36 +137,26 @@ getDb();
 
 /**
  * Unified event handler for all extension events (in-process and remote).
- * Handles voice stream routing, cross-extension broadcast, and WS fan-out.
- * connectionId flows on the envelope, NOT in extension payloads.
+ * Handles connection-scoped routing (gateway.caller), cross-extension broadcast, and WS fan-out.
+ * connectionId and tags flow on the envelope, NOT in extension payloads.
  */
 function handleExtensionEvent(
   type: string,
   payload: unknown,
   source: string,
   connectionId?: string,
+  tags?: string[],
 ): void {
   const payloadObj =
     payload && typeof payload === "object" ? (payload as Record<string, unknown>) : null;
-
-  // Track voice stream origins for connection-scoped routing
-  if (type === "voice.stream_start" && payloadObj?.streamId) {
-    if (connectionId) {
-      voiceStreamOrigins.set(payloadObj.streamId as string, connectionId);
-    } else {
-      log.warn("voice.stream_start without routable connection", {
-        streamId: payloadObj.streamId,
-      });
-    }
-  }
 
   // Determine source extension ID for loop prevention
   const sourceExtId = source?.startsWith("extension:")
     ? source.slice("extension:".length)
     : undefined;
 
-  // gateway:caller routing — send only to originating connection
-  if (source === "gateway:caller" && connectionId) {
+  // gateway.caller routing — send only to originating connection
+  if (source === "gateway.caller" && connectionId) {
     for (const [ws, state] of clients) {
       if (state.id === connectionId) {
         const event: Event = { type: "event", event: type, payload };
@@ -187,13 +172,14 @@ function handleExtensionEvent(
         timestamp: Date.now(),
         origin: source,
         connectionId,
+        tags,
       },
       sourceExtId,
     );
     return;
   }
 
-  broadcastEvent(type, payload, source);
+  broadcastEvent(type, payload, source, connectionId, tags);
 
   // Forward to other extensions — skip the one that emitted (loop prevention)
   extensions.broadcast(
@@ -205,13 +191,10 @@ function handleExtensionEvent(
       source,
       sessionId: (payloadObj?.sessionId as string) || undefined,
       connectionId,
+      tags,
     },
     sourceExtId,
   );
-
-  if (type === "voice.stream_end" && payloadObj?.streamId) {
-    voiceStreamOrigins.delete(payloadObj.streamId as string);
-  }
 }
 
 // Wire up in-process extension events through the unified handler
@@ -383,6 +366,8 @@ async function handleExtensionMethod(
       req.method,
       (req.params as Record<string, unknown>) || {},
       req.connectionId,
+      undefined, // meta (traceId, depth, deadlineMs)
+      req.tags,
     );
     const elapsed = Date.now() - start;
     if (elapsed > 200) {
@@ -447,52 +432,27 @@ function sendError(ws: ServerWebSocket<ClientState>, id: string, error: string):
 }
 
 /**
- * Broadcast an event to subscribed clients
+ * Broadcast an event to subscribed WS clients.
+ * Connection-scoped routing (gateway.caller) is handled in handleExtensionEvent before this.
  */
 function broadcastEvent(
   eventName: string,
   payload: unknown,
   _source?: string,
-  connectionId?: string,
+  _connectionId?: string,
+  _tags?: string[],
 ): void {
-  const event: Event = { type: "event", event: eventName, payload, connectionId };
+  const event: Event = { type: "event", event: eventName, payload };
   const data = JSON.stringify(event);
-  const payloadObj =
-    payload && typeof payload === "object" ? (payload as Record<string, unknown>) : null;
 
-  const streamId =
-    typeof payloadObj?.streamId === "string" ? (payloadObj.streamId as string) : null;
-  const targetConnectionId = streamId
-    ? (voiceStreamOrigins.get(streamId) ?? connectionId ?? null)
-    : null;
-  const isVoiceEvent = eventName.startsWith("voice.");
-  const isConnectionScoped = isVoiceEvent && targetConnectionId !== null;
-
-  // 1. Connection-scoped voice events — send to originating connection only
-  if (isConnectionScoped) {
-    for (const [ws, state] of clients) {
-      if (state.id === targetConnectionId) {
-        ws.send(data);
-        break;
-      }
-    }
-    return;
-  }
-
-  // 1b. Never fan out stream-scoped voice events when owner is unknown.
-  if (isVoiceEvent && streamId) {
-    log.warn("Dropping unscoped voice stream event", { eventName, streamId });
-    return;
-  }
-
-  // 2. Exclusive subscriber — last subscriber wins, only they get the event
+  // 1. Exclusive subscriber — last subscriber wins, only they get the event
   const exclusiveWs = exclusiveSubscribers.get(eventName);
   if (exclusiveWs && clients.has(exclusiveWs)) {
     exclusiveWs.send(data);
     return;
   }
 
-  // 3. Standard subscription matching for all clients
+  // 2. Standard subscription matching for all clients
   for (const [ws, state] of clients) {
     const isSubscribed = Array.from(state.subscriptions).some((pattern) =>
       matchesEventPattern(eventName, pattern),
@@ -624,11 +584,6 @@ const server = Bun.serve<ClientState>({
     close(ws) {
       clients.delete(ws);
 
-      // Clean up voice stream origins for this connection
-      for (const [streamId, connId] of voiceStreamOrigins) {
-        if (connId === ws.data.id) voiceStreamOrigins.delete(streamId);
-      }
-
       // Clean up exclusive subscriptions held by this connection
       for (const [pattern, exclusiveWs] of exclusiveSubscribers) {
         if (exclusiveWs === ws) exclusiveSubscribers.delete(pattern);
@@ -682,11 +637,6 @@ function pruneClient(ws: ServerWebSocket<ClientState>): void {
   log.info(`Pruning stale client: ${state.id}`);
 
   clients.delete(ws);
-
-  // Clean up voice stream origins
-  for (const [streamId, connId] of voiceStreamOrigins) {
-    if (connId === state.id) voiceStreamOrigins.delete(streamId);
-  }
 
   // Clean up exclusive subscriptions
   for (const [pattern, exclusiveWs] of exclusiveSubscribers) {

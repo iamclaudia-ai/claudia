@@ -15,6 +15,7 @@ export interface Request {
   method: string; // e.g., "session.create", "voice.speak"
   params?: Record<string, unknown>;
   connectionId?: string; // Stamped by gateway — identifies originating WS connection
+  tags?: string[]; // Opaque tags for extension-specific opt-in (e.g., ["voice.speak"])
 }
 
 /** Gateway → Client response */

@@ -107,8 +107,8 @@ async function spawnOutOfProcessExtension(
     id,
     moduleSpec,
     config,
-    (type, payload, source, connectionId) =>
-      handleExtensionEvent(type, payload, source || `extension:${id}`, connectionId),
+    (type, payload, source, connectionId, tags) =>
+      handleExtensionEvent(type, payload, source || `extension:${id}`, connectionId, tags),
     (registration: ExtensionRegistration) => {
       // Allow config-level sourceRoutes to augment extension-declared routes.
       if (sourceRoutes?.length) {

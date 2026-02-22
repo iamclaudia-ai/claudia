@@ -214,7 +214,6 @@ function buildConfigFromEnv(): Partial<ClaudiaConfig> {
         config: {
           apiKey: process.env.ELEVENLABS_API_KEY || "",
           voiceId: process.env.ELEVENLABS_VOICE_ID,
-          autoSpeak: process.env.CLAUDIA_VOICE_AUTO_SPEAK === "true",
         },
       };
     } else {

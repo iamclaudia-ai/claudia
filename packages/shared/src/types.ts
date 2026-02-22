@@ -111,11 +111,13 @@ export interface GatewayEvent {
   timestamp: number;
   /** Event origin (e.g., "session", "extension:voice", "gateway") */
   origin?: string;
-  /** Message source for routing (e.g., "imessage/+1555...", "web", "menubar") */
+  /** Message source for routing (e.g., "imessage/+1555...", "web", "gateway.caller") */
   source?: string;
   sessionId?: string;
   /** Identifies the originating WS connection */
   connectionId?: string;
+  /** Opaque tags for extension-specific opt-in capabilities (e.g., "voice.speak") */
+  tags?: string[];
 }
 
 /**
@@ -138,7 +140,17 @@ export interface ExtensionContext {
   /** Subscribe to gateway events */
   on(pattern: string, handler: (event: GatewayEvent) => void | Promise<void>): () => void;
   /** Emit an event to the gateway */
-  emit(type: string, payload: unknown, options?: { source?: string }): void;
+  emit(
+    type: string,
+    payload: unknown,
+    options?: {
+      source?: string;
+      /** Override auto-stamped connectionId (e.g., for connection-scoped routing) */
+      connectionId?: string;
+      /** Override auto-stamped tags */
+      tags?: string[];
+    },
+  ): void;
   /** Call another extension's method through the gateway hub */
   call(method: string, params?: Record<string, unknown>): Promise<unknown>;
   /** The originating WebSocket connection ID (set per-request by gateway envelope) */

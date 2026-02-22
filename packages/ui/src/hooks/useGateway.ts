@@ -78,14 +78,14 @@ export interface UseGatewayReturn {
   hasMore: boolean;
   workspace: WorkspaceInfo | null;
   sessions: SessionInfo[];
-  sendPrompt(text: string, attachments: Attachment[]): void;
+  sendPrompt(text: string, attachments: Attachment[], tags?: string[]): void;
   sendToolResult(toolUseId: string, content: string, isError?: boolean): void;
   sendInterrupt(): void;
   loadEarlierMessages(): void;
   createNewSession(title?: string): void;
   switchSession(sessionId: string): void;
   /** Send a raw gateway request (for listing pages) */
-  sendRequest(method: string, params?: Record<string, unknown>): void;
+  sendRequest(method: string, params?: Record<string, unknown>, tags?: string[]): void;
   /** Subscribe to raw gateway events. Returns unsubscribe function. */
   onEvent(listener: EventListener): () => void;
   /** Server-assigned connection ID for this WebSocket session */
@@ -147,13 +147,17 @@ export function useGateway(gatewayUrl: string, options: UseGatewayOptions = {}):
   }, [messages]);
 
   // Send a request to the gateway
-  const sendRequest = useCallback((method: string, params?: Record<string, unknown>) => {
-    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
-    const id = generateId();
-    const msg: GatewayMessage = { type: "req", id, method, params };
-    pendingRequestsRef.current.set(id, method);
-    wsRef.current.send(JSON.stringify(msg));
-  }, []);
+  const sendRequest = useCallback(
+    (method: string, params?: Record<string, unknown>, tags?: string[]) => {
+      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+      const id = generateId();
+      const msg: GatewayMessage & { tags?: string[] } = { type: "req", id, method, params };
+      if (tags?.length) msg.tags = tags;
+      pendingRequestsRef.current.set(id, method);
+      wsRef.current.send(JSON.stringify(msg));
+    },
+    [],
+  );
 
   // Subscribe to session-scoped streaming events when we learn the sessionId
   const subscribeToSession = useCallback(
@@ -765,7 +769,7 @@ export function useGateway(gatewayUrl: string, options: UseGatewayOptions = {}):
   // ── Actions ────────────────────────────────────────────────
 
   const sendPrompt = useCallback(
-    (text: string, attachments: Attachment[]) => {
+    (text: string, attachments: Attachment[], tags?: string[]) => {
       if ((!text.trim() && attachments.length === 0) || !wsRef.current) return;
 
       const blocks: ContentBlock[] = [
@@ -824,7 +828,7 @@ export function useGateway(gatewayUrl: string, options: UseGatewayOptions = {}):
         sessionId: sid,
         cwd: workspaceRef.current?.cwd,
       };
-      sendRequest("session.send_prompt", params);
+      sendRequest("session.send_prompt", params, tags);
     },
     [sendRequest, setMessages],
   );

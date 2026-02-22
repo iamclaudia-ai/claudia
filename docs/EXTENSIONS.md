@@ -195,7 +195,15 @@ interface ExtensionContext {
   /** Subscribe to gateway events */
   on(pattern: string, handler: (event: GatewayEvent) => void | Promise<void>): () => void;
   /** Emit an event to the gateway */
-  emit(type: string, payload: unknown, options?: { source?: string }): void;
+  emit(
+    type: string,
+    payload: unknown,
+    options?: {
+      source?: string;
+      connectionId?: string; // Override auto-stamped connectionId
+      tags?: string[]; // Override auto-stamped tags
+    },
+  ): void;
   /** Call another extension's method through the gateway hub */
   call(method: string, params?: Record<string, unknown>): Promise<unknown>;
   /** The originating WebSocket connection ID (set per-request by gateway envelope) */
@@ -284,6 +292,68 @@ async stop() {
 }
 ```
 
+### Tags (Envelope-Level Opt-In)
+
+Tags are opaque strings on the event envelope that callers use to opt into extension-specific capabilities. They are **not** part of method Zod schemas — they travel on the request/event envelope alongside `connectionId`.
+
+**Convention:** `extension.capability` format (e.g., `voice.speak`).
+
+**How tags flow:**
+
+```
+Client WS request: { type: "req", method: "session.send_prompt", params: {...}, tags: ["voice.speak"] }
+  → Gateway forwards tags on NDJSON envelope to extension host
+  → Extension host sets currentTags from envelope
+  → All events emitted during request handling auto-stamp tags
+  → Downstream extensions check event.tags to activate optional behavior
+```
+
+Tags propagate automatically through the event bus — just like `connectionId`. Extensions don't need to explicitly forward tags; the extension host's `currentTags` mechanism handles it.
+
+**Checking tags in an extension:**
+
+```typescript
+ctx.on("session.*.content_block_start", async (event) => {
+  if (!event.tags?.includes("voice.speak")) return;
+  // Activate voice for this response
+});
+```
+
+**Sending tags from a client:**
+
+```typescript
+// Include tags on the WS request envelope (outside params)
+ws.send(
+  JSON.stringify({
+    type: "req",
+    id: uuid(),
+    method: "session.send_prompt",
+    params: { sessionId, content, model, thinking, effort },
+    tags: ["voice.speak"],
+  }),
+);
+```
+
+**Overriding tags on emit:**
+
+Extensions can override auto-stamped tags when emitting, just like connectionId:
+
+```typescript
+ctx.emit("my-ext.event", payload, {
+  connectionId: specificConnectionId, // Override auto-stamped connectionId
+  tags: ["custom.tag"], // Override auto-stamped tags
+  source: "gateway.caller", // Route only to the specific connection
+});
+```
+
+**Known tags:**
+
+| Tag           | Extension | Purpose                                                                                                            |
+| ------------- | --------- | ------------------------------------------------------------------------------------------------------------------ |
+| `voice.speak` | voice     | Activates TTS for the response. Audio is routed only to the requesting client via `gateway.caller` + connectionId. |
+
+Tags are designed to be lightweight and composable. Multiple tags can be sent on a single request, enabling multiple extensions to activate independently.
+
 ### Health Check
 
 Every extension should expose a `{id}.health_check` method returning `HealthCheckResponse`. Mission Control discovers and renders these generically:
@@ -334,7 +404,6 @@ Extension config lives in `~/.claudia/claudia.json` (JSON5 format):
         apiKey: "${CARTESIA_API_KEY}", // Env var interpolation
         voiceId: "${CARTESIA_VOICE_ID}",
         model: "sonic-3",
-        autoSpeak: true,
         streaming: true,
         emotions: ["positivity:high", "curiosity"],
         speed: 1.0,

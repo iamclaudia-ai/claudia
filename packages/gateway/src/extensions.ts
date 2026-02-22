@@ -24,7 +24,13 @@ export class ExtensionManager {
   private extensions = new Map<string, ClaudiaExtension>();
   private eventHandlers = new Map<string, Set<EventHandler>>();
   private emitCallback:
-    | ((type: string, payload: unknown, source: string, connectionId?: string) => void)
+    | ((
+        type: string,
+        payload: unknown,
+        source: string,
+        connectionId?: string,
+        tags?: string[],
+      ) => void)
     | null = null;
 
   // Source routing: maps source prefix -> extension ID (or remote host)
@@ -39,7 +45,13 @@ export class ExtensionManager {
    * Set the callback for when extensions emit events
    */
   setEmitCallback(
-    callback: (type: string, payload: unknown, source: string, connectionId?: string) => void,
+    callback: (
+      type: string,
+      payload: unknown,
+      source: string,
+      connectionId?: string,
+      tags?: string[],
+    ) => void,
   ): void {
     this.emitCallback = callback;
   }
@@ -144,6 +156,7 @@ export class ExtensionManager {
     params: Record<string, unknown>,
     connectionId?: string,
     meta?: { traceId?: string; depth?: number; deadlineMs?: number },
+    tags?: string[],
   ): Promise<unknown> {
     // Extract extension ID from method (e.g., "voice.speak" -> "voice")
     const [extensionId] = method.split(".");
@@ -151,7 +164,7 @@ export class ExtensionManager {
     // Check remote extensions first
     const remoteHost = this.remoteHosts.get(extensionId);
     if (remoteHost) {
-      return remoteHost.callMethod(method, params ?? {}, connectionId, meta);
+      return remoteHost.callMethod(method, params ?? {}, connectionId, { ...meta, tags });
     }
 
     // Local extension

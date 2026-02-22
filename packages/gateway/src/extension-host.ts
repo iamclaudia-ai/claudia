@@ -70,6 +70,7 @@ export class ExtensionHostProcess {
       payload: unknown,
       source?: string,
       connectionId?: string,
+      tags?: string[],
     ) => void,
     private onRegister: (registration: ExtensionRegistration) => void,
     private onCall?: OnCallCallback,
@@ -125,7 +126,7 @@ export class ExtensionHostProcess {
     method: string,
     params: Record<string, unknown>,
     connectionId?: string,
-    meta?: { traceId?: string; depth?: number; deadlineMs?: number },
+    meta?: { traceId?: string; depth?: number; deadlineMs?: number; tags?: string[] },
   ): Promise<unknown> {
     return this.sendRequest(method, params, connectionId, meta);
   }
@@ -142,6 +143,7 @@ export class ExtensionHostProcess {
       source: event.source,
       sessionId: event.sessionId,
       connectionId: event.connectionId,
+      tags: event.tags,
     });
   }
 
@@ -231,7 +233,7 @@ export class ExtensionHostProcess {
     method: string,
     params: Record<string, unknown>,
     connectionId?: string,
-    meta?: { traceId?: string; depth?: number; deadlineMs?: number },
+    meta?: { traceId?: string; depth?: number; deadlineMs?: number; tags?: string[] },
   ): Promise<unknown> {
     if (!this.proc) {
       throw new Error(`Extension host ${this.extensionId} is not running`);
@@ -256,6 +258,7 @@ export class ExtensionHostProcess {
         traceId: meta?.traceId,
         depth: meta?.depth,
         deadlineMs: meta?.deadlineMs,
+        tags: meta?.tags,
       });
     });
   }
@@ -365,12 +368,13 @@ export class ExtensionHostProcess {
       // Extension wants to call another extension via gateway hub
       this.handleCall(msg);
     } else if (msgType === "event") {
-      // Extension emitted an event — forward to gateway (with optional source + connectionId)
+      // Extension emitted an event — forward to gateway (with envelope metadata)
       this.onEvent(
         msg.event as string,
         msg.payload,
         msg.source as string | undefined,
         msg.connectionId as string | undefined,
+        msg.tags as string[] | undefined,
       );
     } else if (msgType === "error") {
       // Fatal error from host
