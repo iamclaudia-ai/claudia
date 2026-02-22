@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import type { ExtensionContext } from "@claudia/shared";
 import { createSessionExtension } from "./index";
 import { SessionManager } from "./session-manager";
+import * as workspace from "./workspace";
 
 const sessionId = "session-test-123";
 
@@ -31,6 +32,10 @@ describe("session extension", () => {
   let listSpy: ReturnType<typeof spyOn>;
   let setPermissionModeSpy: ReturnType<typeof spyOn>;
   let sendToolResultSpy: ReturnType<typeof spyOn>;
+  let listWorkspacesSpy: ReturnType<typeof spyOn>;
+  let getWorkspaceSpy: ReturnType<typeof spyOn>;
+  let getOrCreateWorkspaceSpy: ReturnType<typeof spyOn>;
+  let closeDbSpy: ReturnType<typeof spyOn>;
 
   beforeEach(() => {
     emitEventSpy = spyOn(SessionManager.prototype, "emit");
@@ -60,6 +65,33 @@ describe("session extension", () => {
       true,
     );
     sendToolResultSpy = spyOn(SessionManager.prototype, "sendToolResult").mockReturnValue(true);
+    listWorkspacesSpy = spyOn(workspace, "listWorkspaces").mockReturnValue([
+      {
+        id: "ws-1",
+        name: "project",
+        cwd: "/repo/project",
+        createdAt: "2026-02-22T00:00:00.000Z",
+        updatedAt: "2026-02-22T00:00:00.000Z",
+      },
+    ]);
+    getWorkspaceSpy = spyOn(workspace, "getWorkspace").mockReturnValue({
+      id: "ws-1",
+      name: "project",
+      cwd: "/repo/project",
+      createdAt: "2026-02-22T00:00:00.000Z",
+      updatedAt: "2026-02-22T00:00:00.000Z",
+    });
+    getOrCreateWorkspaceSpy = spyOn(workspace, "getOrCreateWorkspace").mockReturnValue({
+      workspace: {
+        id: "ws-2",
+        name: "new-project",
+        cwd: "/repo/new-project",
+        createdAt: "2026-02-22T00:00:00.000Z",
+        updatedAt: "2026-02-22T00:00:00.000Z",
+      },
+      created: true,
+    });
+    closeDbSpy = spyOn(workspace, "closeDb").mockImplementation(() => {});
 
     promptSpy = spyOn(SessionManager.prototype, "prompt").mockImplementation(function (
       this: SessionManager,
@@ -100,6 +132,10 @@ describe("session extension", () => {
     listSpy.mockRestore();
     setPermissionModeSpy.mockRestore();
     sendToolResultSpy.mockRestore();
+    listWorkspacesSpy.mockRestore();
+    getWorkspaceSpy.mockRestore();
+    getOrCreateWorkspaceSpy.mockRestore();
+    closeDbSpy.mockRestore();
   });
 
   it("returns accumulated text for non-streaming prompts", async () => {
@@ -360,6 +396,55 @@ describe("session extension", () => {
     await expect(ext.handleMethod("session.nope", {})).rejects.toThrow(
       "Unknown method: session.nope",
     );
+
+    await ext.stop();
+  });
+
+  it("routes workspace CRUD methods through workspace module", async () => {
+    const ext = createSessionExtension();
+    await ext.start(createTestContext());
+
+    const listed = await ext.handleMethod("session.list_workspaces", {});
+    expect(listWorkspacesSpy).toHaveBeenCalledTimes(1);
+    expect(listed).toEqual({
+      workspaces: [
+        {
+          id: "ws-1",
+          name: "project",
+          cwd: "/repo/project",
+          createdAt: "2026-02-22T00:00:00.000Z",
+          updatedAt: "2026-02-22T00:00:00.000Z",
+        },
+      ],
+    });
+
+    const fetched = await ext.handleMethod("session.get_workspace", { id: "ws-1" });
+    expect(getWorkspaceSpy).toHaveBeenCalledWith("ws-1");
+    expect(fetched).toEqual({
+      workspace: {
+        id: "ws-1",
+        name: "project",
+        cwd: "/repo/project",
+        createdAt: "2026-02-22T00:00:00.000Z",
+        updatedAt: "2026-02-22T00:00:00.000Z",
+      },
+    });
+
+    const created = await ext.handleMethod("session.get_or_create_workspace", {
+      cwd: "/repo/new-project",
+      name: "new-project",
+    });
+    expect(getOrCreateWorkspaceSpy).toHaveBeenCalledWith("/repo/new-project", "new-project");
+    expect(created).toEqual({
+      workspace: {
+        id: "ws-2",
+        name: "new-project",
+        cwd: "/repo/new-project",
+        createdAt: "2026-02-22T00:00:00.000Z",
+        updatedAt: "2026-02-22T00:00:00.000Z",
+      },
+      created: true,
+    });
 
     await ext.stop();
   });
