@@ -381,11 +381,11 @@ export function createCodexExtension(config: CodexConfig = {}): ClaudiaExtension
         base.command = item.command;
         base.exitCode = item.exit_code;
         base.status = item.status;
-        // Truncate long output in summaries
-        base.output =
-          item.aggregated_output.length > 2000
-            ? item.aggregated_output.slice(0, 2000) + "... (truncated)"
-            : item.aggregated_output;
+        // Fix #5: Guard aggregated_output — may be undefined on partial items
+        {
+          const output = typeof item.aggregated_output === "string" ? item.aggregated_output : "";
+          base.output = output.length > 2000 ? output.slice(0, 2000) + "... (truncated)" : output;
+        }
         break;
       case "file_change":
         base.changes = item.changes;
@@ -443,6 +443,9 @@ export function createCodexExtension(config: CodexConfig = {}): ClaudiaExtension
     };
     activeTask = task;
 
+    // Fix #1: Create abortController BEFORE async kick-off so interrupt works immediately
+    abortController = new AbortController();
+
     // Build thread options
     const threadOptions: ThreadOptions = {
       workingDirectory: expandHome(options.cwd || cfg.cwd || process.cwd()),
@@ -454,8 +457,16 @@ export function createCodexExtension(config: CodexConfig = {}): ClaudiaExtension
       webSearchEnabled: false,
     };
 
-    // Start thread and kick off streaming (fire and forget)
-    const thread = sdk.startThread(threadOptions);
+    // Fix #4: Wrap thread creation — if it throws, clean up activeTask
+    let thread: Thread;
+    try {
+      thread = sdk.startThread(threadOptions);
+    } catch (err) {
+      activeTask = null;
+      taskContext = null;
+      abortController = null;
+      throw err;
+    }
 
     // Prepend personality to prompt
     const fullPrompt = cfg.personality ? `${cfg.personality}\n\n---\n\n${prompt}` : prompt;
