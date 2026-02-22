@@ -667,6 +667,41 @@ describe("session extension", () => {
     }
   });
 
+  it("keeps sessions when prompt extraction encounters malformed JSONL lines", async () => {
+    const ext = createSessionExtension();
+    await ext.start(createTestContext());
+    const cwd = `/tmp/claudia-test-${Date.now()}-malformed-prompt`;
+    const encodedCwd = cwd.replace(/\//g, "-");
+    const projectDir = join(homedir(), ".claude", "projects", encodedCwd);
+    try {
+      mkdirSync(projectDir, { recursive: true });
+
+      writeFileSync(
+        join(projectDir, "broken-first-prompt.jsonl"),
+        [
+          "{not-json",
+          JSON.stringify({
+            type: "assistant",
+            message: {
+              role: "assistant",
+              content: [{ type: "text", text: "assistant only" }],
+            },
+          }),
+        ].join("\n") + "\n",
+      );
+
+      const result = (await ext.handleMethod("session.list_sessions", { cwd })) as {
+        sessions: Array<{ sessionId: string; firstPrompt?: string }>;
+      };
+      expect(result.sessions).toHaveLength(1);
+      expect(result.sessions[0]?.sessionId).toBe("broken-first-prompt");
+      expect(result.sessions[0]?.firstPrompt).toBeUndefined();
+    } finally {
+      rmSync(projectDir, { recursive: true, force: true });
+      await ext.stop();
+    }
+  });
+
   it("times out non-streaming prompts when turn_stop never arrives", async () => {
     const timeoutCallbacks: Array<() => void> = [];
     const timeoutSpy = spyOn(globalThis, "setTimeout").mockImplementation(((
