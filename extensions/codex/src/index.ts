@@ -12,6 +12,8 @@
 
 import { z } from "zod";
 import { homedir } from "node:os";
+import { join } from "node:path";
+import { mkdirSync, existsSync, appendFileSync, writeFileSync } from "node:fs";
 import { runExtensionHost } from "@claudia/extension-host";
 import type { ClaudiaExtension, ExtensionContext, HealthCheckResponse } from "@claudia/shared";
 
@@ -73,6 +75,8 @@ interface ActiveTask {
   resultText: string;
   items: ThreadItem[];
   error: string | null;
+  /** Path to the task output file (~/.claudia/codex/{taskId}.md) */
+  outputFile: string;
 }
 
 /** Request context captured at call time for async event routing */
@@ -117,6 +121,61 @@ const HealthCheckSchema = z.object({});
 let taskCounter = 0;
 function newTaskId(): string {
   return `ctask_${Date.now().toString(36)}_${(++taskCounter).toString(36)}`;
+}
+
+// ── Task Output File ─────────────────────────────────────────
+
+const CODEX_OUTPUT_DIR = join(process.env.CLAUDIA_DATA_DIR || join(homedir(), ".claudia"), "codex");
+
+function ensureOutputDir(): void {
+  if (!existsSync(CODEX_OUTPUT_DIR)) {
+    mkdirSync(CODEX_OUTPUT_DIR, { recursive: true });
+  }
+}
+
+function initOutputFile(taskId: string, type: TaskType, prompt: string): string {
+  ensureOutputDir();
+  const filePath = join(CODEX_OUTPUT_DIR, `${taskId}.md`);
+  const header =
+    `# Codex Task: ${type}\n` +
+    `**Task ID:** ${taskId}\n` +
+    `**Started:** ${new Date().toISOString()}\n` +
+    `**Status:** running\n\n` +
+    `## Prompt\n\n${prompt}\n\n` +
+    `## Output\n\n`;
+  writeFileSync(filePath, header, "utf-8");
+  return filePath;
+}
+
+function appendToOutput(filePath: string, text: string): void {
+  try {
+    appendFileSync(filePath, text, "utf-8");
+  } catch {
+    // Silently ignore write errors — don't break the task
+  }
+}
+
+function finalizeOutput(
+  filePath: string,
+  status: TaskStatus,
+  result: string,
+  error?: string,
+): void {
+  let footer = "\n\n---\n\n";
+  if (status === "completed") {
+    footer += `**Status:** completed\n**Finished:** ${new Date().toISOString()}\n`;
+    if (result) {
+      footer += `\n## Result\n\n${result}\n`;
+    }
+  } else if (status === "failed") {
+    footer += `**Status:** failed\n**Error:** ${error || "unknown"}\n`;
+  } else if (status === "interrupted") {
+    footer += `**Status:** interrupted\n`;
+    if (result) {
+      footer += `\n## Partial Result\n\n${result}\n`;
+    }
+  }
+  appendToOutput(filePath, footer);
 }
 
 // ── Extension Factory ────────────────────────────────────────
@@ -191,14 +250,16 @@ export function createCodexExtension(config: CodexConfig = {}): ClaudiaExtension
       // If we exited normally and task wasn't already marked
       if (activeTask?.id === task.id && task.status === "running") {
         task.status = "completed";
+        finalizeOutput(task.outputFile, "completed", task.resultText);
         emit(`codex.${task.id}.turn_stop`, {
           taskId: task.id,
           type: task.type,
           result: task.resultText,
           items: task.items.map(summarizeItem),
           threadId: thread.id,
+          outputFile: task.outputFile,
         });
-        ctx?.log.info(`Task ${task.id} completed (${task.type})`);
+        ctx?.log.info(`Task ${task.id} completed (${task.type}) → ${task.outputFile}`);
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
@@ -211,22 +272,26 @@ export function createCodexExtension(config: CodexConfig = {}): ClaudiaExtension
         message.toLowerCase().includes("cancel");
       if (isAbort) {
         task.status = "interrupted";
+        finalizeOutput(task.outputFile, "interrupted", task.resultText);
         emit(`codex.${task.id}.turn_stop`, {
           taskId: task.id,
           type: task.type,
           result: task.resultText,
           interrupted: true,
           threadId: thread.id,
+          outputFile: task.outputFile,
         });
         ctx?.log.info(`Task ${task.id} interrupted`);
       } else {
         task.status = "failed";
         task.error = message;
+        finalizeOutput(task.outputFile, "failed", task.resultText, message);
         emit(`codex.${task.id}.error`, {
           taskId: task.id,
           type: task.type,
           error: message,
           threadId: thread.id,
+          outputFile: task.outputFile,
         });
         ctx?.log.error(`Task ${task.id} failed: ${message}`);
       }
@@ -263,9 +328,10 @@ export function createCodexExtension(config: CodexConfig = {}): ClaudiaExtension
           itemType: event.item.type,
           item: summarizeItem(event.item),
         });
-        // If it's a command, log what's running
+        // If it's a command, log what's running and write to output file
         if (event.item.type === "command_execution") {
           ctx?.log.info(`Cody running: ${event.item.command}`);
+          appendToOutput(task.outputFile, `\n\`\`\`bash\n$ ${event.item.command}\n`);
         }
         break;
 
@@ -280,14 +346,24 @@ export function createCodexExtension(config: CodexConfig = {}): ClaudiaExtension
           itemType: event.item.type,
           item: summarizeItem(event.item),
         });
-        // Accumulate agent message text
+        // Accumulate agent message text and write to output file
         if (event.item.type === "agent_message") {
           task.resultText += (task.resultText ? "\n" : "") + event.item.text;
+          appendToOutput(task.outputFile, event.item.text + "\n");
+        } else if (event.item.type === "command_execution") {
+          const output =
+            typeof event.item.aggregated_output === "string" ? event.item.aggregated_output : "";
+          if (output) appendToOutput(task.outputFile, output);
+          appendToOutput(task.outputFile, `\n\`\`\`\n_(exit ${event.item.exit_code ?? "?"})_\n\n`);
+        } else if (event.item.type === "file_change") {
+          const changes = event.item.changes.map((c) => `  - ${c.kind}: ${c.path}`).join("\n");
+          appendToOutput(task.outputFile, `\n**File changes:**\n${changes}\n\n`);
         }
         break;
 
       case "turn.completed":
         task.status = "completed";
+        finalizeOutput(task.outputFile, "completed", task.resultText);
         emit(`codex.${taskId}.turn_stop`, {
           taskId,
           type: task.type,
@@ -295,18 +371,21 @@ export function createCodexExtension(config: CodexConfig = {}): ClaudiaExtension
           items: task.items.map(summarizeItem),
           threadId: task.threadId,
           usage: event.usage,
+          outputFile: task.outputFile,
         });
-        ctx?.log.info(`Task ${taskId} completed (${task.type})`);
+        ctx?.log.info(`Task ${taskId} completed (${task.type}) → ${task.outputFile}`);
         break;
 
       case "turn.failed":
         task.status = "failed";
         task.error = event.error.message;
+        finalizeOutput(task.outputFile, "failed", task.resultText, event.error.message);
         emit(`codex.${taskId}.error`, {
           taskId,
           type: task.type,
           error: event.error.message,
           threadId: task.threadId,
+          outputFile: task.outputFile,
         });
         ctx?.log.error(`Task ${taskId} failed: ${event.error.message}`);
         break;
@@ -315,12 +394,14 @@ export function createCodexExtension(config: CodexConfig = {}): ClaudiaExtension
         // Fix #2: mark task as failed on stream error
         task.status = "failed";
         task.error = event.message;
+        finalizeOutput(task.outputFile, "failed", task.resultText, event.message);
         ctx?.log.error(`Codex stream error: ${event.message}`);
         emit(`codex.${taskId}.error`, {
           taskId,
           type: task.type,
           error: event.message,
           threadId: task.threadId,
+          outputFile: task.outputFile,
         });
         break;
     }
@@ -430,6 +511,9 @@ export function createCodexExtension(config: CodexConfig = {}): ClaudiaExtension
       tags: ctx?.tags ?? null,
     };
 
+    // Create output file for persistent results
+    const outputFile = initOutputFile(taskId, type, prompt);
+
     const task: ActiveTask = {
       id: taskId,
       type,
@@ -440,6 +524,7 @@ export function createCodexExtension(config: CodexConfig = {}): ClaudiaExtension
       resultText: "",
       items: [],
       error: null,
+      outputFile,
     };
     activeTask = task;
 
@@ -482,7 +567,8 @@ export function createCodexExtension(config: CodexConfig = {}): ClaudiaExtension
       taskId,
       type,
       status: "running",
-      message: `Cody is on it! Watch codex.${taskId}.* events for progress.`,
+      outputFile,
+      message: `Cody is on it! Tail ${outputFile} for live output, or watch codex.${taskId}.* events.`,
     };
   }
 
@@ -627,6 +713,7 @@ export function createCodexExtension(config: CodexConfig = {}): ClaudiaExtension
             itemCount: activeTask.items.length,
             resultPreview: activeTask.resultText.slice(0, 500) || null,
             threadId: activeTask.threadId,
+            outputFile: activeTask.outputFile,
           };
         }
 
