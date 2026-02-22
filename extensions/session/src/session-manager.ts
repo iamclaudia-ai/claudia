@@ -64,6 +64,18 @@ export interface SessionDefaults {
 export class SessionManager extends EventEmitter {
   private sessions = new Map<string, SDKSession>();
   private defaults: SessionDefaults = {};
+  private deps: {
+    create: typeof createSDKSession;
+    resume: typeof resumeSDKSession;
+  };
+
+  constructor(deps?: { create?: typeof createSDKSession; resume?: typeof resumeSDKSession }) {
+    super();
+    this.deps = {
+      create: deps?.create || createSDKSession,
+      resume: deps?.resume || resumeSDKSession,
+    };
+  }
 
   /**
    * Set session defaults for lazy-resume fallback.
@@ -85,7 +97,7 @@ export class SessionManager extends EventEmitter {
       effort: params.effort,
     };
 
-    const session = createSDKSession(options);
+    const session = this.deps.create(options);
     await session.start();
 
     this.sessions.set(session.id, session);
@@ -114,7 +126,7 @@ export class SessionManager extends EventEmitter {
       effort: params.effort,
     };
 
-    const session = resumeSDKSession(params.sessionId, options);
+    const session = this.deps.resume(params.sessionId, options);
     await session.start();
 
     this.sessions.set(session.id, session);
