@@ -181,9 +181,16 @@ export class SDKSession extends EventEmitter {
   // Logging
   private logFile?: string;
   private logger;
+  private queryFactory: typeof query;
 
-  constructor(id: string, options: CreateSessionOptions | ResumeSessionOptions, isResume: boolean) {
+  constructor(
+    id: string,
+    options: CreateSessionOptions | ResumeSessionOptions,
+    isResume: boolean,
+    deps?: { queryFactory?: typeof query },
+  ) {
     super();
+    this.queryFactory = deps?.queryFactory || query;
     this.id = id;
     this.logger = createLogger(
       `SDKSession:${id.slice(0, 8)}`,
@@ -387,7 +394,7 @@ export class SDKSession extends EventEmitter {
       isResume: !this.isFirstPrompt,
     });
 
-    this.queryInstance = query({
+    this.queryInstance = this.queryFactory({
       prompt: this.messageChannel,
       options,
     });
