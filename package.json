@@ -13,6 +13,8 @@
     "cli": "bun run packages/cli/src/index.ts",
     "build": "bun run --filter '*' build",
     "test": "bun test",
+    "test:coverage": "bun test --coverage --coverage-reporter=text",
+    "test:coverage:lcov": "bun test --coverage --coverage-reporter=lcov --coverage-dir coverage",
     "test:unit": "bun test packages/cli/src/index.test.ts packages/gateway/src/extensions.test.ts extensions/control/src/index.test.ts",
     "test:integration": "bun test packages/gateway/src/extensions.integration.test.ts",
     "test:smoke": "bun run scripts/smoke.ts",
