@@ -7,9 +7,9 @@ description: "Use PROACTIVELY when you need to delegate code review, test writin
 
 You have a sub-agent named Cody powered by OpenAI's Codex. He runs as a separate process with his own sandbox and can execute commands, edit files, and run tests autonomously. Use the Claudia CLI to send him work.
 
-## IMPORTANT: Always Pass Your Session ID
+## Completion Notifications
 
-Your session ID is available as `$CLAUDIA_SESSION_ID` in your environment. **Always include `--sessionId "$CLAUDIA_SESSION_ID"` when delegating to Cody.** This way Cody will send a `<user_notification>` message back to your session when he finishes — no polling needed. You'll receive the notification as a user message that looks like:
+When you delegate a task to Cody, your session ID is automatically included (via `$CLAUDIA_SESSION_ID`). When Cody finishes, he'll send a `<user_notification>` message back to your session — no polling needed. You'll receive it like any other user message:
 
 ```
 <user_notification>
@@ -45,11 +45,11 @@ claudia codex task --prompt "Describe what you want Cody to do"
 
 Optional parameters:
 
-- `--sessionId "uuid"` — **Session to notify on completion** (Cody will inject a `<user_notification>` into this session when done)
 - `--cwd /path/to/project` — Working directory (defaults to extension config)
 - `--sandbox "read-only"` — Sandbox mode: `read-only`, `workspace-write`, `danger-full-access`
 - `--model "gpt-5.2-codex"` — Model override
 - `--effort "medium"` — Reasoning effort: `minimal`, `low`, `medium`, `high`, `xhigh`
+- `--sessionId "uuid"` — Override which session to notify (auto-detected from `$CLAUDIA_SESSION_ID`)
 
 ### Code Review (Read-Only)
 
@@ -108,10 +108,9 @@ From any Claudia extension, you can delegate to Cody via `ctx.call()`:
 
 ```typescript
 // Fire and forget — returns immediately with a task handle
-// Pass sessionId so Cody notifies you when done (no polling needed!)
 const handle = await ctx.call("codex.task", {
   prompt: "Review the session extension for memory leaks",
-  sessionId: "your-session-uuid",
+  sessionId: "your-session-uuid", // required when calling from extension code
   cwd: "/Users/michael/Projects/iamclaudia-ai/claudia",
   sandbox: "read-only",
 });
@@ -129,19 +128,19 @@ const handle = await ctx.call("codex.task", {
 ## Examples
 
 ```bash
-# Quick code review (always pass --sessionId so you get notified!)
-claudia codex review --prompt "Check extensions/codex/src/index.ts for error handling gaps" --sessionId "$CLAUDIA_SESSION_ID"
+# Quick code review
+claudia codex review --prompt "Check extensions/codex/src/index.ts for error handling gaps"
 
 # Targeted review with file list
-claudia codex review --prompt "Look for race conditions" --files '["src/session-manager.ts", "src/sdk-session.ts"]' --sessionId "$CLAUDIA_SESSION_ID"
+claudia codex review --prompt "Look for race conditions" --files '["src/session-manager.ts", "src/sdk-session.ts"]'
 
 # Write tests for a specific module
-claudia codex test --prompt "Write bun tests for extensions/voice/src/sentence-chunker.ts with edge cases for emoji and unicode" --sessionId "$CLAUDIA_SESSION_ID"
+claudia codex test --prompt "Write bun tests for extensions/voice/src/sentence-chunker.ts with edge cases for emoji and unicode"
 
 # General task with high effort
-claudia codex task --prompt "Refactor the workspace.ts database layer to use prepared statements" --effort high --sessionId "$CLAUDIA_SESSION_ID"
+claudia codex task --prompt "Refactor the workspace.ts database layer to use prepared statements" --effort high
 
-# Check what Cody is doing (no sessionId needed)
+# Check what Cody is doing
 claudia codex status
 
 # Cancel if taking too long
@@ -158,28 +157,12 @@ Every task writes persistent output to `~/.claudia/codex/{taskId}.md`. The file 
 
 The task handle includes the `outputFile` path. You can read the file to get Cody's full output after completion.
 
-## Completion Notifications
-
-Pass `sessionId` when starting a task to get notified automatically when Cody finishes:
-
-```typescript
-const handle = await ctx.call("codex.review", {
-  prompt: "Review this file for bugs",
-  sessionId: "your-session-id",
-});
-// When Cody finishes, a <user_notification> message is injected into your session
-// You'll receive it like any other message and can act on the results
-```
-
-From the CLI, pass `--sessionId` to any task/review/test command.
-
-When a `sessionId` is provided, Cody calls `session.send_notification` on completion, which injects a `<user_notification>` message into the originating session. No polling needed — you'll be told when Cody is done, along with the output file path.
-
 ## Important Notes
 
 - **One task at a time**: Cody can only work on one thing. If you send a new task while he's busy, it will error. Use `codex.interrupt` first, or check `codex.status`.
 - **Auto-approve**: By default, Cody auto-approves all command executions and file changes. This is configurable via `autoApprove` in the extension config.
 - **Fresh thread per task**: Each task creates a new Codex conversation thread. Context does not carry between tasks.
 - **Personality**: Cody's system prompt is configurable. The default tells him to be thorough and precise.
-- **The task returns immediately**: `codex.task` / `codex.review` / `codex.test` return a task handle right away. The actual work happens asynchronously. If you pass `sessionId`, you'll be notified when Cody finishes. Otherwise, watch events or poll `codex.status`.
+- **The task returns immediately**: `codex.task` / `codex.review` / `codex.test` return a task handle right away. The actual work happens asynchronously. You'll be notified when Cody finishes via `<user_notification>`.
+- **Session ID auto-detected**: The CLI auto-injects `$CLAUDIA_SESSION_ID` for codex commands. You only need `--sessionId` to override to a different session.
 - **Connection-scoped routing**: Events use `gateway.caller` routing, so only the client that initiated the task receives the streaming events.

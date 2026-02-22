@@ -420,17 +420,25 @@ export function printMethodList(methods: MethodCatalogEntry[], namespace?: strin
 }
 
 export function printCliHelp(methods: MethodCatalogEntry[]): void {
+  console.log("Claudia CLI — gateway client for the Claudia AI assistant platform.\n");
   console.log("Usage:\n");
-  console.log("  claudia <namespace> <action> --param value");
-  console.log("  claudia <namespace> <action> --help");
-  console.log("  claudia <namespace> <action> --examples");
-  console.log("  claudia <namespace> --help");
-  console.log("  claudia methods [namespace]");
+  console.log('  claudia "your message here"                Send a quick prompt');
+  console.log("  claudia <namespace> <action> --param value  Call a method");
+  console.log("  claudia <namespace> <action> --help          Show method help");
+  console.log("  claudia <namespace> <action> --examples      Show usage examples");
+  console.log("  claudia <namespace> --help                   List namespace methods");
+  console.log("  claudia methods [namespace]                  List all available methods");
 
   console.log("\nNamespaces:\n");
   for (const ns of getNamespaces(methods)) {
     console.log(`  ${ns}`);
   }
+
+  console.log("\nSession ID:\n");
+  console.log("  Commands that require a --sessionId will auto-detect it from the");
+  console.log("  $CLAUDIA_SESSION_ID environment variable. When running inside a");
+  console.log("  Claudia session, this is set automatically — one will be provided");
+  console.log("  for you at no extra charge. Pass --sessionId explicitly to override.");
 }
 
 async function fetchMethodCatalog(): Promise<MethodCatalogEntry[]> {
@@ -1041,6 +1049,27 @@ async function main(): Promise<void> {
   }
 
   const params = parseCliParams(paramArgs);
+
+  // Auto-inject sessionId from $CLAUDIA_SESSION_ID if not explicitly provided
+  if (!params.sessionId && methodDef.inputSchema) {
+    const schema =
+      resolveSchema(methodDef.inputSchema, methodDef.inputSchema) ?? methodDef.inputSchema;
+    const hasSessionId = schema.type === "object" && schema.properties?.sessionId;
+    if (hasSessionId) {
+      const isRequired = schema.required?.includes("sessionId") ?? false;
+      if (process.env.CLAUDIA_SESSION_ID) {
+        params.sessionId = process.env.CLAUDIA_SESSION_ID;
+      } else if (isRequired) {
+        console.error(
+          `Error: ${resolvedMethod} requires --sessionId but $CLAUDIA_SESSION_ID is not set.`,
+        );
+        console.error(`Either pass --sessionId explicitly or run from within a Claudia session.\n`);
+        printMethodHelp(methodDef);
+        process.exit(1);
+      }
+    }
+  }
+
   validateParamsAgainstSchema(resolvedMethod, params, methodDef.inputSchema);
   await invokeMethod(resolvedMethod, params);
 }
