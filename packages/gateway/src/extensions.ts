@@ -429,6 +429,7 @@ export class ExtensionManager {
       },
 
       connectionId: null, // In-process extensions don't get per-request connectionId
+      tags: null, // In-process extensions don't get per-request tags
 
       config: {}, // TODO: Load from config file
 

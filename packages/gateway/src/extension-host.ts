@@ -46,7 +46,13 @@ export type OnCallCallback = (
   callerExtensionId: string,
   method: string,
   params: Record<string, unknown>,
-  meta: { connectionId?: string; traceId?: string; depth?: number; deadlineMs?: number },
+  meta: {
+    connectionId?: string;
+    tags?: string[];
+    traceId?: string;
+    depth?: number;
+    deadlineMs?: number;
+  },
 ) => Promise<{ ok: true; payload: unknown } | { ok: false; error: string }>;
 
 export class ExtensionHostProcess {
@@ -395,6 +401,7 @@ export class ExtensionHostProcess {
     const depth = (msg.depth as number) || 0;
     const traceId = (msg.traceId as string) || randomUUID();
     const deadlineMs = msg.deadlineMs as number | undefined;
+    const tags = msg.tags as string[] | undefined;
 
     // Guardrail: max depth
     if (depth > 8) {
@@ -433,6 +440,7 @@ export class ExtensionHostProcess {
     try {
       const result = await this.onCall(this.extensionId, method, params, {
         connectionId: msg.connectionId as string | undefined,
+        tags,
         traceId,
         depth,
         deadlineMs,

@@ -92,11 +92,17 @@ async function spawnOutOfProcessExtension(
   // ctx.call handler: route calls from this extension through the gateway hub
   const onCall: OnCallCallback = async (callerExtensionId, method, params, meta) => {
     try {
-      const result = await extensions.handleMethod(method, params, meta.connectionId, {
-        traceId: meta.traceId,
-        depth: meta.depth,
-        deadlineMs: meta.deadlineMs,
-      });
+      const result = await extensions.handleMethod(
+        method,
+        params,
+        meta.connectionId,
+        {
+          traceId: meta.traceId,
+          depth: meta.depth,
+          deadlineMs: meta.deadlineMs,
+        },
+        meta.tags,
+      );
       return { ok: true as const, payload: result };
     } catch (error) {
       return { ok: false as const, error: String(error) };

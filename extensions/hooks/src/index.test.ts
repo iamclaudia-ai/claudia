@@ -38,6 +38,7 @@ function createMockContext() {
       throw new Error("Not implemented in test");
     },
     connectionId: null,
+    tags: null,
     config: {},
     log: {
       info() {},

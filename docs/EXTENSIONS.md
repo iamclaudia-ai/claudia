@@ -208,6 +208,8 @@ interface ExtensionContext {
   call(method: string, params?: Record<string, unknown>): Promise<unknown>;
   /** The originating WebSocket connection ID (set per-request by gateway envelope) */
   connectionId: string | null;
+  /** Opaque tags from the request/event envelope (set per-request by gateway envelope) */
+  tags: string[] | null;
   /** Extension configuration */
   config: Record<string, unknown>;
   /** Logger — writes to console + file at ~/.claudia/logs/{extensionId}.log */

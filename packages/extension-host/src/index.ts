@@ -190,6 +190,7 @@ export async function runExtensionHost(factory: ExtensionFactory): Promise<void>
             method,
             params: params ?? {},
             connectionId: currentConnectionId,
+            tags: currentTags,
             traceId: currentTraceId || randomUUID(),
             depth: currentDepth + 1,
             deadlineMs,
@@ -199,6 +200,10 @@ export async function runExtensionHost(factory: ExtensionFactory): Promise<void>
 
       get connectionId(): string | null {
         return currentConnectionId;
+      },
+
+      get tags(): string[] | null {
+        return currentTags;
       },
 
       config,

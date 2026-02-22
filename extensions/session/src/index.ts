@@ -227,8 +227,8 @@ function discoverSessions(cwd: string): SessionIndexEntry[] {
 
 interface RequestContext {
   connectionId: string | null;
+  tags: string[] | null;
   source?: string;
-  wantsVoice?: boolean;
   responseText: string;
 }
 
@@ -258,11 +258,19 @@ export function createSessionExtension(config: Record<string, unknown> = {}): Cl
       const { eventName, sessionId, ...payload } = event;
       const reqCtx = requestContexts.get(sessionId);
 
-      // Emit stream events with optional source routing
+      // Emit stream events with envelope context restored from requestContexts.
+      // We store connectionId/tags at prompt time because the extension host's
+      // currentConnectionId/currentTags are restored to null after the method returns,
+      // but async stream events keep firing via the manager's EventEmitter.
+      const emitOptions: { source?: string; connectionId?: string; tags?: string[] } = {};
+      if (reqCtx?.source) emitOptions.source = reqCtx.source;
+      if (reqCtx?.connectionId) emitOptions.connectionId = reqCtx.connectionId;
+      if (reqCtx?.tags) emitOptions.tags = reqCtx.tags;
+
       ctx.emit(
         eventName,
-        { ...payload, sessionId, connectionId: reqCtx?.connectionId ?? undefined },
-        reqCtx?.source ? { source: reqCtx.source } : undefined,
+        { ...payload, sessionId },
+        Object.keys(emitOptions).length > 0 ? emitOptions : undefined,
       );
 
       // Accumulate response text for non-streaming callers
@@ -475,9 +483,12 @@ export function createSessionExtension(config: Record<string, unknown> = {}): Cl
           prompt: truncate(content),
         });
 
-        // Set up request context
+        // Set up request context — capture envelope data now because the extension
+        // host restores currentConnectionId/currentTags after this method returns,
+        // but async stream events keep firing via the manager's EventEmitter.
         requestContexts.set(sessionId, {
           connectionId: ctx.connectionId,
+          tags: ctx.tags,
           source,
           responseText: "",
         });

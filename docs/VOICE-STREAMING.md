@@ -208,10 +208,12 @@ The extension host automatically stamps `currentConnectionId` and `currentTags` 
 
 Voice is **per-request opt-in** via the `voice.speak` tag. There is no server-side `autoSpeak` config.
 
-- **Web chat:** UI sends `tags: ["voice.speak"]` when voice mode is enabled for the workspace
-- **iOS voice mode:** Sends `tags: ["voice.speak"]` on every prompt (it's a voice-first interface)
-- **CLI / iMessage:** No voice tag — responses are text-only
-- **Per-workspace control:** Web chat can toggle voice on/off per workspace; the tag is only sent when voice is active
+For example, clients can opt in like this:
+
+- **Web chat:** Could send `tags: ["voice.speak"]` when voice mode is enabled for a workspace
+- **iOS voice mode:** Could send `tags: ["voice.speak"]` on every prompt (it's a voice-first interface)
+- **CLI / iMessage:** Would not include a voice tag — responses are text-only
+- **Per-workspace control:** A web chat UI could toggle voice on/off per workspace; the tag is only sent when voice is active
 
 If no `voice.speak` tag is present, the voice extension ignores the event entirely — no TTS, no stream, no audio.
 
