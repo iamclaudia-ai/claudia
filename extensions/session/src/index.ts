@@ -528,9 +528,9 @@ export function createSessionExtension(config: Record<string, unknown> = {}): Cl
           const onEvent = (event: { eventName: string; sessionId: string; type?: string }) => {
             if (event.sessionId !== sessionId) return;
             if (event.type === "turn_stop") {
-              cleanup();
               const reqCtx = requestContexts.get(sessionId);
               const text = reqCtx?.responseText || "";
+              cleanup();
               const elapsed = Date.now() - promptStart;
               log.info("Non-streaming prompt complete", {
                 sessionId: sid(sessionId),
