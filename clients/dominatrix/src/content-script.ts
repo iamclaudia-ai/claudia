@@ -763,7 +763,7 @@ function initDominatrix() {
     const td = new TurndownService({ headingStyle: "atx", codeBlockStyle: "fenced" });
     td.use(gfm);
     td.remove(["script", "style", "noscript"]);
-    return td.turndown(el);
+    return td.turndown(el as HTMLElement);
   }
 
   // ==========================================================================
