@@ -362,4 +362,57 @@ describe("ExtensionManager", () => {
     manager.forceKillRemoteHosts();
     expect(forceKilled).toBe(1);
   });
+
+  it("surfaces ctx.call unsupported error for in-process extensions", async () => {
+    const manager = new ExtensionManager();
+    let ctxRef: ExtensionContext | null = null;
+    await manager.register({
+      id: "test",
+      name: "Test Extension",
+      methods: [
+        {
+          name: "test.call_local",
+          description: "Attempt in-process ctx.call",
+          inputSchema: z.object({}),
+        },
+      ],
+      events: [],
+      async start(ctx: ExtensionContext) {
+        ctxRef = ctx;
+      },
+      async stop() {},
+      async handleMethod() {
+        return await ctxRef!.call("session.send_prompt", { content: "ping" });
+      },
+      health() {
+        return { ok: true };
+      },
+    });
+
+    await expect(manager.handleMethod("test.call_local", {})).rejects.toThrow(
+      "ctx.call() not yet supported for in-process extensions. Use out-of-process extensions.",
+    );
+  });
+
+  it("unregister stops local extension and removes local source routes", async () => {
+    const manager = new ExtensionManager();
+    let stopped = 0;
+    await manager.register(
+      createTestExtension({
+        sourceRoutes: ["imsg"],
+        async stop() {
+          stopped += 1;
+        },
+      }),
+    );
+
+    expect(manager.hasSourceRoute("imsg/+1555")).toBe(true);
+    expect(manager.getSourceHandler("imsg/+1555")).toBe("test");
+
+    await manager.unregister("test");
+    expect(stopped).toBe(1);
+    expect(manager.hasSourceRoute("imsg/+1555")).toBe(false);
+    expect(manager.getSourceHandler("imsg/+1555")).toBeUndefined();
+    expect(manager.hasMethod("test.echo")).toBe(false);
+  });
 });

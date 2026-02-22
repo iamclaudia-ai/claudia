@@ -98,6 +98,16 @@ export class ExtensionManager {
     await extension.stop();
     this.extensions.delete(extensionId);
 
+    // Remove source routes owned by this local extension.
+    if (extension.sourceRoutes?.length) {
+      for (const prefix of extension.sourceRoutes) {
+        const owner = this.sourceRoutes.get(prefix);
+        if (owner === extensionId) {
+          this.sourceRoutes.delete(prefix);
+        }
+      }
+    }
+
     // Remove all handlers for this extension
     for (const [_pattern, _handlers] of this.eventHandlers) {
       // Note: We'd need to track which handlers belong to which extension
