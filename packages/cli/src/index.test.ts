@@ -2,6 +2,10 @@ import { describe, expect, it, spyOn } from "bun:test";
 import {
   coerceValue,
   exampleValueForSchema,
+  formatFlagPlaceholder,
+  formatMethodCommand,
+  getNamespaces,
+  matchesSchemaType,
   parseCliParams,
   printCliHelp,
   printMethodExamples,
@@ -49,6 +53,10 @@ describe("cli parsing", () => {
     expect(() => parseCliParams(["oops"])).toThrow(
       "Unexpected positional argument: oops. Use --name value.",
     );
+  });
+
+  it("rejects invalid empty flag token", () => {
+    expect(() => parseCliParams(["--"])).toThrow("Invalid flag: --");
   });
 });
 
@@ -136,6 +144,47 @@ describe("schema resolution and validation", () => {
     expect(
       exampleValueForSchema({ type: "array", items: { type: "string" } }, sessionPromptSchema),
     ).toBe("'[\"value\"]'");
+  });
+
+  it("handles schema edge cases and additional primitive/object types", () => {
+    expect(resolveSchema({ $ref: "#/missing" }, sessionPromptSchema)).toEqual({
+      $ref: "#/missing",
+    });
+    expect(resolveSchema(undefined, sessionPromptSchema)).toBeUndefined();
+    expect(resolveSchema({ $ref: "#/definitions/session_send_prompt" }, undefined)).toEqual({
+      $ref: "#/definitions/session_send_prompt",
+    });
+
+    expect(schemaType({ allOf: [{ type: "string" }, { type: "number" }] })).toBe("string&number");
+    expect(schemaType(undefined)).toBe("unknown");
+
+    expect(matchesSchemaType(1, { type: "integer" }, sessionPromptSchema)).toBe(true);
+    expect(matchesSchemaType(1.5, { type: "integer" }, sessionPromptSchema)).toBe(false);
+    expect(matchesSchemaType(null, { type: "null" }, sessionPromptSchema)).toBe(true);
+    expect(matchesSchemaType({ a: 1 }, { type: "object" }, sessionPromptSchema)).toBe(true);
+    expect(
+      matchesSchemaType(
+        [1, 2],
+        { type: "array", items: [{ type: "number" }] },
+        sessionPromptSchema,
+      ),
+    ).toBe(true);
+    expect(
+      matchesSchemaType(
+        [1, "x"],
+        { type: "array", items: { type: "number" } },
+        sessionPromptSchema,
+      ),
+    ).toBe(false);
+
+    expect(exampleValueForSchema({ enum: ["alpha", "beta"] }, sessionPromptSchema)).toBe('"alpha"');
+    expect(
+      exampleValueForSchema({ type: "array", items: [{ type: "string" }] }, sessionPromptSchema),
+    ).toBe("'[]'");
+    expect(exampleValueForSchema({ type: "object" }, sessionPromptSchema)).toBe("'{}'");
+    expect(exampleValueForSchema({ type: "number" }, sessionPromptSchema)).toBe("1.23");
+    expect(exampleValueForSchema({ type: "integer" }, sessionPromptSchema)).toBe("1");
+    expect(exampleValueForSchema({ type: "null" }, sessionPromptSchema)).toBe("null");
   });
 });
 
@@ -246,5 +295,36 @@ describe("help/example output", () => {
     expect(lines.some((l) => l.includes("claudia session send_prompt"))).toBe(false);
 
     logSpy.mockRestore();
+  });
+
+  it("prints fallbacks for unknown namespaces and methods", () => {
+    const logSpy = spyOn(console, "log").mockImplementation(() => undefined);
+    const errSpy = spyOn(console, "error").mockImplementation(() => undefined);
+
+    printNamespaceHelp("missing", methods);
+    printMethodList(methods, "missing");
+
+    expect(errSpy.mock.calls.flat().map(String)).toContain("Unknown namespace: missing");
+
+    expect(formatFlagPlaceholder("tab-id", true)).toBe("<TAB-ID>");
+    expect(formatFlagPlaceholder("verbose", false)).toBe("[VERBOSE]");
+    expect(formatMethodCommand({ method: "broken", source: "gateway" })).toBe("claudia broken");
+    expect(getNamespaces(methods)).toEqual(["dominatrix", "session"]);
+
+    printMethodHelp({ method: "gateway.health_check", source: "gateway" });
+    printMethodHelp({
+      method: "hooks.list",
+      source: "gateway",
+      inputSchema: { type: "object", properties: {} },
+    });
+    printMethodExamples({ method: "broken", source: "gateway", inputSchema: { type: "object" } });
+
+    const lines = logSpy.mock.calls.flat().map((v) => String(v));
+    expect(lines.some((l) => l.includes("No input schema available."))).toBe(true);
+    expect(lines.some((l) => l.includes("No parameters."))).toBe(true);
+    expect(lines.some((l) => l.includes("claudia broken examples"))).toBe(true);
+
+    logSpy.mockRestore();
+    errSpy.mockRestore();
   });
 });
