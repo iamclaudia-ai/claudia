@@ -367,7 +367,7 @@ function handleSubscribe(ws: ServerWebSocket<ClientState>, req: Request): void {
 }
 
 /**
- * Handle unsubscription requests
+ * Handle unsubscribe requests
  */
 function handleUnsubscribe(ws: ServerWebSocket<ClientState>, req: Request): void {
   const state = clients.get(ws);
