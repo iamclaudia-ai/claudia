@@ -344,6 +344,19 @@ export function createSessionExtension(config: Record<string, unknown> = {}): Cl
       }),
     },
     {
+      name: "session.send_notification",
+      description:
+        "Inject a notification into a session as a user message wrapped in <user_notification> tags. " +
+        "Used by extensions (e.g. codex) to notify the session when async work completes.",
+      inputSchema: z.object({
+        sessionId: z.string().describe("Session UUID to notify"),
+        text: z
+          .string()
+          .min(1)
+          .describe("Notification text (will be wrapped in <user_notification> tags)"),
+      }),
+    },
+    {
       name: "session.send_tool_result",
       description: "Send tool result for interactive tools",
       inputSchema: z.object({
@@ -634,6 +647,25 @@ export function createSessionExtension(config: Record<string, unknown> = {}): Cl
           params.isError as boolean,
         );
         return { ok };
+      }
+
+      case "session.send_notification": {
+        const sessionId = params.sessionId as string;
+        const text = params.text as string;
+
+        log.info("Sending notification", { sessionId: sid(sessionId), text: truncate(text) });
+
+        // Set up request context so the session's response streams to the right connection
+        requestContexts.set(sessionId, {
+          connectionId: ctx.connectionId,
+          tags: ctx.tags,
+          responseText: "",
+        });
+
+        const wrapped = `<user_notification>\n${text}\n</user_notification>`;
+        await manager.prompt(sessionId, wrapped);
+
+        return { ok: true, sessionId };
       }
 
       case "session.list_workspaces": {

@@ -27,6 +27,7 @@ claudia codex task --prompt "Describe what you want Cody to do"
 
 Optional parameters:
 
+- `--sessionId "uuid"` — **Session to notify on completion** (Cody will inject a `<user_notification>` into this session when done)
 - `--cwd /path/to/project` — Working directory (defaults to extension config)
 - `--sandbox "read-only"` — Sandbox mode: `read-only`, `workspace-write`, `danger-full-access`
 - `--model "gpt-5.2-codex"` — Model override
@@ -89,26 +90,14 @@ From any Claudia extension, you can delegate to Cody via `ctx.call()`:
 
 ```typescript
 // Fire and forget — returns immediately with a task handle
+// Pass sessionId so Cody notifies you when done (no polling needed!)
 const handle = await ctx.call("codex.task", {
   prompt: "Review the session extension for memory leaks",
+  sessionId: "your-session-uuid",
   cwd: "/Users/michael/Projects/iamclaudia-ai/claudia",
   sandbox: "read-only",
 });
-// handle = { taskId: "ctask_abc123", status: "running", message: "..." }
-
-// Check on progress later
-const status = await ctx.call("codex.status", {});
-// status = { busy: true, taskId: "ctask_abc123", type: "task", elapsed: "15s", ... }
-```
-
-Listen for results via events:
-
-```typescript
-ctx.on("codex.*.turn_stop", (event) => {
-  const { result, items, usage } = event.payload;
-  // result = Cody's final text response
-  // items = all work items (commands run, files changed, messages)
-});
+// handle = { taskId: "ctask_abc123", status: "running", outputFile: "~/.claudia/codex/ctask_abc123.md", message: "..." }
 ```
 
 ## Task Types and Sandbox Modes
@@ -141,11 +130,38 @@ claudia codex status
 claudia codex interrupt
 ```
 
+## Output Files
+
+Every task writes persistent output to `~/.claudia/codex/{taskId}.md`. The file includes:
+
+- The original prompt
+- Live command output and agent messages as they stream
+- Final status and result
+
+The task handle includes the `outputFile` path. You can read the file to get Cody's full output after completion.
+
+## Completion Notifications
+
+Pass `sessionId` when starting a task to get notified automatically when Cody finishes:
+
+```typescript
+const handle = await ctx.call("codex.review", {
+  prompt: "Review this file for bugs",
+  sessionId: "your-session-id",
+});
+// When Cody finishes, a <user_notification> message is injected into your session
+// You'll receive it like any other message and can act on the results
+```
+
+From the CLI, pass `--sessionId` to any task/review/test command.
+
+When a `sessionId` is provided, Cody calls `session.send_notification` on completion, which injects a `<user_notification>` message into the originating session. No polling needed — you'll be told when Cody is done, along with the output file path.
+
 ## Important Notes
 
 - **One task at a time**: Cody can only work on one thing. If you send a new task while he's busy, it will error. Use `codex.interrupt` first, or check `codex.status`.
 - **Auto-approve**: By default, Cody auto-approves all command executions and file changes. This is configurable via `autoApprove` in the extension config.
 - **Fresh thread per task**: Each task creates a new Codex conversation thread. Context does not carry between tasks.
 - **Personality**: Cody's system prompt is configurable. The default tells him to be thorough and precise.
-- **The task returns immediately**: `codex.task` / `codex.review` / `codex.test` return a task handle right away. The actual work happens asynchronously. Watch events or poll `codex.status` for results.
+- **The task returns immediately**: `codex.task` / `codex.review` / `codex.test` return a task handle right away. The actual work happens asynchronously. If you pass `sessionId`, you'll be notified when Cody finishes. Otherwise, watch events or poll `codex.status`.
 - **Connection-scoped routing**: Events use `gateway.caller` routing, so only the client that initiated the task receives the streaming events.

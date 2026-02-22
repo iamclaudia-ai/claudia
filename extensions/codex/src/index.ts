@@ -77,6 +77,8 @@ interface ActiveTask {
   error: string | null;
   /** Path to the task output file (~/.claudia/codex/{taskId}.md) */
   outputFile: string;
+  /** Session ID for completion notification (optional) */
+  sessionId: string | null;
   /** Request context captured at call time for async event routing */
   context: {
     connectionId: string | null;
@@ -90,6 +92,7 @@ interface ActiveTask {
 
 const TaskSchema = z.object({
   prompt: z.string().min(1).describe("The task prompt for Cody"),
+  sessionId: z.string().optional().describe("Session ID to notify on completion"),
   cwd: z.string().optional().describe("Working directory override"),
   sandbox: z
     .enum(["read-only", "workspace-write", "danger-full-access"])
@@ -104,12 +107,14 @@ const TaskSchema = z.object({
 
 const ReviewSchema = z.object({
   prompt: z.string().min(1).describe("What to review and what to look for"),
+  sessionId: z.string().optional().describe("Session ID to notify on completion"),
   cwd: z.string().optional().describe("Working directory override"),
   files: z.array(z.string()).optional().describe("Specific files to review (prepended to prompt)"),
 });
 
 const TestSchema = z.object({
   prompt: z.string().min(1).describe("What to test — targets, framework hints, coverage goals"),
+  sessionId: z.string().optional().describe("Session ID to notify on completion"),
   cwd: z.string().optional().describe("Working directory override"),
 });
 
@@ -231,6 +236,41 @@ export function createCodexExtension(config: CodexConfig = {}): ClaudiaExtension
     ctx.emit(eventType, payload, emitOptions);
   }
 
+  // ── Session Completion Notification ─────────────────────
+
+  async function notifySession(task: ActiveTask): Promise<void> {
+    if (!task.sessionId || !ctx) return;
+
+    let content: string;
+    const elapsed = Math.round((Date.now() - task.startedAt) / 1000);
+
+    if (task.status === "completed") {
+      content =
+        `Cody completed ${task.type} task ${task.id} (${elapsed}s). ` +
+        `Output: ${task.outputFile}`;
+    } else if (task.status === "failed") {
+      content =
+        `Cody failed ${task.type} task ${task.id} (${elapsed}s): ${task.error}. ` +
+        `Partial output: ${task.outputFile}`;
+    } else if (task.status === "interrupted") {
+      content =
+        `Cody's ${task.type} task ${task.id} was interrupted (${elapsed}s). ` +
+        `Partial output: ${task.outputFile}`;
+    } else {
+      return; // still running, nothing to notify
+    }
+
+    try {
+      await ctx.call("session.send_notification", {
+        sessionId: task.sessionId,
+        text: content,
+      });
+      ctx.log.info(`Notified session ${task.sessionId} of task ${task.id} ${task.status}`);
+    } catch (err) {
+      ctx.log.error(`Failed to notify session: ${err}`);
+    }
+  }
+
   // ── Stream Bridge — Codex ThreadEvents → Claudia Events ──
 
   async function runStreamedTask(thread: Thread, task: ActiveTask, prompt: string): Promise<void> {
@@ -309,6 +349,8 @@ export function createCodexExtension(config: CodexConfig = {}): ClaudiaExtension
         ctx?.log.error(`Task ${task.id} failed: ${message}`);
       }
     } finally {
+      // Notify the originating session that the task finished
+      await notifySession(task);
       // Clear active task only if it's still ours
       if (activeTask?.id === task.id) {
         activeTask = null;
@@ -545,6 +587,7 @@ export function createCodexExtension(config: CodexConfig = {}): ClaudiaExtension
     type: TaskType,
     prompt: string,
     options: {
+      sessionId?: string;
       cwd?: string;
       sandbox?: SandboxMode;
       model?: string;
@@ -581,6 +624,7 @@ export function createCodexExtension(config: CodexConfig = {}): ClaudiaExtension
       items: [],
       error: null,
       outputFile,
+      sessionId: options.sessionId || null,
       // Capture envelope context for async event routing (scoped per-task)
       context: {
         connectionId: ctx?.connectionId ?? null,
@@ -705,13 +749,15 @@ export function createCodexExtension(config: CodexConfig = {}): ClaudiaExtension
       switch (method) {
         // ── General Task ───────────────────────────────────
         case "codex.task": {
-          const { prompt, cwd, sandbox, model, effort } = params as z.infer<typeof TaskSchema>;
-          return startTask("task", prompt, { cwd, sandbox, model, effort });
+          const { prompt, sessionId, cwd, sandbox, model, effort } = params as z.infer<
+            typeof TaskSchema
+          >;
+          return startTask("task", prompt, { sessionId, cwd, sandbox, model, effort });
         }
 
         // ── Code Review (read-only) ───────────────────────
         case "codex.review": {
-          const { prompt, cwd, files } = params as z.infer<typeof ReviewSchema>;
+          const { prompt, sessionId, cwd, files } = params as z.infer<typeof ReviewSchema>;
 
           // Prepend file list to review prompt
           let reviewPrompt = prompt;
@@ -720,6 +766,7 @@ export function createCodexExtension(config: CodexConfig = {}): ClaudiaExtension
           }
 
           return startTask("review", reviewPrompt, {
+            sessionId,
             cwd,
             sandbox: "read-only", // Always read-only for reviews
           });
@@ -727,8 +774,9 @@ export function createCodexExtension(config: CodexConfig = {}): ClaudiaExtension
 
         // ── Test Writing (workspace-write) ─────────────────
         case "codex.test": {
-          const { prompt, cwd } = params as z.infer<typeof TestSchema>;
+          const { prompt, sessionId, cwd } = params as z.infer<typeof TestSchema>;
           return startTask("test", prompt, {
+            sessionId,
             cwd,
             sandbox: "workspace-write", // Tests need write access
           });
