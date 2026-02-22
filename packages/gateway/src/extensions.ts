@@ -414,9 +414,19 @@ export class ExtensionManager {
         };
       },
 
-      emit: (type: string, payload: unknown, options?: { source?: string }) => {
+      emit: (
+        type: string,
+        payload: unknown,
+        options?: { source?: string; connectionId?: string; tags?: string[] },
+      ) => {
         if (this.emitCallback) {
-          this.emitCallback(type, payload, options?.source || `extension:${extensionId}`);
+          this.emitCallback(
+            type,
+            payload,
+            options?.source || `extension:${extensionId}`,
+            options?.connectionId,
+            options?.tags,
+          );
         }
       },
 
