@@ -1,0 +1,17 @@
+{
+  "name": "@claudia/codex",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "build": "bun build src/index.ts --outdir dist --target bun",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit -p ../../tsconfig.json"
+  },
+  "dependencies": {
+    "@claudia/extension-host": "workspace:*",
+    "@claudia/shared": "workspace:*",
+    "@openai/codex-sdk": "^0.104.0",
+    "zod": "^3.25.76"
+  }
+}

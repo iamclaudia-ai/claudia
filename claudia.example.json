@@ -86,6 +86,22 @@
       }
     },
 
+    // Codex Extension — OpenAI Codex sub-agent ("Cody")
+    // Delegates code review, test writing, and general tasks to Codex
+    // Requires: npm i -g @openai/codex
+    "codex": {
+      "enabled": false,
+      "config": {
+        "apiKey": "${OPENAI_API_KEY}",
+        "model": "o3-mini",
+        "sandboxMode": "workspace-write",
+        "cwd": "~/Projects",
+        "personality": "You are Cody, a meticulous sub-agent working for Claudia.",
+        "effort": "medium",
+        "autoApprove": true
+      }
+    },
+
     // Slack Extension (example)
     "slack": {
       "enabled": false,
