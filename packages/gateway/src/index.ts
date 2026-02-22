@@ -347,7 +347,7 @@ async function handleExtensionMethod(
 }
 
 /**
- * Handle subscription requests
+ * Handle subscribe requests
  */
 function handleSubscribe(ws: ServerWebSocket<ClientState>, req: Request): void {
   const state = clients.get(ws);

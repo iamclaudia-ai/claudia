@@ -12,7 +12,7 @@ bun.lockb
 
 # IDE
 .idea/
-.vscode/
+.vscode/*.local.json
 *.swp
 *.swo
 *~
