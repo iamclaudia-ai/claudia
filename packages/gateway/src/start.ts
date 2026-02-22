@@ -27,6 +27,11 @@ const ROOT_DIR = join(import.meta.dir, "..", "..", "..");
  * because SIGKILL doesn't allow cleanup handlers to run.
  */
 async function killOrphanExtensionHosts(): Promise<void> {
+  if (process.env.CLAUDIA_SKIP_ORPHAN_KILL === "true") {
+    log.info("Skipping orphan extension host cleanup (CLAUDIA_SKIP_ORPHAN_KILL=true)");
+    return;
+  }
+
   try {
     const proc = Bun.spawn(["pgrep", "-f", "extensions/.*/src/index.ts"], {
       stdout: "pipe",
