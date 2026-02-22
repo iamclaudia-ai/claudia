@@ -1,8 +1,13 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
-import { parseSessionFile, parseSessionFilePaginated, parseSessionUsage } from "./parse-session";
+import { homedir, tmpdir } from "node:os";
+import {
+  parseSessionFile,
+  parseSessionFilePaginated,
+  parseSessionUsage,
+  resolveSessionPath,
+} from "./parse-session";
 
 function writeSessionFile(lines: string[]): { dir: string; file: string } {
   const dir = mkdtempSync(join(tmpdir(), "claudia-parse-session-"));
@@ -163,5 +168,113 @@ describe("parse-session", () => {
       cache_read_input_tokens: 2,
       output_tokens: 20,
     });
+  });
+
+  it("parses rich user blocks and tool result arrays, and keeps mixed user content", () => {
+    const { dir, file } = writeSessionFile([
+      JSON.stringify({
+        type: "assistant",
+        timestamp: "2026-02-22T00:00:00.000Z",
+        message: {
+          role: "assistant",
+          content: [{ type: "tool_use", id: "tool-rich", name: "Read", input: "raw" }],
+        },
+      }),
+      JSON.stringify({
+        type: "user",
+        timestamp: "2026-02-22T00:00:01.000Z",
+        message: {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "tool-rich",
+              content: [
+                { type: "text", text: "line1" },
+                { type: "text", text: "line2" },
+              ],
+              is_error: true,
+            },
+            { type: "text", text: "follow-up text" },
+            {
+              type: "image",
+              source: { media_type: "image/jpeg", data: "abc123" },
+            },
+            {
+              type: "document",
+              filename: "doc.bin",
+              source: { media_type: "application/pdf", data: "xyz789" },
+            },
+            "string block",
+          ],
+        },
+      }),
+    ]);
+    dirs.push(dir);
+
+    const messages = parseSessionFile(file);
+    expect(messages).toHaveLength(2);
+    expect(messages[0]?.blocks.find((b) => b.type === "tool_use")).toMatchObject({
+      type: "tool_use",
+      id: "tool-rich",
+      result: { content: "line1\nline2", is_error: true },
+    });
+    expect(messages[1]?.role).toBe("user");
+    expect(messages[1]?.blocks.some((b) => b.type === "image")).toBe(true);
+    expect(messages[1]?.blocks.some((b) => b.type === "file")).toBe(true);
+    expect(messages[1]?.blocks.some((b) => b.type === "text")).toBe(true);
+  });
+
+  it("handles empty pagination, malformed usage lines, and path resolution modes", () => {
+    const { dir, file } = writeSessionFile([
+      JSON.stringify({ type: "assistant", message: { role: "assistant", content: [] } }),
+    ]);
+    dirs.push(dir);
+
+    const emptyPage = parseSessionFilePaginated(file, { limit: 10, offset: 0 });
+    expect(emptyPage).toEqual({ messages: [], total: 0, hasMore: false });
+
+    const usageFile = join(dir, "usage.jsonl");
+    writeFileSync(
+      usageFile,
+      [
+        "not json",
+        JSON.stringify({
+          type: "assistant",
+          message: { role: "assistant", content: [], usage: { output_tokens: 5 } },
+        }),
+      ].join("\n") + "\n",
+      "utf-8",
+    );
+    expect(parseSessionUsage(usageFile)).toEqual({
+      input_tokens: 0,
+      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: 0,
+      output_tokens: 5,
+    });
+
+    // Full-path resolution
+    expect(resolveSessionPath(file)).toBe(file);
+    expect(resolveSessionPath(join(dir, "missing.jsonl"))).toBeNull();
+
+    // CWD-derived and recursive fallback resolution
+    const cwd = `/tmp/claudia-parse-${Date.now()}`;
+    const encoded = cwd.replace(/\//g, "-");
+    const projectsDir = join(homedir(), ".claude", "projects");
+    const directDir = join(projectsDir, encoded);
+    const directFile = join(directDir, "sid-direct.jsonl");
+    mkdirSync(directDir, { recursive: true });
+    writeFileSync(directFile, "{}\n", "utf-8");
+    expect(existsSync(directFile)).toBe(true);
+    expect(resolveSessionPath("sid-direct", cwd)).toBe(directFile);
+
+    const scanDir = join(projectsDir, `scan-${Date.now()}`);
+    const scanFile = join(scanDir, "sid-scan.jsonl");
+    mkdirSync(scanDir, { recursive: true });
+    writeFileSync(scanFile, "{}\n", "utf-8");
+    expect(resolveSessionPath("sid-scan", "/tmp/no-match-cwd")).toBe(scanFile);
+
+    rmSync(directDir, { recursive: true, force: true });
+    rmSync(scanDir, { recursive: true, force: true });
   });
 });
