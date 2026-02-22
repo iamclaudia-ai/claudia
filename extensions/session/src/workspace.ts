@@ -54,7 +54,7 @@ let db: Database | null = null;
 function getDb(): Database {
   if (db) return db;
 
-  const claudiaDir = join(homedir(), ".claudia");
+  const claudiaDir = process.env.CLAUDIA_DATA_DIR || join(homedir(), ".claudia");
   if (!existsSync(claudiaDir)) {
     mkdirSync(claudiaDir, { recursive: true });
   }
