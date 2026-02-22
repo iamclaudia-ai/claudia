@@ -173,6 +173,7 @@
       "version": "0.1.0",
       "dependencies": {
         "@claudia/shared": "workspace:*",
+        "zod-to-json-schema": "3.25.1",
       },
     },
     "packages/gateway": {

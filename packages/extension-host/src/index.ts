@@ -13,6 +13,7 @@
  */
 
 import type { ClaudiaExtension, ExtensionContext, GatewayEvent } from "@claudia/shared";
+import { zodToJsonSchema } from "zod-to-json-schema";
 import { createLogger, matchesEventPattern } from "@claudia/shared";
 import { join } from "node:path";
 import { homedir } from "node:os";
@@ -216,11 +217,15 @@ export async function runExtensionHost(factory: ExtensionFactory): Promise<void>
     hostLog.info("Extension started", { id: ext.id });
 
     // Send registration message — tells gateway what we provide
-    const methods = ext.methods.map((m) => ({
-      name: m.name,
-      description: m.description,
-      inputSchema: m.inputSchema._def,
-    }));
+    const methods = ext.methods.map((m) => {
+      let inputSchema: unknown;
+      try {
+        inputSchema = zodToJsonSchema(m.inputSchema, m.name);
+      } catch {
+        inputSchema = m.inputSchema._def; // fallback to raw Zod _def
+      }
+      return { name: m.name, description: m.description, inputSchema };
+    });
 
     write({
       type: "register",
