@@ -80,6 +80,7 @@ export class ExtensionHostProcess {
     ) => void,
     private onRegister: (registration: ExtensionRegistration) => void,
     private onCall?: OnCallCallback,
+    private hot: boolean = true,
   ) {}
 
   /**
@@ -93,8 +94,14 @@ export class ExtensionHostProcess {
       module: this.moduleSpec,
     });
 
+    const cmd = this.hot
+      ? ["bun", "--hot", this.moduleSpec, configJson]
+      : ["bun", "run", this.moduleSpec, configJson];
+
+    log.info("Extension spawn mode", { id: this.extensionId, hot: this.hot });
+
     this.proc = spawn({
-      cmd: ["bun", "--hot", this.moduleSpec, configJson],
+      cmd,
       stdin: "pipe",
       stdout: "pipe",
       stderr: "pipe",

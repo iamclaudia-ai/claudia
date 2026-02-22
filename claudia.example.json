@@ -9,8 +9,10 @@
 
   "extensions": {
     // Session Extension — SDK engine, workspace CRUD, session lifecycle
+    // hot: false disables HMR — session manages long-lived SDK processes
     "session": {
       "enabled": true,
+      "hot": false,
       "config": {
         "model": "claude-sonnet-4-6",
         "thinking": true,

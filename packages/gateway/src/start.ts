@@ -78,6 +78,7 @@ async function spawnOutOfProcessExtension(
   id: string,
   config: Record<string, unknown>,
   sourceRoutes?: string[],
+  hot: boolean = true,
 ): Promise<void> {
   if (startedExtensions.has(id)) {
     return;
@@ -130,6 +131,7 @@ async function spawnOutOfProcessExtension(
       extensions.registerRemote(registration, host);
     },
     onCall,
+    hot,
   );
 
   const registration = await host.spawn();
@@ -159,7 +161,7 @@ async function loadExtensions(): Promise<void> {
 
   for (const [id, ext] of enabledExtensions) {
     try {
-      await spawnOutOfProcessExtension(id, ext.config, ext.sourceRoutes);
+      await spawnOutOfProcessExtension(id, ext.config, ext.sourceRoutes, ext.hot !== false);
     } catch (error) {
       log.error("Failed to load extension", { id, error: String(error) });
     }
