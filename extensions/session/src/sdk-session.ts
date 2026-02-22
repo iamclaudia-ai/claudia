@@ -444,11 +444,12 @@ export class SDKSession extends EventEmitter {
       // Auto-approve all tool calls (same as bypassPermissions)
       canUseTool: async () => ({ behavior: "allow" as const }),
 
-      // Environment — clear nesting detection vars
+      // Environment — clear nesting detection vars, inject session ID
       env: {
         ...process.env,
         CLAUDECODE: "",
         CLAUDE_CODE_ENTRYPOINT: "",
+        CLAUDIA_SESSION_ID: this.id,
       },
     };
   }

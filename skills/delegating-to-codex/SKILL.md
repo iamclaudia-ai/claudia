@@ -9,7 +9,7 @@ You have a sub-agent named Cody powered by OpenAI's Codex. He runs as a separate
 
 ## IMPORTANT: Always Pass Your Session ID
 
-When delegating to Cody, **always include `--sessionId` with your current session ID**. This way Cody will send a `<user_notification>` message back to your session when he finishes — no polling needed. You'll receive the notification as a user message that looks like:
+Your session ID is available as `$CLAUDIA_SESSION_ID` in your environment. **Always include `--sessionId "$CLAUDIA_SESSION_ID"` when delegating to Cody.** This way Cody will send a `<user_notification>` message back to your session when he finishes — no polling needed. You'll receive the notification as a user message that looks like:
 
 ```
 <user_notification>
@@ -130,16 +130,16 @@ const handle = await ctx.call("codex.task", {
 
 ```bash
 # Quick code review (always pass --sessionId so you get notified!)
-claudia codex review --prompt "Check extensions/codex/src/index.ts for error handling gaps" --sessionId "$SESSION_ID"
+claudia codex review --prompt "Check extensions/codex/src/index.ts for error handling gaps" --sessionId "$CLAUDIA_SESSION_ID"
 
 # Targeted review with file list
-claudia codex review --prompt "Look for race conditions" --files '["src/session-manager.ts", "src/sdk-session.ts"]' --sessionId "$SESSION_ID"
+claudia codex review --prompt "Look for race conditions" --files '["src/session-manager.ts", "src/sdk-session.ts"]' --sessionId "$CLAUDIA_SESSION_ID"
 
 # Write tests for a specific module
-claudia codex test --prompt "Write bun tests for extensions/voice/src/sentence-chunker.ts with edge cases for emoji and unicode" --sessionId "$SESSION_ID"
+claudia codex test --prompt "Write bun tests for extensions/voice/src/sentence-chunker.ts with edge cases for emoji and unicode" --sessionId "$CLAUDIA_SESSION_ID"
 
 # General task with high effort
-claudia codex task --prompt "Refactor the workspace.ts database layer to use prepared statements" --effort high --sessionId "$SESSION_ID"
+claudia codex task --prompt "Refactor the workspace.ts database layer to use prepared statements" --effort high --sessionId "$CLAUDIA_SESSION_ID"
 
 # Check what Cody is doing (no sessionId needed)
 claudia codex status
