@@ -1,4 +1,5 @@
 import { describe, expect, it, spyOn } from "bun:test";
+import { join } from "node:path";
 import type { GatewayEvent } from "@claudia/shared";
 import { ExtensionHostProcess, type ExtensionRegistration } from "./extension-host";
 
@@ -513,5 +514,89 @@ describe("ExtensionHostProcess protocol", () => {
 
     spawnSpy.mockRestore();
     timeoutSpy.mockRestore();
+  });
+
+  it("spawns a real extension host fixture and exchanges protocol messages", async () => {
+    const events: Array<{ type: string; payload: unknown }> = [];
+    const registrations: ExtensionRegistration[] = [];
+    const moduleSpec = join(
+      "packages",
+      "extension-host",
+      "src",
+      "__fixtures__",
+      "test-extension.ts",
+    );
+    const host = new ExtensionHostProcess(
+      "fixture",
+      moduleSpec,
+      {},
+      (type, payload) => {
+        events.push({ type, payload });
+      },
+      (registration) => {
+        registrations.push(registration);
+      },
+    );
+
+    try {
+      const registration = await host.spawn();
+      expect(registration.id).toBe("fixture");
+      expect(host.isRunning()).toBe(true);
+      expect(registrations.length > 0).toBe(true);
+
+      await expect(host.health()).resolves.toEqual({ ok: true, details: { fixture: true } });
+
+      await expect(
+        host.callMethod("fixture.echo", { value: "ok" }, "conn-1", { tags: ["voice"] }),
+      ).resolves.toEqual({
+        params: { value: "ok" },
+        connectionId: "conn-1",
+        tags: ["voice"],
+      });
+
+      await host.routeToSource("fixture-src/client-1", {
+        type: "session.done",
+        payload: {},
+        timestamp: Date.now(),
+      });
+      await Bun.sleep(30);
+      expect(events.some((e) => e.type === "fixture.routed")).toBe(true);
+    } finally {
+      await host.kill();
+    }
+  });
+
+  it("rejects spawn when registration timeout elapses", async () => {
+    const moduleSpec = join(
+      "packages",
+      "extension-host",
+      "src",
+      "__fixtures__",
+      "test-extension.ts",
+    );
+    const host = new ExtensionHostProcess(
+      "fixture-timeout",
+      moduleSpec,
+      {},
+      () => {},
+      () => {},
+    );
+
+    const timeoutSpy = spyOn(globalThis, "setTimeout").mockImplementation(((
+      cb: (...args: unknown[]) => void,
+      ms?: number,
+    ) => {
+      if (ms === 10_000) cb();
+      return 1 as unknown as ReturnType<typeof setTimeout>;
+    }) as unknown as typeof setTimeout);
+
+    try {
+      await expect(host.spawn()).rejects.toThrow(
+        "Extension host fixture-timeout failed to register within 10s",
+      );
+    } finally {
+      timeoutSpy.mockRestore();
+      await host.kill();
+    }
   });
 });
