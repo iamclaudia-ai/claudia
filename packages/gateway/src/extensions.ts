@@ -56,11 +56,31 @@ export class ExtensionManager {
     this.remoteHosts.delete(extensionId);
     const reg = this.remoteRegistrations.get(extensionId);
     if (reg) {
-      for (const prefix of reg.sourceRoutes) {
-        this.remoteSourceRoutes.delete(prefix);
-        this.sourceRoutes.delete(prefix);
-      }
       this.remoteRegistrations.delete(extensionId);
+      for (const prefix of reg.sourceRoutes) {
+        // If another extension also declares this prefix, restore the most
+        // recently registered owner; otherwise remove the route.
+        const fallback = Array.from(this.remoteRegistrations.entries())
+          .reverse()
+          .find(([, candidate]) => candidate.sourceRoutes.includes(prefix));
+
+        if (!fallback) {
+          this.remoteSourceRoutes.delete(prefix);
+          this.sourceRoutes.delete(prefix);
+          continue;
+        }
+
+        const [fallbackExtensionId] = fallback;
+        const fallbackHost = this.remoteHosts.get(fallbackExtensionId);
+        if (!fallbackHost) {
+          this.remoteSourceRoutes.delete(prefix);
+          this.sourceRoutes.delete(prefix);
+          continue;
+        }
+
+        this.remoteSourceRoutes.set(prefix, fallbackHost);
+        this.sourceRoutes.set(prefix, fallbackExtensionId);
+      }
     }
   }
 

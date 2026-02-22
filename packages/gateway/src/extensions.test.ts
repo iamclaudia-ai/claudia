@@ -188,6 +188,20 @@ describe("ExtensionManager", () => {
     expect(manager.hasSourceRoute("voice2/client1")).toBe(false);
   });
 
+  it("restores previous owner when unregistering a shared source prefix", () => {
+    const manager = new ExtensionManager();
+    const hostA = createRemoteHostMock();
+    const hostB = createRemoteHostMock();
+
+    manager.registerRemote(createRemoteRegistration({ id: "a", sourceRoutes: ["shared"] }), hostA);
+    manager.registerRemote(createRemoteRegistration({ id: "b", sourceRoutes: ["shared"] }), hostB);
+
+    expect(manager.getSourceHandler("shared/client")).toBe("b");
+    manager.unregisterRemote("b");
+    expect(manager.getSourceHandler("shared/client")).toBe("a");
+    expect(manager.hasSourceRoute("shared/client")).toBe(true);
+  });
+
   it("includes remote methods in discovery APIs", () => {
     const manager = new ExtensionManager();
     manager.registerRemote(
