@@ -647,4 +647,66 @@ describe("session extension", () => {
       await ext.stop();
     }
   });
+
+  it("returns empty sessions when project fallback has no matching originalPath", async () => {
+    const ext = createSessionExtension();
+    await ext.start(createTestContext());
+    const cwd = `/tmp/claudia-test-${Date.now()}-no-fallback-match`;
+    const badDir = join(homedir(), ".claude", "projects", `bad-only-${Date.now()}`);
+    try {
+      mkdirSync(badDir, { recursive: true });
+      writeFileSync(join(badDir, "sessions-index.json"), "{ broken json");
+
+      const result = (await ext.handleMethod("session.list_sessions", { cwd })) as {
+        sessions: Array<{ sessionId: string }>;
+      };
+      expect(result.sessions).toEqual([]);
+    } finally {
+      rmSync(badDir, { recursive: true, force: true });
+      await ext.stop();
+    }
+  });
+
+  it("times out non-streaming prompts when turn_stop never arrives", async () => {
+    const timeoutCallbacks: Array<() => void> = [];
+    const timeoutSpy = spyOn(globalThis, "setTimeout").mockImplementation(((
+      cb: (...args: unknown[]) => void,
+    ) => {
+      timeoutCallbacks.push(() => cb());
+      return 1 as unknown as ReturnType<typeof setTimeout>;
+    }) as unknown as typeof setTimeout);
+    const clearSpy = spyOn(globalThis, "clearTimeout").mockImplementation(() => {});
+
+    promptSpy.mockImplementation(() => Promise.resolve());
+
+    const ext = createSessionExtension();
+    await ext.start(createTestContext());
+
+    const pending = ext.handleMethod("session.send_prompt", {
+      sessionId,
+      content: "ping",
+      streaming: false,
+    });
+    expect(timeoutCallbacks.length).toBe(1);
+    timeoutCallbacks[0]?.();
+    await expect(pending).rejects.toThrow("Prompt timed out after 5 minutes");
+
+    await ext.stop();
+    timeoutSpy.mockRestore();
+    clearSpy.mockRestore();
+  });
+
+  it("executes slow-call logging path for non-read methods", async () => {
+    const nowSpy = spyOn(Date, "now");
+    nowSpy.mockImplementationOnce(() => 1_000).mockImplementationOnce(() => 1_250);
+
+    const ext = createSessionExtension();
+    await ext.start(createTestContext());
+
+    const result = await ext.handleMethod("session.create_session", { cwd: "/repo/slow" });
+    expect(result).toEqual({ sessionId: "created-session-1" });
+
+    await ext.stop();
+    nowSpy.mockRestore();
+  });
 });

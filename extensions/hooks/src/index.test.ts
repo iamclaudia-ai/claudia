@@ -361,4 +361,153 @@ export default {
 
     await extension.stop();
   });
+
+  it("matches wildcard-only patterns and supports health/list methods", async () => {
+    const hooksDir = join(testRoot, "extra-wild");
+    await writeHookFile(
+      hooksDir,
+      "wild.js",
+      `export default {
+  event: "wild.*",
+  handler(ctx) {
+    ctx.emit("seen", { ok: true });
+  },
+};
+`,
+    );
+
+    const extension = createHooksExtension({ extraDirs: [hooksDir] });
+    const mock = createMockContext();
+    await extension.start(mock.ctx);
+
+    await mock.dispatch({
+      type: "wild.event",
+      payload: {},
+      timestamp: Date.now(),
+      origin: "test",
+    });
+    await flushAsync();
+
+    expect(mock.emitted.some((e) => e.type === "hook.wild.seen")).toBe(true);
+
+    const healthCheck = (await extension.handleMethod("hooks.health_check", {})) as {
+      ok: boolean;
+      status: string;
+      label: string;
+      metrics?: Array<{ label: string; value: string | number }>;
+    };
+    expect(healthCheck.ok).toBe(true);
+    expect(healthCheck.label).toBe("Hooks");
+    expect(healthCheck.status).toBe("healthy");
+    expect(healthCheck.metrics?.[0]?.label).toBe("Loaded");
+
+    const health = extension.health() as { ok: boolean; details?: { hookCount?: number } };
+    expect(health.ok).toBe(true);
+    expect((health.details?.hookCount || 0) > 0).toBe(true);
+
+    await extension.stop();
+  });
+
+  it("handles missing dirs, load errors, handler errors, and unknown methods", async () => {
+    const hooksA = join(testRoot, "extra-override-a");
+    const hooksB = join(testRoot, "extra-override-b");
+    const missingDir = join(testRoot, "extra-missing");
+    const workspace = join(testRoot, "workspace-errors");
+
+    await writeHookFile(
+      hooksA,
+      "dupe.js",
+      `export default {
+  event: "custom.dupe",
+  handler(ctx) {
+    ctx.emit("who", { source: "a" });
+  },
+};
+`,
+    );
+    await writeHookFile(
+      hooksB,
+      "dupe.js",
+      `export default {
+  event: "custom.dupe",
+  handler(ctx) {
+    ctx.emit("who", { source: "b" });
+  },
+};
+`,
+    );
+    await writeHookFile(
+      hooksA,
+      "bad.js",
+      `export default {
+  event: "custom.bad",
+  handler() {
+    throw new Error("syntax not closed")
+`,
+    );
+    await writeHookFile(
+      join(workspace, ".claudia", "hooks"),
+      "throws.js",
+      `export default {
+  event: "custom.throw",
+  handler() {
+    throw new Error("hook failed");
+  },
+};
+`,
+    );
+
+    const extension = createHooksExtension({
+      extraDirs: [missingDir, hooksA, hooksB],
+      workspaceRescanMs: 60_000,
+    });
+    const mock = createMockContext();
+    await extension.start(mock.ctx);
+
+    // dupe should resolve to later global dir (hooksB)
+    await mock.dispatch({
+      type: "custom.dupe",
+      payload: {},
+      timestamp: Date.now(),
+      origin: "test",
+    });
+    await flushAsync();
+    const dupeEvent = mock.emitted.find((e) => e.type === "hook.dupe.who");
+    expect(dupeEvent?.payload).toEqual({ source: "b" });
+
+    // workspace hook throws; dispatch should continue safely
+    await mock.dispatch({
+      type: "custom.throw",
+      payload: { cwd: workspace },
+      timestamp: Date.now(),
+      origin: "test",
+    });
+    await flushAsync();
+
+    // rescan throttling path: new file should not load immediately for same workspace
+    await writeHookFile(
+      join(workspace, ".claudia", "hooks"),
+      "late.js",
+      `export default {
+  event: "custom.late",
+  handler(ctx) {
+    ctx.emit("loaded", { value: "late" });
+  },
+};
+`,
+    );
+    await mock.dispatch({
+      type: "custom.late",
+      payload: { cwd: workspace },
+      timestamp: Date.now(),
+      origin: "test",
+    });
+    await flushAsync();
+    expect(mock.emitted.some((e) => e.type === "hook.late.loaded")).toBe(false);
+
+    await expect(extension.handleMethod("hooks.unknown", {})).rejects.toThrow(
+      "Unknown method: hooks.unknown",
+    );
+    await extension.stop();
+  });
 });
