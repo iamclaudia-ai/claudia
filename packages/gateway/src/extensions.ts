@@ -85,6 +85,20 @@ export class ExtensionManager {
   }
 
   /**
+   * Get a remote extension host by ID.
+   */
+  getHost(extensionId: string): ExtensionHostProcess | undefined {
+    return this.remoteHosts.get(extensionId);
+  }
+
+  /**
+   * Get all registered extension IDs.
+   */
+  getExtensionIds(): string[] {
+    return Array.from(this.remoteHosts.keys());
+  }
+
+  /**
    * Route a method call to the appropriate out-of-process extension host.
    * Supports RPC metadata for ctx.call() routing through the hub.
    */

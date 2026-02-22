@@ -232,6 +232,13 @@ const BUILTIN_METHODS: GatewayMethodDefinition[] = [
       events: z.array(z.string()).optional(),
     }),
   },
+  {
+    method: "gateway.restart_extension",
+    description: "Restart an extension host process (manual HMR for non-hot extensions)",
+    inputSchema: z.object({
+      extension: z.string().describe("Extension ID to restart (e.g. session, codex, voice)"),
+    }),
+  },
 ];
 
 const BUILTIN_METHODS_BY_NAME = new Map(BUILTIN_METHODS.map((m) => [m.method, m] as const));
@@ -292,6 +299,9 @@ function handleRequest(ws: ServerWebSocket<ClientState>, req: Request): void {
       break;
     case "gateway.unsubscribe":
       handleUnsubscribe(ws, req);
+      break;
+    case "gateway.restart_extension":
+      handleRestartExtension(ws, req);
       break;
     default:
       // Everything else routes through extensions
@@ -410,6 +420,39 @@ function handleUnsubscribe(ws: ServerWebSocket<ClientState>, req: Request): void
   events.forEach((event) => state.subscriptions.delete(event));
 
   sendResponse(ws, req.id, { unsubscribed: events });
+}
+
+/**
+ * gateway.restart_extension — kill and re-spawn an extension host process.
+ * Manual HMR for extensions running with hot:false (e.g. session).
+ */
+async function handleRestartExtension(
+  ws: ServerWebSocket<ClientState>,
+  req: Request,
+): Promise<void> {
+  const extensionId = req.params?.extension as string;
+  const host = extensions.getHost(extensionId);
+  if (!host) {
+    const available = extensions.getExtensionIds().join(", ");
+    sendError(ws, req.id, `Extension "${extensionId}" not found. Available: ${available}`);
+    return;
+  }
+
+  try {
+    const registration = await host.restart();
+    log.info("Extension restarted", {
+      extensionId,
+      methods: registration.methods.map((m) => m.name),
+    });
+    sendResponse(ws, req.id, {
+      ok: true,
+      extensionId,
+      methods: registration.methods.map((m) => m.name),
+    });
+  } catch (error) {
+    log.error("Failed to restart extension", { extensionId, error: String(error) });
+    sendError(ws, req.id, `Failed to restart ${extensionId}: ${error}`);
+  }
 }
 
 /**

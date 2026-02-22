@@ -226,6 +226,18 @@ export class ExtensionHostProcess {
   }
 
   /**
+   * Kill and re-spawn the extension host process (manual HMR).
+   * Resets the restart counter so auto-restart logic starts fresh.
+   */
+  async restart(): Promise<ExtensionRegistration> {
+    log.info("Restarting extension host", { extensionId: this.extensionId });
+    await this.kill();
+    this.killed = false;
+    this.restartCount = 0;
+    return this.spawn();
+  }
+
+  /**
    * Synchronous force-kill (for process "exit" handler where async isn't possible).
    */
   forceKill(): void {
