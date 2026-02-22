@@ -513,6 +513,85 @@ describe("session extension", () => {
     }
   });
 
+  it("discovers sessions via originalPath fallback and extracts first text block prompts", async () => {
+    const ext = createSessionExtension();
+    await ext.start(createTestContext());
+    const cwd = `/tmp/claudia-test-${Date.now()}-fallback`;
+    const fallbackDir = join(homedir(), ".claude", "projects", `fallback-${Date.now()}`);
+    const badDir = join(homedir(), ".claude", "projects", `bad-${Date.now()}`);
+
+    try {
+      mkdirSync(fallbackDir, { recursive: true });
+      mkdirSync(badDir, { recursive: true });
+
+      writeFileSync(join(badDir, "sessions-index.json"), "{ this is not json");
+      writeFileSync(
+        join(fallbackDir, "sessions-index.json"),
+        JSON.stringify({
+          originalPath: cwd,
+          entries: [{ sessionId: "fallback-session", modified: "2026-02-22T01:00:00.000Z" }],
+        }),
+      );
+      writeFileSync(
+        join(fallbackDir, "fallback-session.jsonl"),
+        `${JSON.stringify({
+          type: "user",
+          message: {
+            role: "user",
+            content: [{ type: "text", text: "prompt from text block" }],
+          },
+        })}\n`,
+      );
+
+      const result = (await ext.handleMethod("session.list_sessions", { cwd })) as {
+        sessions: Array<{ sessionId: string; firstPrompt?: string }>;
+      };
+      expect(result.sessions).toHaveLength(1);
+      expect(result.sessions[0]?.sessionId).toBe("fallback-session");
+      expect(result.sessions[0]?.firstPrompt).toBe("prompt from text block");
+    } finally {
+      rmSync(fallbackDir, { recursive: true, force: true });
+      rmSync(badDir, { recursive: true, force: true });
+      await ext.stop();
+    }
+  });
+
+  it("handles delayed turn_stop logging path for streaming prompts", async () => {
+    const removeListenerSpy = spyOn(SessionManager.prototype, "removeListener");
+    promptSpy.mockImplementation(function (this: SessionManager, sid: string) {
+      setTimeout(() => {
+        this.emit("session.event", {
+          eventName: `session.${sid}.content_block_delta`,
+          sessionId: sid,
+          type: "content_block_delta",
+          delta: { type: "text_delta", text: "late chunk" },
+        });
+        this.emit("session.event", {
+          eventName: `session.${sid}.turn_stop`,
+          sessionId: sid,
+          type: "turn_stop",
+        });
+      }, 0);
+      return Promise.resolve();
+    });
+
+    const ext = createSessionExtension();
+    await ext.start(createTestContext());
+
+    const result = await ext.handleMethod("session.send_prompt", {
+      sessionId,
+      content: "ping",
+      streaming: true,
+    });
+    expect(result).toEqual({ status: "streaming", sessionId });
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(removeListenerSpy).toHaveBeenCalledWith("session.event", expect.any(Function));
+
+    await ext.stop();
+    removeListenerSpy.mockRestore();
+  });
+
   it("returns paginated history and empty history when session file is missing", async () => {
     const ext = createSessionExtension();
     await ext.start(createTestContext());
