@@ -59,12 +59,13 @@ websocket:
 
 The gateway itself only owns discovery and subscription methods:
 
-| Method                    | Purpose                     |
-| ------------------------- | --------------------------- |
-| `gateway.list_methods`    | All methods with schemas    |
-| `gateway.list_extensions` | All loaded extensions       |
-| `gateway.subscribe`       | Subscribe to event patterns |
-| `gateway.unsubscribe`     | Remove subscriptions        |
+| Method                      | Purpose                         |
+| --------------------------- | ------------------------------- |
+| `gateway.list_methods`      | All methods with schemas        |
+| `gateway.list_extensions`   | All loaded extensions           |
+| `gateway.subscribe`         | Subscribe to event patterns     |
+| `gateway.unsubscribe`       | Remove subscriptions            |
+| `gateway.restart_extension` | Restart a single extension host |
 
 Everything else is handled by extensions.
 
@@ -150,7 +151,7 @@ import { runExtensionHost } from "@claudia/extension-host";
 if (import.meta.main) runExtensionHost(createMyExtension);
 ```
 
-Native HMR via `bun --hot` — code changes reload extensions without restarting the gateway or dropping WebSocket connections.
+Native HMR via `bun --hot` — code changes reload extensions without restarting the gateway or dropping WebSocket connections. Extensions can opt out of HMR with `hot: false` in config (useful for extensions managing long-lived processes like Claude Code sessions). Non-hot extensions can be manually restarted via `gateway.restart_extension`.
 
 Communication between gateway and extension processes uses NDJSON over stdio (stdin/stdout pipes).
 
@@ -214,6 +215,7 @@ RPC metadata: `traceId`, `depth` (max 8), `deadlineMs`. Per-extension rate limit
 | Mission Control | `control`  | System dashboard, health checks                          |
 | Hooks           | `hooks`    | Lightweight event-driven scripts                         |
 | Memory          | `memory`   | Transcript ingestion + Libby processing                  |
+| Codex           | `codex`    | OpenAI Codex sub-agent (Cody) for delegated tasks        |
 
 ### Client-Side Extensions (Routes)
 
@@ -446,6 +448,7 @@ extensions/
   control/src/          # System dashboard, health checks
   hooks/src/            # Event-driven scripts
   memory/src/           # Transcript ingestion + Libby processing
+  codex/src/            # OpenAI Codex sub-agent (review, test, task delegation)
 
 clients/
   ios/                  # Native Swift voice mode app

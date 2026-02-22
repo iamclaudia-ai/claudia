@@ -13,6 +13,7 @@ import { createControlExtension } from "../extensions/control/src/index";
 import { createMemoryExtension } from "../extensions/memory/src/index";
 import { createHooksExtension } from "../extensions/hooks/src/index";
 import createDominatrixExtension from "../extensions/dominatrix/src/index";
+import { createCodexExtension } from "../extensions/codex/src/index";
 
 type MethodDef = {
   method: string;
@@ -49,6 +50,14 @@ const gatewayMethods: MethodDef[] = [
     description: "Unsubscribe from events",
     inputSchema: z.object({
       events: z.array(z.string()).optional(),
+    }),
+    source: "gateway",
+  },
+  {
+    method: "gateway.restart_extension",
+    description: "Restart an extension host process (manual HMR for non-hot extensions)",
+    inputSchema: z.object({
+      extension: z.string().describe("Extension ID to restart (e.g. session, codex, voice)"),
     }),
     source: "gateway",
   },
@@ -92,6 +101,7 @@ function extensionMethods(): MethodDef[] {
     createMemoryExtension(),
     createHooksExtension(),
     createDominatrixExtension(),
+    createCodexExtension(),
   ];
 
   const out: MethodDef[] = [];

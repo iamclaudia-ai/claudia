@@ -126,6 +126,8 @@ The last two lines are critical. `runExtensionHost()` handles the entire stdio p
   extensions: {
     "my-feature": {
       enabled: true,
+      // hot: true,  // default — bun --hot for live reload on code changes
+      // hot: false,  // use bun run instead — for extensions managing long-lived processes
       config: {
         // Extension-specific config
       },
@@ -135,6 +137,8 @@ The last two lines are critical. `runExtensionHost()` handles the entire stdio p
 ```
 
 Your extension ID in config must match the folder name under `extensions/`.
+
+The `hot` flag controls whether the extension runs with `bun --hot` (live HMR on code changes) or `bun run` (requires manual restart). Default is `true`. Set `hot: false` for extensions that manage long-lived child processes (like the session extension managing Claude Code sessions) where an HMR reload would be disruptive. Non-hot extensions can be restarted individually via `gateway.restart_extension`.
 
 ### 4. Verify
 
@@ -526,6 +530,16 @@ When extension code changes:
 
 The `runExtensionHost()` implementation tracks stdin binding across HMR cycles via `import.meta.hot.data` to avoid duplicate listeners.
 
+### Manual Restart (gateway.restart_extension)
+
+For extensions running with `hot: false`, use `gateway.restart_extension` to restart them without restarting the entire gateway:
+
+```bash
+claudia gateway restart_extension --extension session
+```
+
+This kills the extension host process and re-spawns it. The extension re-registers with the gateway automatically. Other extensions and WebSocket connections are unaffected.
+
 ### Auto-Restart
 
 If the extension process crashes, the gateway automatically restarts it (up to 5 times with 2-second delays). Pending method calls are rejected with an error.
@@ -687,6 +701,7 @@ const allRoutes = [...controlRoutes, ...chatRoutes, ...myFeatureRoutes];
 | Mission Control | `control`    | `@claudia/ext-control`    | `/control`, `/logs`                   | --            |
 | Hooks           | `hooks`      | `@claudia/ext-hooks`      | --                                    | --            |
 | DOMINATRIX      | `dominatrix` | `@claudia/ext-dominatrix` | --                                    | --            |
+| Codex           | `codex`      | `@claudia/ext-codex`      | --                                    | --            |
 
 All extensions run out-of-process. There is no in-process mode.
 

@@ -40,7 +40,7 @@ Deep-dive into the gateway's startup, message routing, and extension communicati
        │                        │
        │  Repeat for: session,  │
        │  chat, voice, imessage,│
-       │  control,      │
+       │  control, codex,       │
        │  hooks, memory         │
        │                        │
        │  /health 200 OK        │
@@ -60,12 +60,12 @@ Deep-dive into the gateway's startup, message routing, and extension communicati
 ```
 For each extension in config where enabled=true:
   1. Resolve entrypoint: extensions/<id>/src/index.ts
-  2. Spawn: bun --hot extensions/<id>/src/index.ts <config-json>
+  2. Spawn: bun --hot (or bun run if hot:false) extensions/<id>/src/index.ts <config-json>
   3. Wait for "register" message on stdout (10s timeout)
   4. Call extensions.registerRemote(registration, host)
 ```
 
-Each extension process runs directly with `bun --hot` (native HMR). The extension imports `runExtensionHost()` from `packages/extension-host` which provides the NDJSON bridge:
+Each extension process runs directly with `bun --hot` (native HMR) by default. Extensions with `hot: false` in config use `bun run` instead and can be restarted via `gateway.restart_extension`. The extension imports `runExtensionHost()` from `packages/extension-host` which provides the NDJSON bridge:
 
 - NDJSON stdin/stdout protocol
 - Console redirect (console.log -> stderr, stdout reserved for protocol)
