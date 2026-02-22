@@ -1,69 +1,30 @@
 #!/usr/bin/env bun
 
-import { z } from "zod";
-import { zodToJsonSchema } from "zod-to-json-schema";
-import { writeFileSync } from "node:fs";
-import { join } from "node:path";
+/**
+ * Generate API Reference — config-driven
+ *
+ * Reads extension IDs from claudia.example.json, dynamically imports each
+ * extension's default export to get its method definitions. Gateway methods
+ * come from the canonical BUILTIN_METHODS export (no duplication).
+ */
 
-import { createSessionExtension } from "../extensions/session/src/index";
-import { createVoiceExtension } from "../extensions/voice/src/index";
-import { createIMessageExtension } from "../extensions/imessage/src/index";
-import { createChatExtension } from "../extensions/chat/src/index";
-import { createControlExtension } from "../extensions/control/src/index";
-import { createMemoryExtension } from "../extensions/memory/src/index";
-import { createHooksExtension } from "../extensions/hooks/src/index";
-import createDominatrixExtension from "../extensions/dominatrix/src/index";
-import { createCodexExtension } from "../extensions/codex/src/index";
+import { zodToJsonSchema } from "zod-to-json-schema";
+import { writeFileSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import type { ZodTypeAny } from "zod";
+import type { ClaudiaExtension } from "@claudia/shared";
+import { BUILTIN_METHODS } from "../packages/gateway/src/methods";
+
+const ROOT = join(import.meta.dir, "..");
 
 type MethodDef = {
   method: string;
   description: string;
-  inputSchema: z.ZodTypeAny;
+  inputSchema: ZodTypeAny;
   source: "gateway" | "extension";
 };
 
-// Only the 4 real gateway-native methods — everything else lives in extensions
-const gatewayMethods: MethodDef[] = [
-  {
-    method: "gateway.list_methods",
-    description: "List all gateway and extension methods with schemas",
-    inputSchema: z.object({}),
-    source: "gateway",
-  },
-  {
-    method: "gateway.list_extensions",
-    description: "List loaded extensions and their methods",
-    inputSchema: z.object({}),
-    source: "gateway",
-  },
-  {
-    method: "gateway.subscribe",
-    description: "Subscribe to events",
-    inputSchema: z.object({
-      events: z.array(z.string()).optional(),
-      exclusive: z.boolean().optional().describe("Last subscriber wins — only one client receives"),
-    }),
-    source: "gateway",
-  },
-  {
-    method: "gateway.unsubscribe",
-    description: "Unsubscribe from events",
-    inputSchema: z.object({
-      events: z.array(z.string()).optional(),
-    }),
-    source: "gateway",
-  },
-  {
-    method: "gateway.restart_extension",
-    description: "Restart an extension host process (manual HMR for non-hot extensions)",
-    inputSchema: z.object({
-      extension: z.string().describe("Extension ID to restart (e.g. session, codex, voice)"),
-    }),
-    source: "gateway",
-  },
-];
-
-function requiredOptional(schema: z.ZodTypeAny): { required: string[]; optional: string[] } {
+function requiredOptional(schema: ZodTypeAny): { required: string[]; optional: string[] } {
   const json = zodToJsonSchema(schema, "schema") as {
     definitions?: { schema?: { properties?: Record<string, unknown>; required?: string[] } };
   };
@@ -91,34 +52,103 @@ function methodRows(methods: MethodDef[]): string {
   ].join("\n");
 }
 
-function extensionMethods(): MethodDef[] {
-  const exts = [
-    createSessionExtension(),
-    createVoiceExtension(),
-    createIMessageExtension(),
-    createChatExtension(),
-    createControlExtension(),
-    createMemoryExtension(),
-    createHooksExtension(),
-    createDominatrixExtension(),
-    createCodexExtension(),
-  ];
+// ── Gateway methods — imported directly, no duplication ──────────
+const gatewayMethods: MethodDef[] = BUILTIN_METHODS.map((m) => ({
+  ...m,
+  source: "gateway" as const,
+}));
 
+// ── Extension methods — discovered from claudia.example.json ─────
+function getExtensionIdsFromConfig(): string[] {
+  const raw = readFileSync(join(ROOT, "claudia.example.json"), "utf-8");
+  // Strip JSON5 single-line comments — but only when NOT inside a string.
+  // Walk char-by-char to handle "ws://..." URLs safely.
+  let stripped = "";
+  let inString = false;
+  let escape = false;
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i];
+    if (escape) {
+      stripped += ch;
+      escape = false;
+      continue;
+    }
+    if (ch === "\\" && inString) {
+      stripped += ch;
+      escape = true;
+      continue;
+    }
+    if (ch === '"') {
+      inString = !inString;
+      stripped += ch;
+      continue;
+    }
+    if (!inString && ch === "/" && raw[i + 1] === "/") {
+      // Skip to end of line
+      while (i < raw.length && raw[i] !== "\n") i++;
+      stripped += "\n";
+      continue;
+    }
+    stripped += ch;
+  }
+  const config = JSON.parse(stripped) as { extensions?: Record<string, unknown> };
+  return Object.keys(config.extensions || {});
+}
+
+async function loadExtensionMethods(): Promise<MethodDef[]> {
+  const extensionIds = getExtensionIdsFromConfig();
   const out: MethodDef[] = [];
-  for (const ext of exts) {
-    for (const method of ext.methods) {
-      out.push({
-        method: method.name,
-        description: method.description,
-        inputSchema: method.inputSchema,
-        source: "extension",
-      });
+
+  for (const id of extensionIds) {
+    const entryPath = join(ROOT, "extensions", id, "src", "index.ts");
+
+    try {
+      const mod = await import(entryPath);
+      const factory = mod.default as (() => ClaudiaExtension) | undefined;
+
+      if (!factory || typeof factory !== "function") {
+        console.warn(`[warn] extensions/${id}: no default export factory — skipping`);
+        continue;
+      }
+
+      const ext = factory();
+      for (const method of ext.methods) {
+        out.push({
+          method: method.name,
+          description: method.description,
+          inputSchema: method.inputSchema,
+          source: "extension",
+        });
+      }
+      console.log(`[ok]   ${id}: ${ext.methods.length} methods`);
+    } catch (err) {
+      console.warn(`[skip] extensions/${id}: ${err instanceof Error ? err.message : err}`);
     }
   }
+
   return out;
 }
 
-const content = `# Claudia API Reference\n\nThis file is generated by \`scripts/generate-api-reference.ts\`.\n\n## Gateway API (port 30086, \`/ws\`)\n\n${methodRows(gatewayMethods)}\n\n## Extension API (via gateway)\n\n${methodRows(extensionMethods())}\n\n## Notes\n\n- Multi-word methods use snake_case (for example \`session.get_or_create_workspace\`, \`session.send_tool_result\`).\n- Source of truth is the code and schemas; regenerate after API changes.\n`;
+// ── Generate ─────────────────────────────────────────────────────
+const extensionMethods = await loadExtensionMethods();
 
-writeFileSync(join(process.cwd(), "docs", "API-REFERENCE.md"), content);
-console.log("[docs] Wrote docs/API-REFERENCE.md");
+const content = `# Claudia API Reference
+
+This file is generated by \`scripts/generate-api-reference.ts\`.
+
+## Gateway API (port 30086, \`/ws\`)
+
+${methodRows(gatewayMethods)}
+
+## Extension API (via gateway)
+
+${methodRows(extensionMethods)}
+
+## Notes
+
+- Multi-word methods use snake_case (for example \`session.get_or_create_workspace\`, \`session.send_tool_result\`).
+- Source of truth is the code and schemas; regenerate after API changes.
+`;
+
+writeFileSync(join(ROOT, "docs", "API-REFERENCE.md"), content);
+console.log("\n[docs] Wrote docs/API-REFERENCE.md");

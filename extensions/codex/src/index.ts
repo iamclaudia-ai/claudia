@@ -897,6 +897,8 @@ export function createCodexExtension(config: CodexConfig = {}): ClaudiaExtension
   };
 }
 
+export default createCodexExtension;
+
 // ── Entry Point ──────────────────────────────────────────────
 
 if (import.meta.main) {
