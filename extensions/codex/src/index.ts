@@ -77,12 +77,13 @@ interface ActiveTask {
   error: string | null;
   /** Path to the task output file (~/.claudia/codex/{taskId}.md) */
   outputFile: string;
-}
-
-/** Request context captured at call time for async event routing */
-interface TaskContext {
-  connectionId: string | null;
-  tags: string[] | null;
+  /** Request context captured at call time for async event routing */
+  context: {
+    connectionId: string | null;
+    tags: string[] | null;
+  };
+  /** Per-task abort controller for cancellation */
+  abortController: AbortController;
 }
 
 // ── Zod Schemas ──────────────────────────────────────────────
@@ -184,8 +185,6 @@ export function createCodexExtension(config: CodexConfig = {}): ClaudiaExtension
   let ctx: ExtensionContext | null = null;
   let codex: Codex | null = null;
   let activeTask: ActiveTask | null = null;
-  let taskContext: TaskContext | null = null;
-  let abortController: AbortController | null = null;
 
   // Resolved config with defaults
   const cfg: Required<Pick<CodexConfig, "personality" | "autoApprove" | "effort">> & CodexConfig = {
@@ -220,25 +219,24 @@ export function createCodexExtension(config: CodexConfig = {}): ClaudiaExtension
 
   // ── Event Emission with Envelope Context ─────────────────
 
-  function emit(eventType: string, payload: Record<string, unknown>): void {
+  function emit(eventType: string, payload: Record<string, unknown>, task: ActiveTask): void {
     if (!ctx) return;
 
-    const emitOptions: { source?: string; connectionId?: string; tags?: string[] } = {};
-    emitOptions.source = "gateway.caller";
-    if (taskContext?.connectionId) emitOptions.connectionId = taskContext.connectionId;
-    if (taskContext?.tags) emitOptions.tags = taskContext.tags;
+    const emitOptions: { source?: string; connectionId?: string; tags?: string[] } = {
+      source: "gateway.caller",
+    };
+    if (task.context.connectionId) emitOptions.connectionId = task.context.connectionId;
+    if (task.context.tags) emitOptions.tags = task.context.tags;
 
-    ctx.emit(eventType, payload, Object.keys(emitOptions).length > 0 ? emitOptions : undefined);
+    ctx.emit(eventType, payload, emitOptions);
   }
 
   // ── Stream Bridge — Codex ThreadEvents → Claudia Events ──
 
   async function runStreamedTask(thread: Thread, task: ActiveTask, prompt: string): Promise<void> {
-    // abortController is created in startTask before this is called (fix #1: race)
-
     try {
       const { events } = await thread.runStreamed(prompt, {
-        signal: abortController?.signal,
+        signal: task.abortController.signal,
       });
 
       for await (const event of events) {
@@ -247,25 +245,32 @@ export function createCodexExtension(config: CodexConfig = {}): ClaudiaExtension
         bridgeEvent(task, event);
       }
 
-      // If we exited normally and task wasn't already marked
-      if (activeTask?.id === task.id && task.status === "running") {
+      // If we exited normally and task wasn't already finalized by a terminal event
+      if (task.status === "running") {
         task.status = "completed";
         finalizeOutput(task.outputFile, "completed", task.resultText);
-        emit(`codex.${task.id}.turn_stop`, {
-          taskId: task.id,
-          type: task.type,
-          result: task.resultText,
-          items: task.items.map(summarizeItem),
-          threadId: thread.id,
-          outputFile: task.outputFile,
-        });
+        emit(
+          `codex.${task.id}.turn_stop`,
+          {
+            taskId: task.id,
+            type: task.type,
+            result: task.resultText,
+            items: task.items.map(summarizeItem),
+            threadId: thread.id,
+            outputFile: task.outputFile,
+          },
+          task,
+        );
         ctx?.log.info(`Task ${task.id} completed (${task.type}) → ${task.outputFile}`);
       }
     } catch (err: unknown) {
+      // Guard: don't double-emit if a terminal event (turn.failed/error) already fired
+      if (task.status !== "running") return;
+
       const message = err instanceof Error ? err.message : String(err);
       const name = err instanceof Error ? err.name : "";
 
-      // AbortError means we interrupted intentionally (fix #3: robust abort detection)
+      // AbortError means we interrupted intentionally
       const isAbort =
         name === "AbortError" ||
         message.toLowerCase().includes("abort") ||
@@ -273,34 +278,40 @@ export function createCodexExtension(config: CodexConfig = {}): ClaudiaExtension
       if (isAbort) {
         task.status = "interrupted";
         finalizeOutput(task.outputFile, "interrupted", task.resultText);
-        emit(`codex.${task.id}.turn_stop`, {
-          taskId: task.id,
-          type: task.type,
-          result: task.resultText,
-          interrupted: true,
-          threadId: thread.id,
-          outputFile: task.outputFile,
-        });
+        emit(
+          `codex.${task.id}.turn_stop`,
+          {
+            taskId: task.id,
+            type: task.type,
+            result: task.resultText,
+            interrupted: true,
+            threadId: thread.id,
+            outputFile: task.outputFile,
+          },
+          task,
+        );
         ctx?.log.info(`Task ${task.id} interrupted`);
       } else {
         task.status = "failed";
         task.error = message;
         finalizeOutput(task.outputFile, "failed", task.resultText, message);
-        emit(`codex.${task.id}.error`, {
-          taskId: task.id,
-          type: task.type,
-          error: message,
-          threadId: thread.id,
-          outputFile: task.outputFile,
-        });
+        emit(
+          `codex.${task.id}.error`,
+          {
+            taskId: task.id,
+            type: task.type,
+            error: message,
+            threadId: thread.id,
+            outputFile: task.outputFile,
+          },
+          task,
+        );
         ctx?.log.error(`Task ${task.id} failed: ${message}`);
       }
     } finally {
-      abortController = null;
       // Clear active task only if it's still ours
       if (activeTask?.id === task.id) {
         activeTask = null;
-        taskContext = null;
       }
     }
   }
@@ -315,19 +326,27 @@ export function createCodexExtension(config: CodexConfig = {}): ClaudiaExtension
         break;
 
       case "turn.started":
-        emit(`codex.${taskId}.turn_start`, {
-          taskId,
-          type: task.type,
-          threadId: task.threadId,
-        });
+        emit(
+          `codex.${taskId}.turn_start`,
+          {
+            taskId,
+            type: task.type,
+            threadId: task.threadId,
+          },
+          task,
+        );
         break;
 
       case "item.started":
-        emit(`codex.${taskId}.item_start`, {
-          taskId,
-          itemType: event.item.type,
-          item: summarizeItem(event.item),
-        });
+        emit(
+          `codex.${taskId}.item_start`,
+          {
+            taskId,
+            itemType: event.item.type,
+            item: summarizeItem(event.item),
+          },
+          task,
+        );
         // If it's a command, log what's running and write to output file
         if (event.item.type === "command_execution") {
           ctx?.log.info(`Cody running: ${event.item.command}`);
@@ -341,11 +360,15 @@ export function createCodexExtension(config: CodexConfig = {}): ClaudiaExtension
 
       case "item.completed":
         task.items.push(event.item);
-        emit(`codex.${taskId}.item_stop`, {
-          taskId,
-          itemType: event.item.type,
-          item: summarizeItem(event.item),
-        });
+        emit(
+          `codex.${taskId}.item_stop`,
+          {
+            taskId,
+            itemType: event.item.type,
+            item: summarizeItem(event.item),
+          },
+          task,
+        );
         // Accumulate agent message text and write to output file
         if (event.item.type === "agent_message") {
           task.resultText += (task.resultText ? "\n" : "") + event.item.text;
@@ -362,47 +385,64 @@ export function createCodexExtension(config: CodexConfig = {}): ClaudiaExtension
         break;
 
       case "turn.completed":
+        // Guard: ignore duplicate terminal events
+        if (task.status !== "running") return;
         task.status = "completed";
         finalizeOutput(task.outputFile, "completed", task.resultText);
-        emit(`codex.${taskId}.turn_stop`, {
-          taskId,
-          type: task.type,
-          result: task.resultText,
-          items: task.items.map(summarizeItem),
-          threadId: task.threadId,
-          usage: event.usage,
-          outputFile: task.outputFile,
-        });
+        emit(
+          `codex.${taskId}.turn_stop`,
+          {
+            taskId,
+            type: task.type,
+            result: task.resultText,
+            items: task.items.map(summarizeItem),
+            threadId: task.threadId,
+            usage: event.usage,
+            outputFile: task.outputFile,
+          },
+          task,
+        );
         ctx?.log.info(`Task ${taskId} completed (${task.type}) → ${task.outputFile}`);
         break;
 
       case "turn.failed":
+        // Guard: ignore duplicate terminal events
+        if (task.status !== "running") return;
         task.status = "failed";
         task.error = event.error.message;
         finalizeOutput(task.outputFile, "failed", task.resultText, event.error.message);
-        emit(`codex.${taskId}.error`, {
-          taskId,
-          type: task.type,
-          error: event.error.message,
-          threadId: task.threadId,
-          outputFile: task.outputFile,
-        });
+        emit(
+          `codex.${taskId}.error`,
+          {
+            taskId,
+            type: task.type,
+            error: event.error.message,
+            threadId: task.threadId,
+            outputFile: task.outputFile,
+          },
+          task,
+        );
         ctx?.log.error(`Task ${taskId} failed: ${event.error.message}`);
         break;
 
       case "error":
-        // Fix #2: mark task as failed on stream error
+        // Guard: ignore duplicate terminal events
+        if (task.status !== "running") return;
         task.status = "failed";
         task.error = event.message;
         finalizeOutput(task.outputFile, "failed", task.resultText, event.message);
         ctx?.log.error(`Codex stream error: ${event.message}`);
-        emit(`codex.${taskId}.error`, {
-          taskId,
-          type: task.type,
-          error: event.message,
-          threadId: task.threadId,
-          outputFile: task.outputFile,
-        });
+        emit(
+          `codex.${taskId}.error`,
+          {
+            taskId,
+            type: task.type,
+            error: event.message,
+            threadId: task.threadId,
+            outputFile: task.outputFile,
+          },
+          task,
+        );
         break;
     }
   }
@@ -414,38 +454,54 @@ export function createCodexExtension(config: CodexConfig = {}): ClaudiaExtension
     switch (item.type) {
       case "agent_message":
         // Streaming text delta — the main thing you want to watch!
-        emit(`codex.${taskId}.message_delta`, {
-          taskId,
-          text: item.text,
-        });
+        emit(
+          `codex.${taskId}.message_delta`,
+          {
+            taskId,
+            text: item.text,
+          },
+          task,
+        );
         break;
 
       case "command_execution":
         // Live command output
-        emit(`codex.${taskId}.command_delta`, {
-          taskId,
-          command: item.command,
-          output: item.aggregated_output,
-          status: item.status,
-        });
+        emit(
+          `codex.${taskId}.command_delta`,
+          {
+            taskId,
+            command: item.command,
+            output: item.aggregated_output,
+            status: item.status,
+          },
+          task,
+        );
         break;
 
       case "file_change":
         // File change update
-        emit(`codex.${taskId}.file_change`, {
-          taskId,
-          changes: item.changes,
-          status: item.status,
-        });
+        emit(
+          `codex.${taskId}.file_change`,
+          {
+            taskId,
+            changes: item.changes,
+            status: item.status,
+          },
+          task,
+        );
         break;
 
       default:
         // reasoning, web_search, mcp_tool_call, etc.
-        emit(`codex.${taskId}.item_update`, {
-          taskId,
-          itemType: item.type,
-          item: summarizeItem(item),
-        });
+        emit(
+          `codex.${taskId}.item_update`,
+          {
+            taskId,
+            itemType: item.type,
+            item: summarizeItem(item),
+          },
+          task,
+        );
         break;
     }
   }
@@ -495,9 +551,10 @@ export function createCodexExtension(config: CodexConfig = {}): ClaudiaExtension
       effort?: string;
     } = {},
   ): Promise<Record<string, unknown>> {
-    if (activeTask && activeTask.status === "running") {
+    // Gate on activeTask existence, not just status — stream may still be draining
+    if (activeTask) {
       throw new Error(
-        `Cody is busy with task ${activeTask.id} (${activeTask.type}). ` +
+        `Cody is busy with task ${activeTask.id} (${activeTask.type}, status: ${activeTask.status}). ` +
           `Use codex.interrupt to cancel, or codex.status to check progress.`,
       );
     }
@@ -505,14 +562,13 @@ export function createCodexExtension(config: CodexConfig = {}): ClaudiaExtension
     const sdk = ensureCodex();
     const taskId = newTaskId();
 
-    // Capture envelope context for async event routing
-    taskContext = {
-      connectionId: ctx?.connectionId ?? null,
-      tags: ctx?.tags ?? null,
-    };
-
-    // Create output file for persistent results
-    const outputFile = initOutputFile(taskId, type, prompt);
+    // Create output file FIRST — if this fails, no state is left dangling
+    let outputFile: string;
+    try {
+      outputFile = initOutputFile(taskId, type, prompt);
+    } catch (err) {
+      throw new Error(`Failed to create output file for task ${taskId}: ${err}`);
+    }
 
     const task: ActiveTask = {
       id: taskId,
@@ -525,11 +581,15 @@ export function createCodexExtension(config: CodexConfig = {}): ClaudiaExtension
       items: [],
       error: null,
       outputFile,
+      // Capture envelope context for async event routing (scoped per-task)
+      context: {
+        connectionId: ctx?.connectionId ?? null,
+        tags: ctx?.tags ?? null,
+      },
+      // Per-task abort controller — created before async kick-off so interrupt works immediately
+      abortController: new AbortController(),
     };
     activeTask = task;
-
-    // Fix #1: Create abortController BEFORE async kick-off so interrupt works immediately
-    abortController = new AbortController();
 
     // Build thread options
     const threadOptions: ThreadOptions = {
@@ -542,14 +602,12 @@ export function createCodexExtension(config: CodexConfig = {}): ClaudiaExtension
       webSearchEnabled: false,
     };
 
-    // Fix #4: Wrap thread creation — if it throws, clean up activeTask
+    // Wrap thread creation — if it throws, clean up activeTask
     let thread: Thread;
     try {
       thread = sdk.startThread(threadOptions);
     } catch (err) {
       activeTask = null;
-      taskContext = null;
-      abortController = null;
       throw err;
     }
 
@@ -634,12 +692,10 @@ export function createCodexExtension(config: CodexConfig = {}): ClaudiaExtension
 
     async stop() {
       // Interrupt any active task
-      if (abortController) {
-        abortController.abort();
+      if (activeTask) {
+        activeTask.abortController.abort();
       }
       activeTask = null;
-      taskContext = null;
-      abortController = null;
       codex = null;
       ctx?.log.info("Codex extension stopped");
       ctx = null;
@@ -685,9 +741,7 @@ export function createCodexExtension(config: CodexConfig = {}): ClaudiaExtension
           }
 
           const taskId = activeTask.id;
-          if (abortController) {
-            abortController.abort();
-          }
+          activeTask.abortController.abort();
           ctx?.log.info(`Interrupting task ${taskId}`);
 
           return {

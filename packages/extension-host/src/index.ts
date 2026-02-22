@@ -408,6 +408,12 @@ export async function runExtensionHost(factory: ExtensionFactory): Promise<void>
     if (import.meta.hot) {
       import.meta.hot.data.extension = extension;
     }
+    if (stdinAlreadyBound) {
+      hostLog.info("Extension hot-reloaded successfully", {
+        id: extension.id,
+        name: extension.name,
+      });
+    }
     readStdin();
   } catch (error) {
     hostLog.error("Failed to start extension", { error: String(error) });
