@@ -60,44 +60,21 @@ describe("config loader", () => {
     expect(config.extensions.hooks?.enabled).toBe(true);
   });
 
-  it("falls back to env vars when no config file exists (isolated process)", () => {
+  it("falls back to env vars when no config file exists (in-process)", () => {
     const missingPath = join(tempDir, "missing.json");
-    const script = `
-      import { loadConfig, clearConfigCache } from ${JSON.stringify(join(import.meta.dir, "config.ts"))};
-      clearConfigCache();
-      const cfg = loadConfig(${JSON.stringify(missingPath)});
-      console.log(JSON.stringify(cfg));
-    `;
+    process.env.CLAUDIA_HOME = tempDir;
+    process.env.CLAUDIA_CONFIG = "";
+    process.env.CLAUDIA_PORT = "40123";
+    process.env.CLAUDIA_HOST = "0.0.0.0";
+    process.env.CLAUDIA_MODEL = "claude-sonnet";
+    process.env.CLAUDIA_THINKING = "true";
+    process.env.CLAUDIA_THINKING_EFFORT = "max";
+    process.env.CLAUDIA_SYSTEM_PROMPT = "be brief";
+    process.env.CLAUDIA_EXTENSIONS = "voice,session";
+    process.env.ELEVENLABS_API_KEY = "secret-key";
+    process.env.ELEVENLABS_VOICE_ID = "voice-1";
 
-    const result = Bun.spawnSync(["bun", "-e", script], {
-      cwd: tempDir,
-      env: {
-        ...process.env,
-        HOME: tempDir,
-        CLAUDIA_CONFIG: "",
-        CLAUDIA_PORT: "40123",
-        CLAUDIA_HOST: "0.0.0.0",
-        CLAUDIA_MODEL: "claude-sonnet",
-        CLAUDIA_THINKING: "true",
-        CLAUDIA_THINKING_EFFORT: "max",
-        CLAUDIA_SYSTEM_PROMPT: "be brief",
-        CLAUDIA_EXTENSIONS: "voice,session",
-        ELEVENLABS_API_KEY: "secret-key",
-        ELEVENLABS_VOICE_ID: "voice-1",
-      },
-    });
-    expect(result.exitCode).toBe(0);
-    const output = result.stdout.toString("utf-8").trim().split("\n").at(-1) || "{}";
-    const config = JSON.parse(output) as {
-      gateway: { port: number; host: string };
-      session: {
-        model: string;
-        thinking: boolean;
-        effort: string;
-        systemPrompt: string | null;
-      };
-      extensions: Record<string, { enabled: boolean; config: Record<string, unknown> }>;
-    };
+    const config = loadConfig(missingPath);
 
     expect(config.gateway).toMatchObject({ port: 40123, host: "0.0.0.0" });
     expect(config.session).toMatchObject({

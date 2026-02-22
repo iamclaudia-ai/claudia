@@ -141,10 +141,11 @@ export function loadConfig(configPath?: string): ClaudiaConfig {
 
   // Determine config file path
   // Search order: explicit path → env var → ~/.claudia/claudia.json
+  const configHome = process.env.CLAUDIA_HOME || homedir();
   const paths = [
     configPath,
     process.env.CLAUDIA_CONFIG,
-    join(homedir(), ".claudia", "claudia.json"),
+    join(configHome, ".claudia", "claudia.json"),
   ].filter(Boolean) as string[];
 
   let rawConfig: Partial<ClaudiaConfig> = {};
