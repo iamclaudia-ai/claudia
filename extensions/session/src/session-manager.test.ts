@@ -69,10 +69,23 @@ describe("SessionManager", () => {
     expect(manager.list()[0]?.id).toBe("s-created");
 
     fake.emit("sse", { type: "content_block_delta", delta: { text: "hi" } });
+    fake.emit("process_started");
+    fake.emit("process_ended");
+
     expect(events[0]).toMatchObject({
       eventName: "session.s-created.content_block_delta",
       sessionId: "s-created",
       type: "content_block_delta",
+    });
+    expect(events[1]).toMatchObject({
+      eventName: "session.s-created.process_started",
+      sessionId: "s-created",
+      type: "process_started",
+    });
+    expect(events[2]).toMatchObject({
+      eventName: "session.s-created.process_ended",
+      sessionId: "s-created",
+      type: "process_ended",
     });
   });
 
