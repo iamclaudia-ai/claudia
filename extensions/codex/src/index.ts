@@ -77,8 +77,8 @@ interface ActiveTask {
   error: string | null;
   /** Path to the task output file (~/.claudia/codex/{taskId}.md) */
   outputFile: string;
-  /** Session ID for completion notification (optional) */
-  sessionId: string | null;
+  /** Session ID for completion notification */
+  sessionId: string;
   /** Request context captured at call time for async event routing */
   context: {
     connectionId: string | null;
@@ -92,7 +92,7 @@ interface ActiveTask {
 
 const TaskSchema = z.object({
   prompt: z.string().min(1).describe("The task prompt for Cody"),
-  sessionId: z.string().optional().describe("Session ID to notify on completion"),
+  sessionId: z.string().describe("Session to notify on completion"),
   cwd: z.string().optional().describe("Working directory override"),
   sandbox: z
     .enum(["read-only", "workspace-write", "danger-full-access"])
@@ -107,14 +107,14 @@ const TaskSchema = z.object({
 
 const ReviewSchema = z.object({
   prompt: z.string().min(1).describe("What to review and what to look for"),
-  sessionId: z.string().optional().describe("Session ID to notify on completion"),
+  sessionId: z.string().describe("Session to notify on completion"),
   cwd: z.string().optional().describe("Working directory override"),
   files: z.array(z.string()).optional().describe("Specific files to review (prepended to prompt)"),
 });
 
 const TestSchema = z.object({
   prompt: z.string().min(1).describe("What to test — targets, framework hints, coverage goals"),
-  sessionId: z.string().optional().describe("Session ID to notify on completion"),
+  sessionId: z.string().describe("Session to notify on completion"),
   cwd: z.string().optional().describe("Working directory override"),
 });
 
@@ -239,7 +239,7 @@ export function createCodexExtension(config: CodexConfig = {}): ClaudiaExtension
   // ── Session Completion Notification ─────────────────────
 
   async function notifySession(task: ActiveTask): Promise<void> {
-    if (!task.sessionId || !ctx) return;
+    if (!ctx) return;
 
     let content: string;
     const elapsed = Math.round((Date.now() - task.startedAt) / 1000);
@@ -286,7 +286,9 @@ export function createCodexExtension(config: CodexConfig = {}): ClaudiaExtension
       }
 
       // If we exited normally and task wasn't already finalized by a terminal event
-      if (task.status === "running") {
+      // Also check abort signal — stop() may have aborted + cleared activeTask, causing the loop
+      // to break before the AbortError is thrown. Without this check we'd falsely mark as completed.
+      if (task.status === "running" && !task.abortController.signal.aborted) {
         task.status = "completed";
         finalizeOutput(task.outputFile, "completed", task.resultText);
         emit(
@@ -302,6 +304,23 @@ export function createCodexExtension(config: CodexConfig = {}): ClaudiaExtension
           task,
         );
         ctx?.log.info(`Task ${task.id} completed (${task.type}) → ${task.outputFile}`);
+      } else if (task.status === "running" && task.abortController.signal.aborted) {
+        // Aborted but loop exited before AbortError was thrown — mark as interrupted
+        task.status = "interrupted";
+        finalizeOutput(task.outputFile, "interrupted", task.resultText);
+        emit(
+          `codex.${task.id}.turn_stop`,
+          {
+            taskId: task.id,
+            type: task.type,
+            result: task.resultText,
+            interrupted: true,
+            threadId: thread.id,
+            outputFile: task.outputFile,
+          },
+          task,
+        );
+        ctx?.log.info(`Task ${task.id} interrupted (signal aborted before error thrown)`);
       }
     } catch (err: unknown) {
       // Guard: don't double-emit if a terminal event (turn.failed/error) already fired
@@ -587,12 +606,12 @@ export function createCodexExtension(config: CodexConfig = {}): ClaudiaExtension
     type: TaskType,
     prompt: string,
     options: {
-      sessionId?: string;
+      sessionId: string;
       cwd?: string;
       sandbox?: SandboxMode;
       model?: string;
       effort?: string;
-    } = {},
+    },
   ): Promise<Record<string, unknown>> {
     // Gate on activeTask existence, not just status — stream may still be draining
     if (activeTask) {
@@ -624,7 +643,7 @@ export function createCodexExtension(config: CodexConfig = {}): ClaudiaExtension
       items: [],
       error: null,
       outputFile,
-      sessionId: options.sessionId || null,
+      sessionId: options.sessionId,
       // Capture envelope context for async event routing (scoped per-task)
       context: {
         connectionId: ctx?.connectionId ?? null,
